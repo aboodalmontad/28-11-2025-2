@@ -2,7 +2,7 @@
 import * as React from 'react';
 import ClientsTreeView from '../components/ClientsTreeView';
 import ClientsListView from '../components/ClientsListView';
-import { PlusIcon, SearchIcon, ListBulletIcon, ViewColumnsIcon, ExclamationTriangleIcon, PrintIcon, ScaleIcon, FolderOpenIcon, GavelIcon } from '../components/icons';
+import { PlusIcon, SearchIcon, ListBulletIcon, ViewColumnsIcon, ExclamationTriangleIcon, PrintIcon, ScaleIcon, FolderOpenIcon, GavelIcon, AddressBookIcon } from '../components/icons';
 import { Client, Case, Stage, Session, AccountingEntry } from '../types';
 import { formatDate, toInputDateString, parseInputDateString } from '../utils/dateUtils';
 import PrintableClientReport from '../components/PrintableClientReport';
@@ -46,6 +46,14 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ showContextMenu, onOpenAdminT
     const [isDeleteStageModalOpen, setIsDeleteStageModalOpen] = React.useState(false);
     const [stageToDelete, setStageToDelete] = React.useState<{ stageId: string; caseId: string; clientId: string; stageInfo: string } | null>(null);
     
+    // State for contact picker support
+    const [isContactPickerSupported, setIsContactPickerSupported] = React.useState(false);
+
+    React.useEffect(() => {
+        // Check if Contact Picker API is supported
+        setIsContactPickerSupported('contacts' in navigator && 'ContactsManager' in window);
+    }, []);
+
     // State for printing logic
     const [isPrintChoiceModalOpen, setIsPrintChoiceModalOpen] = React.useState(false);
     const [clientForPrintChoice, setClientForPrintChoice] = React.useState<Client | null>(null);
@@ -122,6 +130,29 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ showContextMenu, onOpenAdminT
         // @ts-ignore
         const val = isCheckbox ? e.target.checked : value;
         setFormData(prev => ({ ...prev, [name]: val }));
+    };
+    
+    const handleImportContact = async () => {
+        try {
+            const props = ['name', 'tel'];
+            const opts = { multiple: false };
+            // @ts-ignore - Typescript might not know about contacts API
+            const contacts = await navigator.contacts.select(props, opts);
+
+            if (contacts.length > 0) {
+                const contact = contacts[0];
+                const name = contact.name ? contact.name[0] : '';
+                const phone = contact.tel ? contact.tel[0] : '';
+
+                setFormData((prev: any) => ({
+                    ...prev,
+                    name: name || prev.name,
+                    contactInfo: phone || prev.contactInfo
+                }));
+            }
+        } catch (ex) {
+            console.error("Contact import failed or cancelled", ex);
+        }
     };
     
     const onUpdateSession = (sessionId: string, updatedFields: Partial<Session>) => {
@@ -610,7 +641,22 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ showContextMenu, onOpenAdminT
                             {/* ... (Client, Case, Stage forms remain same) ... */}
                             {modal.type === 'client' && (
                                 <>
-                                <div><label className="block text-sm font-medium">اسم الموكل</label><input type="text" name="name" value={formData.name || ''} onChange={handleFormChange} className="w-full p-2 border rounded" required /></div>
+                                <div>
+                                    <div className="flex justify-between items-center">
+                                        <label className="block text-sm font-medium">اسم الموكل</label>
+                                        {isContactPickerSupported && (
+                                            <button 
+                                                type="button" 
+                                                onClick={handleImportContact}
+                                                className="text-xs flex items-center gap-1 text-blue-600 hover:text-blue-800 transition-colors"
+                                            >
+                                                <AddressBookIcon className="w-4 h-4" />
+                                                استيراد من جهات الاتصال
+                                            </button>
+                                        )}
+                                    </div>
+                                    <input type="text" name="name" value={formData.name || ''} onChange={handleFormChange} className="w-full p-2 border rounded mt-1" required />
+                                </div>
                                 <div><label className="block text-sm font-medium">معلومات الاتصال</label><input type="text" name="contactInfo" value={formData.contactInfo || ''} onChange={handleFormChange} className="w-full p-2 border rounded" /></div>
                                 </>
                             )}
