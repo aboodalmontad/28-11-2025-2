@@ -150,16 +150,24 @@ export const fetchDeletionsFromSupabase = async (): Promise<SyncDeletion[]> => {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const { data, error } = await supabase
-        .from('sync_deletions')
-        .select('*')
-        .gte('deleted_at', thirtyDaysAgo.toISOString());
+    try {
+        const { data, error } = await supabase
+            .from('sync_deletions')
+            .select('*')
+            .gte('deleted_at', thirtyDaysAgo.toISOString());
 
-    if (error) {
-        console.error("Failed to fetch deletions:", error);
-        return [];
+        if (error) {
+            // Throw a proper error object with a message string so it's not [object Object]
+            throw new Error(error.message || JSON.stringify(error));
+        }
+        return data || [];
+    } catch (err: any) {
+        // If table doesn't exist, we want to catch it here and format the error
+        // so the main sync logic sees "relation does not exist" and prompts setup.
+        const msg = err.message || String(err);
+        console.error("Failed to fetch deletions:", msg);
+        throw new Error(msg); 
     }
-    return data || [];
 };
 
 export const deleteDataFromSupabase = async (deletions: Partial<FlatData>, user: User) => {
@@ -188,7 +196,9 @@ export const deleteDataFromSupabase = async (deletions: Partial<FlatData>, user:
                     record_id: id,
                     user_id: user.id
                 }));
-                await supabase.from('sync_deletions').insert(deletionsLog).select().catch(err => console.error("Failed to log deletions", err));
+                // We ignore errors here (e.g. if table doesn't exist yet) to not block the main delete
+                // until the user runs the update script.
+                await supabase.from('sync_deletions').insert(deletionsLog).select().catch(err => console.warn("Could not log deletion (safe to ignore if DB not updated):", err));
             }
 
             // 2. Perform the hard delete
