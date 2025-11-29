@@ -158,14 +158,22 @@ export const fetchDeletionsFromSupabase = async (): Promise<SyncDeletion[]> => {
 
         if (error) {
             // Throw a proper error object with a message string so it's not [object Object]
-            throw new Error(error.message || JSON.stringify(error));
+            throw new Error(error.message || 'Unknown Supabase error fetching deletions');
         }
         return data || [];
     } catch (err: any) {
-        // If table doesn't exist, we want to catch it here and format the error
-        // so the main sync logic sees "relation does not exist" and prompts setup.
-        const msg = err.message || String(err);
-        console.error("Failed to fetch deletions:", msg);
+        // Safe extraction of error message to prevent [object Object]
+        let msg = 'Unknown error fetching deletions';
+        if (err instanceof Error) {
+            msg = err.message;
+        } else if (typeof err === 'object' && err !== null) {
+            msg = (err as any).message || JSON.stringify(err);
+        } else {
+            msg = String(err);
+        }
+        
+        console.error("Fetch deletions error:", msg);
+        // Throw a clean Error object so the caller (useSync) can display the string
         throw new Error(msg); 
     }
 };
@@ -188,17 +196,22 @@ export const deleteDataFromSupabase = async (deletions: Partial<FlatData>, user:
             const ids = itemsToDelete.map((i: any) => i[primaryKeyColumn]);
             
             // 1. Log the deletion for sync resurrection prevention
-            // We do this BEFORE delete to ensure we capture the intent even if delete partially fails (though transaction would be better)
-            // Or ideally use a trigger on DB side, but manual insert ensures client logic is explicit.
             if (table !== 'profiles') { // Don't log profile deletions generally to avoid clutter
                 const deletionsLog = ids.map((id: string) => ({
                     table_name: table,
                     record_id: id,
                     user_id: user.id
                 }));
-                // We ignore errors here (e.g. if table doesn't exist yet) to not block the main delete
-                // until the user runs the update script.
-                await supabase.from('sync_deletions').insert(deletionsLog).select().catch(err => console.warn("Could not log deletion (safe to ignore if DB not updated):", err));
+                
+                // Fix: Handle Supabase error response object instead of chaining .catch() 
+                // which causes "is not a function" error in Supabase v2 JS client
+                const { error: logError } = await supabase.from('sync_deletions').insert(deletionsLog).select();
+                
+                if (logError) {
+                    // We log valid warning but don't throw, to allow the actual delete to proceed
+                    // This handles the case where the user hasn't run the update SQL script yet (missing table)
+                    console.warn("Could not log deletion (safe to ignore if DB not updated):", logError.message);
+                }
             }
 
             // 2. Perform the hard delete
