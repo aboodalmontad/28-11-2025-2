@@ -103,15 +103,13 @@ const mergeForRefresh = <T extends { id: any; updated_at?: Date | string }>(loca
     return Array.from(finalItems.values());
 };
 
-// Filters local items against remote deletion log to prevent "Zombie" data resurrection
+// Filters local items against remote deletion log to prevent "Zombie" data resurrection.
+// Also performs cascading filtering: if a parent item is deleted, its children are also filtered out.
 const applyDeletionsToLocal = (localFlatData: FlatData, deletions: SyncDeletion[]): FlatData => {
     if (!deletions || deletions.length === 0) return localFlatData;
 
     const deletionMap = new Map<string, string>(); // RecordID -> DeletedAt ISO
     deletions.forEach(d => {
-        // We use a composite key or just record_id if table matches.
-        // Assuming record_id is unique enough or we check table.
-        // For simpler logic here, we check record_id + table match
         deletionMap.set(`${d.table_name}:${d.record_id}`, d.deleted_at);
     });
 
@@ -125,7 +123,6 @@ const applyDeletionsToLocal = (localFlatData: FlatData, deletions: SyncDeletion[
                 // If item exists locally but was deleted remotely...
                 const deletedAt = new Date(deletedAtStr).getTime();
                 const updatedAt = new Date(item.updated_at || 0).getTime();
-                
                 // If the local item hasn't been updated since it was deleted remotely, purge it.
                 // We add a small buffer (e.g., 2 seconds) to avoid clock skew issues.
                 if (updatedAt < (deletedAt + 2000)) {
@@ -136,21 +133,64 @@ const applyDeletionsToLocal = (localFlatData: FlatData, deletions: SyncDeletion[
         });
     };
 
+    // 1. Filter top-level items directly from deletion map
+    const filteredClients = filterItems(localFlatData.clients, 'clients');
+    
+    // 2. Cascade Filters: Ensure children are removed if their parents are gone.
+    // This prevents "Foreign Key Violation" errors during sync when inserting orphans.
+    
+    const clientIds = new Set(filteredClients.map(c => c.id));
+    
+    // Cases depend on Clients
+    let filteredCases = filterItems(localFlatData.cases, 'cases');
+    filteredCases = filteredCases.filter(c => clientIds.has(c.client_id));
+    
+    const caseIds = new Set(filteredCases.map(c => c.id));
+    
+    // Stages depend on Cases
+    let filteredStages = filterItems(localFlatData.stages, 'stages');
+    filteredStages = filteredStages.filter(s => caseIds.has(s.case_id));
+    
+    const stageIds = new Set(filteredStages.map(s => s.id));
+    
+    // Sessions depend on Stages
+    let filteredSessions = filterItems(localFlatData.sessions, 'sessions');
+    filteredSessions = filteredSessions.filter(s => stageIds.has(s.stage_id));
+    
+    // Invoices depend on Clients
+    let filteredInvoices = filterItems(localFlatData.invoices, 'invoices');
+    filteredInvoices = filteredInvoices.filter(i => clientIds.has(i.client_id));
+    
+    const invoiceIds = new Set(filteredInvoices.map(i => i.id));
+    
+    // Invoice Items depend on Invoices
+    let filteredInvoiceItems = filterItems(localFlatData.invoice_items, 'invoice_items');
+    filteredInvoiceItems = filteredInvoiceItems.filter(i => invoiceIds.has(i.invoice_id));
+    
+    // Documents depend on Cases
+    let filteredDocs = filterItems(localFlatData.case_documents, 'case_documents');
+    filteredDocs = filteredDocs.filter(d => caseIds.has(d.caseId)); // Note: localFlatData documents use camelCase 'caseId'
+    
+    // Accounting Entries depend on Clients (and sometimes Cases, but Client is mandatory in schema usually or just check ID if present)
+    let filteredEntries = filterItems(localFlatData.accounting_entries, 'accounting_entries');
+    filteredEntries = filteredEntries.filter(e => !e.clientId || clientIds.has(e.clientId));
+
     return {
         ...localFlatData,
-        clients: filterItems(localFlatData.clients, 'clients'),
-        cases: filterItems(localFlatData.cases, 'cases'),
-        stages: filterItems(localFlatData.stages, 'stages'),
-        sessions: filterItems(localFlatData.sessions, 'sessions'),
+        clients: filteredClients,
+        cases: filteredCases,
+        stages: filteredStages,
+        sessions: filteredSessions,
+        invoices: filteredInvoices,
+        invoice_items: filteredInvoiceItems,
+        case_documents: filteredDocs,
+        accounting_entries: filteredEntries,
+        // Entities without parent dependencies in this context:
         admin_tasks: filterItems(localFlatData.admin_tasks, 'admin_tasks'),
         appointments: filterItems(localFlatData.appointments, 'appointments'),
-        accounting_entries: filterItems(localFlatData.accounting_entries, 'accounting_entries'),
-        invoices: filterItems(localFlatData.invoices, 'invoices'),
-        invoice_items: filterItems(localFlatData.invoice_items, 'invoice_items'),
-        case_documents: filterItems(localFlatData.case_documents, 'case_documents'),
-        // Assistants logic is name-based, might be tricky but let's try
         assistants: filterItems(localFlatData.assistants, 'assistants'),
         site_finances: filterItems(localFlatData.site_finances, 'site_finances'),
+        profiles: localFlatData.profiles,
     };
 };
 
@@ -191,9 +231,7 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
             // 2. Prepare Local Data
             let localFlatData = flattenData(localData);
             
-            // 3. Apply Remote Deletions to Local Data (The Zombie Fix)
-            // If an item was deleted on another device, remove it from consideration here
-            // so we don't accidentally re-upload it as "new".
+            // 3. Apply Remote Deletions to Local Data (The Zombie & Orphan Fix)
             localFlatData = applyDeletionsToLocal(localFlatData, remoteDeletions);
 
             const isLocalEffectivelyEmpty = (localFlatData.clients.length === 0 && localFlatData.admin_tasks.length === 0 && localFlatData.appointments.length === 0 && localFlatData.accounting_entries.length === 0 && localFlatData.invoices.length === 0 && localFlatData.case_documents.length === 0);
@@ -245,9 +283,7 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
                             finalMergedItems.set(id, localItem);
                         } else { finalMergedItems.set(id, remoteItem); }
                     } else {
-                        // It's local but not remote.
-                        // Because we ran `applyDeletionsToLocal` earlier, we know this isn't a zombie.
-                        // It's genuinely a new local item.
+                        // New Item
                         itemsToUpsert.push(localItem);
                         finalMergedItems.set(id, localItem);
                     }
@@ -267,7 +303,43 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
                 (mergedFlatData as any)[key] = Array.from(finalMergedItems.values());
             }
             
-            const validCaseIds = new Set((mergedFlatData.cases || []).map(c => c.id));
+            // --- SAFETY NET FOR ORPHAN RECORDS ---
+            // Ensure we don't upsert records if their parents are missing (not in remote and not in upserts)
+            // This prevents foreign key constraint violations.
+            
+            const validClientIds = new Set([
+                ...(remoteFlatData.clients || []).map(c => c.id),
+                ...(flatUpserts.clients || []).map(c => c.id)
+            ]);
+            
+            if (flatUpserts.cases) {
+                flatUpserts.cases = flatUpserts.cases.filter(c => validClientIds.has(c.client_id));
+            }
+            
+            const validCaseIds = new Set([
+                ...(remoteFlatData.cases || []).map(c => c.id),
+                ...(flatUpserts.cases || []).map(c => c.id)
+            ]);
+            
+            if (flatUpserts.stages) {
+                flatUpserts.stages = flatUpserts.stages.filter(s => validCaseIds.has(s.case_id));
+            }
+            
+            const validStageIds = new Set([
+                ...(remoteFlatData.stages || []).map(s => s.id),
+                ...(flatUpserts.stages || []).map(s => s.id)
+            ]);
+            
+            if (flatUpserts.sessions) {
+                flatUpserts.sessions = flatUpserts.sessions.filter(s => validStageIds.has(s.stage_id));
+            }
+            
+            // Also filter mergedData for consistency
+            if (mergedFlatData.cases) mergedFlatData.cases = mergedFlatData.cases.filter(c => validClientIds.has(c.client_id));
+            if (mergedFlatData.stages) mergedFlatData.stages = mergedFlatData.stages.filter(s => validCaseIds.has(s.case_id));
+            if (mergedFlatData.sessions) mergedFlatData.sessions = mergedFlatData.sessions.filter(s => validStageIds.has(s.stage_id));
+            
+            // Filter documents
             if (mergedFlatData.case_documents) mergedFlatData.case_documents = mergedFlatData.case_documents.filter(doc => validCaseIds.has(doc.caseId));
             if (flatUpserts.case_documents) flatUpserts.case_documents = flatUpserts.case_documents.filter(doc => validCaseIds.has(doc.caseId));
 

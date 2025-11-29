@@ -157,12 +157,12 @@ export const fetchDeletionsFromSupabase = async (): Promise<SyncDeletion[]> => {
             .gte('deleted_at', thirtyDaysAgo.toISOString());
 
         if (error) {
-            // Throw a proper error object with a message string so it's not [object Object]
-            throw new Error(error.message || 'Unknown Supabase error fetching deletions');
+            // Robust error stringification to avoid [object Object]
+            const errorMsg = error.message || JSON.stringify(error) || 'Unknown Supabase error';
+            throw new Error(errorMsg);
         }
         return data || [];
     } catch (err: any) {
-        // Safe extraction of error message to prevent [object Object]
         let msg = 'Unknown error fetching deletions';
         if (err instanceof Error) {
             msg = err.message;
@@ -171,9 +171,7 @@ export const fetchDeletionsFromSupabase = async (): Promise<SyncDeletion[]> => {
         } else {
             msg = String(err);
         }
-        
         console.error("Fetch deletions error:", msg);
-        // Throw a clean Error object so the caller (useSync) can display the string
         throw new Error(msg); 
     }
 };
@@ -196,30 +194,26 @@ export const deleteDataFromSupabase = async (deletions: Partial<FlatData>, user:
             const ids = itemsToDelete.map((i: any) => i[primaryKeyColumn]);
             
             // 1. Log the deletion for sync resurrection prevention
-            if (table !== 'profiles') { // Don't log profile deletions generally to avoid clutter
+            if (table !== 'profiles') {
                 const deletionsLog = ids.map((id: string) => ({
                     table_name: table,
                     record_id: id,
                     user_id: user.id
                 }));
                 
-                // Fix: Handle Supabase error response object instead of chaining .catch() 
-                // which causes "is not a function" error in Supabase v2 JS client
                 const { error: logError } = await supabase.from('sync_deletions').insert(deletionsLog).select();
                 
                 if (logError) {
-                    // We log valid warning but don't throw, to allow the actual delete to proceed
-                    // This handles the case where the user hasn't run the update SQL script yet (missing table)
-                    console.warn("Could not log deletion (safe to ignore if DB not updated):", logError.message);
+                    console.warn("Could not log deletion (safe to ignore if DB not updated):", logError.message || JSON.stringify(logError));
                 }
             }
 
             // 2. Perform the hard delete
-            let query = supabase.from(table).delete().in(primaryKeyColumn, ids);
-            const { error } = await query;
+            const { error } = await supabase.from(table).delete().in(primaryKeyColumn, ids);
             if (error) {
                 console.error(`Error deleting from ${table}:`, error);
-                const newError = new Error(error.message);
+                const msg = error.message || JSON.stringify(error);
+                const newError = new Error(msg);
                 (newError as any).table = table;
                 throw newError;
             }
@@ -263,8 +257,6 @@ export const upsertDataToSupabase = async (data: Partial<FlatData>, user: User) 
         invoices: data.invoices?.map(({ clientId, clientName, caseId, caseSubject, issueDate, dueDate, taxRate, ...rest }) => ({ ...rest, user_id: userId, client_id: clientId, client_name: clientName, case_id: caseId, case_subject: caseSubject, issue_date: issueDate, due_date: dueDate, tax_rate: taxRate })),
         invoice_items: data.invoice_items?.map(({ ...item }) => ({ ...item, user_id: userId })),
         case_documents: data.case_documents?.map(({ caseId, userId: localUserId, addedAt, storagePath, localState, ...rest }) => ({ ...rest, user_id: userId, case_id: caseId, added_at: addedAt, storage_path: storagePath })),
-        // Profiles are special: usually updated by the user themselves, not upserted in bulk like data.
-        // However, if admin/lawyer updates assistants, this might run.
         profiles: data.profiles?.map(({ full_name, mobile_number, is_approved, is_active, subscription_start_date, subscription_end_date, lawyer_id, permissions, ...rest }) => ({ ...rest, full_name, mobile_number, is_approved, is_active, subscription_start_date, subscription_end_date, lawyer_id, permissions })),
         site_finances: data.site_finances?.map(({ user_id, payment_date, ...rest }) => ({ ...rest, user_id, payment_date })),
     };
@@ -274,7 +266,10 @@ export const upsertDataToSupabase = async (data: Partial<FlatData>, user: User) 
         const { data: responseData, error } = await supabase.from(table).upsert(records, options).select();
         if (error) {
             console.error(`Error upserting to ${table}:`, error);
-            const newError = new Error(error.message);
+            // Fix: properly extract error message to prevent [object Object]
+            const errorDetails = error.message || JSON.stringify(error);
+            const msg = `Error upserting to ${table}: ${errorDetails}`;
+            const newError = new Error(msg);
             (newError as any).table = table;
             throw newError;
         }
@@ -286,6 +281,18 @@ export const upsertDataToSupabase = async (data: Partial<FlatData>, user: User) 
     results.profiles = await upsertTable('profiles', dataToUpsert.profiles);
     results.assistants = await upsertTable('assistants', dataToUpsert.assistants, { onConflict: 'user_id,name' });
     
+    // Core Hierarchy: Clients -> Cases -> Stages -> Sessions
+    results.clients = await upsertTable('clients', dataToUpsert.clients);
+    results.cases = await upsertTable('cases', dataToUpsert.cases);
+    results.stages = await upsertTable('stages', dataToUpsert.stages);
+    results.sessions = await upsertTable('sessions', dataToUpsert.sessions);
+    
+    // Dependencies on Core
+    results.invoices = await upsertTable('invoices', dataToUpsert.invoices);
+    results.invoice_items = await upsertTable('invoice_items', dataToUpsert.invoice_items);
+    results.case_documents = await upsertTable('case_documents', dataToUpsert.case_documents);
+    
+    // Miscellaneous (Accounting often links to Clients/Cases, so it should come after)
     const [adminTasks, appointments, accountingEntries, site_finances] = await Promise.all([
         upsertTable('admin_tasks', dataToUpsert.admin_tasks),
         upsertTable('appointments', dataToUpsert.appointments),
@@ -296,14 +303,6 @@ export const upsertDataToSupabase = async (data: Partial<FlatData>, user: User) 
     results.appointments = appointments;
     results.accounting_entries = accountingEntries;
     results.site_finances = site_finances;
-
-    results.clients = await upsertTable('clients', dataToUpsert.clients);
-    results.cases = await upsertTable('cases', dataToUpsert.cases);
-    results.stages = await upsertTable('stages', dataToUpsert.stages);
-    results.sessions = await upsertTable('sessions', dataToUpsert.sessions);
-    results.invoices = await upsertTable('invoices', dataToUpsert.invoices);
-    results.invoice_items = await upsertTable('invoice_items', dataToUpsert.invoice_items);
-    results.case_documents = await upsertTable('case_documents', dataToUpsert.case_documents);
     
     return results;
 };
