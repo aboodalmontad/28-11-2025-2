@@ -1,6 +1,6 @@
 
 import { getSupabaseClient } from '../supabaseClient';
-import { Client, AdminTask, Appointment, AccountingEntry, Invoice, InvoiceItem, CaseDocument, Profile, SiteFinancialEntry } from '../types';
+import { Client, AdminTask, Appointment, AccountingEntry, Invoice, InvoiceItem, CaseDocument, Profile, SiteFinancialEntry, SyncDeletion } from '../types';
 // Fix: Use `import type` for User as it is used as a type, not a value. This resolves module resolution errors in some environments.
 import type { User } from '@supabase/supabase-js';
 
@@ -37,6 +37,7 @@ export const checkSupabaseSchema = async () => {
         'appointments': 'id', 'accounting_entries': 'id', 'assistants': 'name',
         'invoices': 'id', 'invoice_items': 'id', 'case_documents': 'id',
         'site_finances': 'id',
+        'sync_deletions': 'id', // Checked for resurrection fix
     };
     
     const tableCheckPromises = Object.entries(tableChecks).map(([table, query]) =>
@@ -141,6 +142,26 @@ export const fetchDataFromSupabase = async (): Promise<Partial<FlatData>> => {
     };
 };
 
+export const fetchDeletionsFromSupabase = async (): Promise<SyncDeletion[]> => {
+    const supabase = getSupabaseClient();
+    if (!supabase) return [];
+    
+    // Fetch deletions from the last 30 days to keep payload small but effective
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const { data, error } = await supabase
+        .from('sync_deletions')
+        .select('*')
+        .gte('deleted_at', thirtyDaysAgo.toISOString());
+
+    if (error) {
+        console.error("Failed to fetch deletions:", error);
+        return [];
+    }
+    return data || [];
+};
+
 export const deleteDataFromSupabase = async (deletions: Partial<FlatData>, user: User) => {
     const supabase = getSupabaseClient();
     if (!supabase) throw new Error('Supabase client not available.');
@@ -158,11 +179,20 @@ export const deleteDataFromSupabase = async (deletions: Partial<FlatData>, user:
             const primaryKeyColumn = table === 'assistants' ? 'name' : 'id';
             const ids = itemsToDelete.map((i: any) => i[primaryKeyColumn]);
             
+            // 1. Log the deletion for sync resurrection prevention
+            // We do this BEFORE delete to ensure we capture the intent even if delete partially fails (though transaction would be better)
+            // Or ideally use a trigger on DB side, but manual insert ensures client logic is explicit.
+            if (table !== 'profiles') { // Don't log profile deletions generally to avoid clutter
+                const deletionsLog = ids.map((id: string) => ({
+                    table_name: table,
+                    record_id: id,
+                    user_id: user.id
+                }));
+                await supabase.from('sync_deletions').insert(deletionsLog).select().catch(err => console.error("Failed to log deletions", err));
+            }
+
+            // 2. Perform the hard delete
             let query = supabase.from(table).delete().in(primaryKeyColumn, ids);
-            // Ensure assistants are deleted for the specific user context if possible, 
-            // though delete by ID is usually sufficient if RLS allows it.
-            // Note: RLS will handle permission checks.
-            
             const { error } = await query;
             if (error) {
                 console.error(`Error deleting from ${table}:`, error);

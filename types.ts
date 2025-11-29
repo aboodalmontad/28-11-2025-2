@@ -270,6 +270,14 @@ export interface DeletedIds {
     siteFinances: string[];
 }
 
+export interface SyncDeletion {
+    id: number;
+    table_name: string;
+    record_id: string;
+    user_id: string;
+    deleted_at: string;
+}
+
 export const getInitialDeletedIds = (): DeletedIds => ({
     clients: [], cases: [], stages: [], sessions: [], adminTasks: [], appointments: [], accountingEntries: [], invoices: [], invoiceItems: [], assistants: [], documents: [], documentPaths: [], profiles: [], siteFinances: []
 });

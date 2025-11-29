@@ -2,9 +2,9 @@
 import * as React from 'react';
 // Fix: Use `import type` for User as it is used as a type, not a value. This resolves module resolution errors in some environments.
 import type { User } from '@supabase/supabase-js';
-import { checkSupabaseSchema, fetchDataFromSupabase, upsertDataToSupabase, FlatData, deleteDataFromSupabase, transformRemoteToLocal } from './useOnlineData';
+import { checkSupabaseSchema, fetchDataFromSupabase, upsertDataToSupabase, FlatData, deleteDataFromSupabase, transformRemoteToLocal, fetchDeletionsFromSupabase } from './useOnlineData';
 import { getSupabaseClient } from '../supabaseClient';
-import { Client, Case, Stage, Session, CaseDocument, AppData, DeletedIds, getInitialDeletedIds } from '../types';
+import { Client, Case, Stage, Session, CaseDocument, AppData, DeletedIds, getInitialDeletedIds, SyncDeletion } from '../types';
 
 export type SyncStatus = 'loading' | 'syncing' | 'synced' | 'error' | 'unconfigured' | 'uninitialized';
 
@@ -103,6 +103,57 @@ const mergeForRefresh = <T extends { id: any; updated_at?: Date | string }>(loca
     return Array.from(finalItems.values());
 };
 
+// Filters local items against remote deletion log to prevent "Zombie" data resurrection
+const applyDeletionsToLocal = (localFlatData: FlatData, deletions: SyncDeletion[]): FlatData => {
+    if (!deletions || deletions.length === 0) return localFlatData;
+
+    const deletionMap = new Map<string, string>(); // RecordID -> DeletedAt ISO
+    deletions.forEach(d => {
+        // We use a composite key or just record_id if table matches.
+        // Assuming record_id is unique enough or we check table.
+        // For simpler logic here, we check record_id + table match
+        deletionMap.set(`${d.table_name}:${d.record_id}`, d.deleted_at);
+    });
+
+    const filterItems = (items: any[], tableName: string) => {
+        return items.filter(item => {
+            const id = item.id ?? item.name;
+            const key = `${tableName}:${id}`;
+            const deletedAtStr = deletionMap.get(key);
+            
+            if (deletedAtStr) {
+                // If item exists locally but was deleted remotely...
+                const deletedAt = new Date(deletedAtStr).getTime();
+                const updatedAt = new Date(item.updated_at || 0).getTime();
+                
+                // If the local item hasn't been updated since it was deleted remotely, purge it.
+                // We add a small buffer (e.g., 2 seconds) to avoid clock skew issues.
+                if (updatedAt < (deletedAt + 2000)) {
+                    return false; // Remove from local view
+                }
+            }
+            return true;
+        });
+    };
+
+    return {
+        ...localFlatData,
+        clients: filterItems(localFlatData.clients, 'clients'),
+        cases: filterItems(localFlatData.cases, 'cases'),
+        stages: filterItems(localFlatData.stages, 'stages'),
+        sessions: filterItems(localFlatData.sessions, 'sessions'),
+        admin_tasks: filterItems(localFlatData.admin_tasks, 'admin_tasks'),
+        appointments: filterItems(localFlatData.appointments, 'appointments'),
+        accounting_entries: filterItems(localFlatData.accounting_entries, 'accounting_entries'),
+        invoices: filterItems(localFlatData.invoices, 'invoices'),
+        invoice_items: filterItems(localFlatData.invoice_items, 'invoice_items'),
+        case_documents: filterItems(localFlatData.case_documents, 'case_documents'),
+        // Assistants logic is name-based, might be tricky but let's try
+        assistants: filterItems(localFlatData.assistants, 'assistants'),
+        site_finances: filterItems(localFlatData.site_finances, 'site_finances'),
+    };
+};
+
 
 export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletionsSynced, onSyncStatusChange, isOnline, isAuthLoading, syncStatus }: UseSyncProps) => {
     const userRef = React.useRef(user);
@@ -129,11 +180,23 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
         }
     
         try {
+            // 1. Fetch Remote Data AND Deletions Log to prevent zombie data
             setStatus('syncing', 'جاري جلب البيانات من السحابة...');
-            const remoteDataRaw = await fetchDataFromSupabase();
+            const [remoteDataRaw, remoteDeletions] = await Promise.all([
+                fetchDataFromSupabase(),
+                fetchDeletionsFromSupabase()
+            ]);
             const remoteFlatData = transformRemoteToLocal(remoteDataRaw);
 
-            const isLocalEffectivelyEmpty = (localData.clients.length === 0 && localData.adminTasks.length === 0 && localData.appointments.length === 0 && localData.accountingEntries.length === 0 && localData.invoices.length === 0 && localData.documents.length === 0);
+            // 2. Prepare Local Data
+            let localFlatData = flattenData(localData);
+            
+            // 3. Apply Remote Deletions to Local Data (The Zombie Fix)
+            // If an item was deleted on another device, remove it from consideration here
+            // so we don't accidentally re-upload it as "new".
+            localFlatData = applyDeletionsToLocal(localFlatData, remoteDeletions);
+
+            const isLocalEffectivelyEmpty = (localFlatData.clients.length === 0 && localFlatData.admin_tasks.length === 0 && localFlatData.appointments.length === 0 && localFlatData.accounting_entries.length === 0 && localFlatData.invoices.length === 0 && localFlatData.case_documents.length === 0);
             const hasPendingDeletions = Object.values(deletedIds).some(arr => arr.length > 0);
             const isRemoteEffectivelyEmpty = !remoteDataRaw || Object.values(remoteDataRaw).every(arr => arr?.length === 0);
 
@@ -143,8 +206,6 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
                 setStatus('synced');
                 return;
             }
-
-            const localFlatData = flattenData(localData);
             
             const flatUpserts: Partial<FlatData> = {};
             const mergedFlatData: Partial<FlatData> = {};
@@ -184,6 +245,9 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
                             finalMergedItems.set(id, localItem);
                         } else { finalMergedItems.set(id, remoteItem); }
                     } else {
+                        // It's local but not remote.
+                        // Because we ran `applyDeletionsToLocal` earlier, we know this isn't a zombie.
+                        // It's genuinely a new local item.
                         itemsToUpsert.push(localItem);
                         finalMergedItems.set(id, localItem);
                     }
@@ -276,7 +340,10 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
         setStatus('syncing', 'جاري تحديث البيانات...');
         
         try {
-            const remoteDataRaw = await fetchDataFromSupabase();
+            const [remoteDataRaw, remoteDeletions] = await Promise.all([
+                fetchDataFromSupabase(),
+                fetchDeletionsFromSupabase()
+            ]);
             const remoteFlatDataUntyped = transformRemoteToLocal(remoteDataRaw);
     
             const deletedIdsSets = {
@@ -295,7 +362,10 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
                 } else { (remoteFlatData as any)[key] = (remoteFlatDataUntyped as any)[key]; }
             }
     
-            const localFlatData = flattenData(localData);
+            let localFlatData = flattenData(localData);
+            // Apply deletions to local view before merge for refresh
+            localFlatData = applyDeletionsToLocal(localFlatData, remoteDeletions);
+
             const mergedAssistants = Array.from(new Set([...localFlatData.assistants.map(a => a.name), ...(remoteFlatData.assistants || []).map(a => a.name)])).map(name => ({ name }));
     
             const mergedFlatData: FlatData = {
