@@ -147,7 +147,7 @@ const UserRow: React.FC<UserRowProps> = ({ user, lawyer, onView, onEdit, onDelet
 };
 
 const AdminPage: React.FC = () => {
-    const { profiles: users, setProfiles: setUsers, isDataLoading: loading, userId } = useData();
+    const { profiles: users, setProfiles: setUsers, isDataLoading: loading, userId, fetchAndRefresh } = useData();
     const [error, setError] = React.useState<string | null>(null);
     const [editingUser, setEditingUser] = React.useState<Profile | null>(null);
     const [userToDelete, setUserToDelete] = React.useState<Profile | null>(null);
@@ -178,10 +178,14 @@ const AdminPage: React.FC = () => {
                      mobile_verified: editingUser.mobile_verified
                  }).eq('id', editingUser.id);
                  if (error) throw error;
+                 
+                 // Refresh data to confirm changes from server
+                 fetchAndRefresh(); 
              } catch (err: any) {
                  console.error("Failed to update user in DB:", err);
-                 // Revert or show error (not implementing full revert logic here for brevity)
                  alert("فشل تحديث البيانات في قاعدة البيانات: " + err.message);
+                 // Revert optimistic update by refreshing
+                 fetchAndRefresh();
              }
         }
 
@@ -211,14 +215,30 @@ const AdminPage: React.FC = () => {
          if (!supabase || user.role === 'admin') return;
          const updatedUser = { ...user, is_approved: !user.is_approved, updated_at: new Date() };
          setUsers(prev => prev.map(u => u.id === user.id ? updatedUser : u));
-         await supabase.from('profiles').update({ is_approved: updatedUser.is_approved }).eq('id', user.id);
+         
+         try {
+            const { error } = await supabase.from('profiles').update({ is_approved: updatedUser.is_approved }).eq('id', user.id);
+            if (error) throw error;
+            fetchAndRefresh();
+         } catch(err: any) {
+             console.error("Failed to toggle approval:", err);
+             fetchAndRefresh();
+         }
     }
     
     const toggleUserActiveStatus = async (user: Profile) => {
          if (!supabase || user.role === 'admin') return;
          const updatedUser = { ...user, is_active: !user.is_active, updated_at: new Date() };
          setUsers(prev => prev.map(u => u.id === user.id ? updatedUser : u));
-         await supabase.from('profiles').update({ is_active: updatedUser.is_active }).eq('id', user.id);
+         
+         try {
+            const { error } = await supabase.from('profiles').update({ is_active: updatedUser.is_active }).eq('id', user.id);
+            if (error) throw error;
+            fetchAndRefresh();
+         } catch(err: any) {
+             console.error("Failed to toggle active status:", err);
+             fetchAndRefresh();
+         }
     }
 
     const handleGenerateAndSendOtp = async (user: Profile) => {

@@ -6,6 +6,8 @@ import { useData } from '../context/DataContext';
 import AdminAnalyticsPage from './AdminAnalyticsPage';
 import SiteFinancesPage from './SiteFinancesPage';
 import AdminSettingsPage from './AdminSettingsPage';
+import SyncStatusIndicator from '../components/SyncStatusIndicator';
+import { useOnlineStatus } from '../hooks/useOnlineStatus';
 
 interface AdminDashboardProps {
     onLogout: () => void;
@@ -43,10 +45,11 @@ const NavLink: React.FC<{
 
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onOpenConfig }) => {
-    const { profiles, isDataLoading: loading } = useData();
+    const { profiles, isDataLoading: loading, syncStatus, lastSyncError, isDirty, manualSync, isAutoSyncEnabled } = useData();
     // Changed default view from 'analytics' to 'users'
     const [view, setView] = React.useState<AdminView>('users');
     const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
+    const isOnline = useOnlineStatus();
 
     const pendingUsersCount = React.useMemo(() => {
         return profiles.filter(p => !p.is_approved && p.role !== 'admin').length;
@@ -142,8 +145,20 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onOpenConfig 
                     onClick={() => { setView('settings'); setIsSidebarOpen(false); }}
                 />
             </nav>
-            <div className="mt-auto border-t pt-4">
-                <p className="mb-2 text-center text-xs text-gray-400">الإصدار: 28-11-2025</p>
+            {/* Sync Indicator in Sidebar for Desktop */}
+            <div className="mt-auto border-t pt-4 space-y-3">
+                <div className="hidden lg:block px-2">
+                    <SyncStatusIndicator 
+                        status={syncStatus} 
+                        lastError={lastSyncError} 
+                        isDirty={isDirty} 
+                        isOnline={isOnline}
+                        onManualSync={manualSync}
+                        isAutoSyncEnabled={isAutoSyncEnabled}
+                        className="w-full justify-center bg-gray-100"
+                    />
+                </div>
+                <p className="mb-2 text-center text-xs text-gray-400">الإصدار: 29-11-2025</p>
                 <button
                     onClick={onLogout}
                     className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-red-100 hover:text-red-700 transition-colors"
@@ -170,11 +185,24 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onOpenConfig 
             
             {/* Main content */}
             <div className="lg:mr-64">
-                <header className="sticky top-0 bg-white/75 backdrop-blur-sm p-4 lg:hidden flex justify-between items-center shadow-sm z-10">
-                    <h1 className="text-xl font-bold">لوحة التحكم</h1>
-                    <button onClick={() => setIsSidebarOpen(true)} className="p-2">
-                        <Bars3Icon className="w-6 h-6"/>
-                    </button>
+                <header className="sticky top-0 bg-white/75 backdrop-blur-sm p-4 flex justify-between items-center shadow-sm z-10">
+                    <div className="flex items-center gap-4">
+                        <button onClick={() => setIsSidebarOpen(true)} className="p-2 lg:hidden">
+                            <Bars3Icon className="w-6 h-6"/>
+                        </button>
+                        <h1 className="text-xl font-bold lg:hidden">لوحة التحكم</h1>
+                    </div>
+                    {/* Sync Indicator in Header for Mobile/Tablet */}
+                    <div className="lg:hidden">
+                        <SyncStatusIndicator 
+                            status={syncStatus} 
+                            lastError={lastSyncError} 
+                            isDirty={isDirty} 
+                            isOnline={isOnline}
+                            onManualSync={manualSync}
+                            isAutoSyncEnabled={isAutoSyncEnabled}
+                        />
+                    </div>
                 </header>
                 <main className="p-4 sm:p-8">
                     {renderView()}

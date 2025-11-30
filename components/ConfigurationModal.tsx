@@ -208,7 +208,8 @@ END$$;
 
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Profiles Visibility" ON public.profiles FOR SELECT USING (auth.uid() = id OR lawyer_id = auth.uid() OR public.is_admin());
-CREATE POLICY "Profiles Self Update" ON public.profiles FOR UPDATE USING (auth.uid() = id OR lawyer_id = auth.uid());
+-- Updated Policy: Allow Admins to update any profile, and users/lawyers to update own/assistants
+CREATE POLICY "Profiles Update" ON public.profiles FOR UPDATE USING (auth.uid() = id OR lawyer_id = auth.uid() OR public.is_admin());
 
 CREATE POLICY "Access Own Data" ON public.assistants FOR ALL USING (user_id = public.get_data_owner_id());
 CREATE POLICY "Access Own Data" ON public.clients FOR ALL USING (user_id = public.get_data_owner_id());
@@ -284,7 +285,7 @@ const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ onRetry }) => {
             <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
                 <div className="flex items-center gap-3 mb-4 text-amber-600">
                     <ServerIcon className="w-8 h-8" />
-                    <h2 className="text-2xl font-bold">تحديث قاعدة البيانات (إصلاح المزامنة)</h2>
+                    <h2 className="text-2xl font-bold">تحديث قاعدة البيانات (إصلاح المزامنة والصلاحيات)</h2>
                 </div>
                 
                 <div className="overflow-y-auto flex-grow pr-2">
@@ -295,7 +296,7 @@ const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ onRetry }) => {
                             </div>
                             <div className="ms-3">
                                 <p className="text-sm text-blue-700">
-                                    هذا التحديث ضروري لإصلاح مشكلة عودة البيانات المحذوفة. يرجى نسخ الكود الجديد وتشغيله في Supabase لإنشاء جدول سجل المحذوفات وتحديث السياسات.
+                                    هذا التحديث ضروري لإصلاح مشكلة عودة البيانات المحذوفة وإعطاء المدير صلاحية تعديل بيانات المستخدمين. يرجى نسخ الكود الجديد وتشغيله في Supabase.
                                 </p>
                             </div>
                         </div>
