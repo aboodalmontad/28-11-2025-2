@@ -5,6 +5,7 @@ import type { User } from '@supabase/supabase-js';
 import { checkSupabaseSchema, fetchDataFromSupabase, upsertDataToSupabase, FlatData, deleteDataFromSupabase, transformRemoteToLocal, fetchDeletionsFromSupabase } from './useOnlineData';
 import { getSupabaseClient } from '../supabaseClient';
 import { Client, Case, Stage, Session, CaseDocument, AppData, DeletedIds, getInitialDeletedIds, SyncDeletion } from '../types';
+import { getDb, DOCS_FILES_STORE_NAME } from '../utils/db';
 
 export type SyncStatus = 'loading' | 'syncing' | 'synced' | 'error' | 'unconfigured' | 'uninitialized';
 
@@ -16,6 +17,7 @@ interface UseSyncProps {
     onDataSynced: (mergedData: AppData) => void;
     onDeletionsSynced: (syncedDeletions: Partial<DeletedIds>) => void;
     onSyncStatusChange: (status: SyncStatus, error: string | null) => void;
+    onDocumentsUploaded?: (uploadedDocIds: string[]) => void;
     isOnline: boolean;
     isAuthLoading: boolean;
     syncStatus: SyncStatus;
@@ -103,8 +105,6 @@ const mergeForRefresh = <T extends { id: any; updated_at?: Date | string }>(loca
     return Array.from(finalItems.values());
 };
 
-// Filters local items against remote deletion log to prevent "Zombie" data resurrection.
-// Also performs cascading filtering: if a parent item is deleted, its children are also filtered out.
 const applyDeletionsToLocal = (localFlatData: FlatData, deletions: SyncDeletion[]): FlatData => {
     if (!deletions || deletions.length === 0) return localFlatData;
 
@@ -120,58 +120,40 @@ const applyDeletionsToLocal = (localFlatData: FlatData, deletions: SyncDeletion[
             const deletedAtStr = deletionMap.get(key);
             
             if (deletedAtStr) {
-                // If item exists locally but was deleted remotely...
                 const deletedAt = new Date(deletedAtStr).getTime();
                 const updatedAt = new Date(item.updated_at || 0).getTime();
-                // If the local item hasn't been updated since it was deleted remotely, purge it.
-                // We add a small buffer (e.g., 2 seconds) to avoid clock skew issues.
                 if (updatedAt < (deletedAt + 2000)) {
-                    return false; // Remove from local view
+                    return false;
                 }
             }
             return true;
         });
     };
 
-    // 1. Filter top-level items directly from deletion map
     const filteredClients = filterItems(localFlatData.clients, 'clients');
-    
-    // 2. Cascade Filters: Ensure children are removed if their parents are gone.
-    // This prevents "Foreign Key Violation" errors during sync when inserting orphans.
-    
     const clientIds = new Set(filteredClients.map(c => c.id));
     
-    // Cases depend on Clients
     let filteredCases = filterItems(localFlatData.cases, 'cases');
     filteredCases = filteredCases.filter(c => clientIds.has(c.client_id));
-    
     const caseIds = new Set(filteredCases.map(c => c.id));
     
-    // Stages depend on Cases
     let filteredStages = filterItems(localFlatData.stages, 'stages');
     filteredStages = filteredStages.filter(s => caseIds.has(s.case_id));
-    
     const stageIds = new Set(filteredStages.map(s => s.id));
     
-    // Sessions depend on Stages
     let filteredSessions = filterItems(localFlatData.sessions, 'sessions');
     filteredSessions = filteredSessions.filter(s => stageIds.has(s.stage_id));
     
-    // Invoices depend on Clients
     let filteredInvoices = filterItems(localFlatData.invoices, 'invoices');
     filteredInvoices = filteredInvoices.filter(i => clientIds.has(i.client_id));
-    
     const invoiceIds = new Set(filteredInvoices.map(i => i.id));
     
-    // Invoice Items depend on Invoices
     let filteredInvoiceItems = filterItems(localFlatData.invoice_items, 'invoice_items');
     filteredInvoiceItems = filteredInvoiceItems.filter(i => invoiceIds.has(i.invoice_id));
     
-    // Documents depend on Cases
     let filteredDocs = filterItems(localFlatData.case_documents, 'case_documents');
-    filteredDocs = filteredDocs.filter(d => caseIds.has(d.caseId)); // Note: localFlatData documents use camelCase 'caseId'
+    filteredDocs = filteredDocs.filter(d => caseIds.has(d.caseId)); 
     
-    // Accounting Entries depend on Clients (and sometimes Cases, but Client is mandatory in schema usually or just check ID if present)
     let filteredEntries = filterItems(localFlatData.accounting_entries, 'accounting_entries');
     filteredEntries = filteredEntries.filter(e => !e.clientId || clientIds.has(e.clientId));
 
@@ -185,7 +167,6 @@ const applyDeletionsToLocal = (localFlatData: FlatData, deletions: SyncDeletion[
         invoice_items: filteredInvoiceItems,
         case_documents: filteredDocs,
         accounting_entries: filteredEntries,
-        // Entities without parent dependencies in this context:
         admin_tasks: filterItems(localFlatData.admin_tasks, 'admin_tasks'),
         appointments: filterItems(localFlatData.appointments, 'appointments'),
         assistants: filterItems(localFlatData.assistants, 'assistants'),
@@ -195,7 +176,7 @@ const applyDeletionsToLocal = (localFlatData: FlatData, deletions: SyncDeletion[
 };
 
 
-export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletionsSynced, onSyncStatusChange, isOnline, isAuthLoading, syncStatus }: UseSyncProps) => {
+export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletionsSynced, onSyncStatusChange, onDocumentsUploaded, isOnline, isAuthLoading, syncStatus }: UseSyncProps) => {
     const userRef = React.useRef(user);
     userRef.current = user;
 
@@ -220,7 +201,42 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
         }
     
         try {
-            // 1. Fetch Remote Data AND Deletions Log to prevent zombie data
+            // 0. Upload Pending Files FIRST
+            const pendingDocs = localData.documents.filter(d => d.localState === 'pending_upload');
+            const uploadedDocIds: string[] = [];
+
+            if (pendingDocs.length > 0) {
+                setStatus('syncing', `جاري رفع ${pendingDocs.length} وثائق...`);
+                const supabase = getSupabaseClient();
+                const db = await getDb();
+                
+                for (const doc of pendingDocs) {
+                    try {
+                        const file = await db.get(DOCS_FILES_STORE_NAME, doc.id);
+                        if (file) {
+                            const { error: uploadError } = await supabase!.storage.from('documents').upload(doc.storagePath, file, {
+                                upsert: true
+                            });
+                            
+                            if (uploadError) {
+                                console.error(`Failed to upload ${doc.name}:`, uploadError);
+                            } else {
+                                uploadedDocIds.push(doc.id);
+                            }
+                        } else {
+                            console.warn(`File for doc ${doc.id} missing in IndexedDB`);
+                        }
+                    } catch (e) {
+                        console.error(`Error uploading doc ${doc.id}:`, e);
+                    }
+                }
+                
+                if (uploadedDocIds.length > 0 && onDocumentsUploaded) {
+                    onDocumentsUploaded(uploadedDocIds);
+                }
+            }
+
+            // 1. Fetch Remote Data AND Deletions Log
             setStatus('syncing', 'جاري جلب البيانات من السحابة...');
             const [remoteDataRaw, remoteDeletions] = await Promise.all([
                 fetchDataFromSupabase(),
@@ -231,7 +247,7 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
             // 2. Prepare Local Data
             let localFlatData = flattenData(localData);
             
-            // 3. Apply Remote Deletions to Local Data (The Zombie & Orphan Fix)
+            // 3. Apply Remote Deletions
             localFlatData = applyDeletionsToLocal(localFlatData, remoteDeletions);
 
             const isLocalEffectivelyEmpty = (localFlatData.clients.length === 0 && localFlatData.admin_tasks.length === 0 && localFlatData.appointments.length === 0 && localFlatData.accounting_entries.length === 0 && localFlatData.invoices.length === 0 && localFlatData.case_documents.length === 0);
@@ -265,6 +281,16 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
                 const itemsToUpsert: any[] = [];
 
                 for (const localItem of localItems) {
+                    // Logic to prevent syncing metadata of files that failed to upload
+                    if (key === 'case_documents') {
+                        const doc = localItem as CaseDocument;
+                        // If it's pending upload and wasn't successfully uploaded in this session, skip upserting it to avoid 404s for others
+                        if (doc.localState === 'pending_upload' && !uploadedDocIds.includes(doc.id)) {
+                            finalMergedItems.set(doc.id, localItem); // Keep it local
+                            continue; 
+                        }
+                    }
+
                     const id = localItem.id ?? localItem.name;
                     let isParentDeleted = false;
                     if (key === 'cases' && deletedIdsSets.clients.has(localItem.client_id)) isParentDeleted = true;
@@ -283,7 +309,6 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
                             finalMergedItems.set(id, localItem);
                         } else { finalMergedItems.set(id, remoteItem); }
                     } else {
-                        // New Item
                         itemsToUpsert.push(localItem);
                         finalMergedItems.set(id, localItem);
                     }
@@ -302,10 +327,6 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
                 (flatUpserts as any)[key] = itemsToUpsert;
                 (mergedFlatData as any)[key] = Array.from(finalMergedItems.values());
             }
-            
-            // --- SAFETY NET FOR ORPHAN RECORDS ---
-            // Ensure we don't upsert records if their parents are missing (not in remote and not in upserts)
-            // This prevents foreign key constraint violations.
             
             const validClientIds = new Set([
                 ...(remoteFlatData.clients || []).map(c => c.id),
@@ -334,12 +355,10 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
                 flatUpserts.sessions = flatUpserts.sessions.filter(s => validStageIds.has(s.stage_id));
             }
             
-            // Also filter mergedData for consistency
             if (mergedFlatData.cases) mergedFlatData.cases = mergedFlatData.cases.filter(c => validClientIds.has(c.client_id));
             if (mergedFlatData.stages) mergedFlatData.stages = mergedFlatData.stages.filter(s => validCaseIds.has(s.case_id));
             if (mergedFlatData.sessions) mergedFlatData.sessions = mergedFlatData.sessions.filter(s => validStageIds.has(s.stage_id));
             
-            // Filter documents
             if (mergedFlatData.case_documents) mergedFlatData.case_documents = mergedFlatData.case_documents.filter(doc => validCaseIds.has(doc.caseId));
             if (flatUpserts.case_documents) flatUpserts.case_documents = flatUpserts.case_documents.filter(doc => validCaseIds.has(doc.caseId));
 
@@ -376,7 +395,6 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
             }
 
             setStatus('syncing', 'جاري رفع البيانات إلى السحابة...');
-            // NOTE: currentUser here might have an overridden ID (effectiveUserId) if passed from useSupabaseData
             const upsertedDataRaw = await upsertDataToSupabase(flatUpserts as FlatData, currentUser);
             const upsertedFlatData = transformRemoteToLocal(upsertedDataRaw);
             const upsertedDataMap = new Map();
@@ -402,7 +420,7 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
             if (err.table) errorMessage = `[جدول: ${err.table}] ${errorMessage}`;
             setStatus('error', `فشل المزامنة: ${errorMessage}`);
         }
-    }, [localData, userRef, isOnline, onDataSynced, deletedIds, onDeletionsSynced, isAuthLoading, syncStatus]);
+    }, [localData, userRef, isOnline, onDataSynced, deletedIds, onDeletionsSynced, isAuthLoading, syncStatus, onDocumentsUploaded]);
 
     const fetchAndRefresh = React.useCallback(async () => {
         if (syncStatus === 'syncing' || isAuthLoading) return;
@@ -435,7 +453,6 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
             }
     
             let localFlatData = flattenData(localData);
-            // Apply deletions to local view before merge for refresh
             localFlatData = applyDeletionsToLocal(localFlatData, remoteDeletions);
 
             const mergedAssistants = Array.from(new Set([...localFlatData.assistants.map(a => a.name), ...(remoteFlatData.assistants || []).map(a => a.name)])).map(name => ({ name }));
