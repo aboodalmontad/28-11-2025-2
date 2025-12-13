@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { useData } from '../context/DataContext';
 import { CaseDocument } from '../types';
-import { DocumentArrowUpIcon, TrashIcon, EyeIcon, DocumentTextIcon, PhotoIcon, XMarkIcon, ExclamationTriangleIcon, ArrowPathIcon, CameraIcon, CloudArrowUpIcon, CloudArrowDownIcon, CheckCircleIcon, ExclamationCircleIcon, ArrowDownTrayIcon, MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon, ArrowsPointingOutIcon } from './icons';
+import { DocumentArrowUpIcon, TrashIcon, DocumentTextIcon, XMarkIcon, ExclamationTriangleIcon, ArrowPathIcon, CameraIcon, CloudArrowUpIcon, CloudArrowDownIcon, CheckCircleIcon, ExclamationCircleIcon, ArrowDownTrayIcon, MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon, ArrowsPointingOutIcon, ArrowTopRightOnSquareIcon } from './icons';
 import { renderAsync } from 'docx-preview';
 
 interface CaseDocumentsProps {
@@ -123,10 +123,9 @@ const DocxPreview: React.FC<{ file: File; name: string }> = ({ file, name }) => 
     const previewerRef = React.useRef<HTMLDivElement>(null);
     const [error, setError] = React.useState<string | null>(null);
     const [isLoading, setIsLoading] = React.useState(true);
-    const isOldDocFormat = name.toLowerCase().endsWith('.doc');
 
     React.useEffect(() => {
-        if (isOldDocFormat || !previewerRef.current) {
+        if (!previewerRef.current) {
             setIsLoading(false);
             return;
         }
@@ -137,10 +136,10 @@ const DocxPreview: React.FC<{ file: File; name: string }> = ({ file, name }) => 
             })
             .catch(e => {
                 console.error('Docx-preview error:', e);
-                setError('حدث خطأ أثناء عرض المستند.');
+                setError('حدث خطأ أثناء عرض المستند. قد يكون الملف تالفاً.');
                 setIsLoading(false);
             });
-    }, [file, isOldDocFormat]);
+    }, [file]);
 
     return (
         <div className="w-full h-full bg-white p-8 overflow-auto rounded relative">
@@ -149,15 +148,7 @@ const DocxPreview: React.FC<{ file: File; name: string }> = ({ file, name }) => 
                     <ArrowPathIcon className="w-8 h-8 text-blue-600 animate-spin" />
                 </div>
             )}
-            {isOldDocFormat ? (
-                <div className="flex flex-col items-center justify-center h-full text-center p-8">
-                    <ExclamationTriangleIcon className="w-12 h-12 text-yellow-500 mb-4" />
-                    <h4 className="text-lg font-bold text-gray-800">تنسيق غير مدعوم للمعاينة</h4>
-                    <p className="text-gray-600 mt-2">
-                        ملفات Word القديمة (.doc) غير مدعومة. يرجى التنزيل لفتحها.
-                    </p>
-                </div>
-            ) : error ? (
+            {error ? (
                 <div className="flex flex-col items-center justify-center h-full text-center p-8">
                      <ExclamationCircleIcon className="w-12 h-12 text-red-500 mb-4" />
                      <h4 className="text-lg font-bold text-red-800">فشل العرض</h4>
@@ -278,6 +269,12 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
             document.body.removeChild(a);
         }
     };
+    
+    const handleOpenExternal = () => {
+        if (objectUrl) {
+            window.open(objectUrl, '_blank');
+        }
+    };
 
     const renderContent = () => {
         if (isLoading) {
@@ -313,11 +310,20 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
         
         if (file.type === 'application/pdf') {
             return (
-                <iframe 
-                    src={objectUrl} 
-                    className="w-full h-full bg-white rounded-md" 
-                    title={doc.name}
-                />
+                <div className="flex flex-col items-center justify-center h-full text-white p-8 text-center">
+                    <DocumentTextIcon className="w-20 h-20 text-red-500 mb-6" />
+                    <h3 className="font-bold text-xl mb-2">مستند PDF</h3>
+                    <p className="text-gray-400 mb-8 max-w-md">
+                        لفتح هذا المستند، يرجى الضغط على الزر أدناه لفتحه في متصفح الجهاز.
+                    </p>
+                    <button 
+                        onClick={handleOpenExternal} 
+                        className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-lg"
+                    >
+                        <ArrowTopRightOnSquareIcon className="w-5 h-5" />
+                        <span>فتح PDF في المتصفح</span>
+                    </button>
+                </div>
             );
         }
 
@@ -325,7 +331,7 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
             return <TextPreview file={file} name={doc.name} />;
         }
 
-        if (doc.name.toLowerCase().endsWith('.docx') || doc.name.toLowerCase().endsWith('.doc')) {
+        if (doc.name.toLowerCase().endsWith('.docx')) {
              return <DocxPreview file={file} name={doc.name} />;
         }
 
@@ -358,10 +364,16 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
                     </div>
                     <div className="flex items-center gap-2">
                         {!isLoading && !error && file && (
-                            <button onClick={handleDownload} className="flex items-center gap-2 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs sm:text-sm rounded-lg transition-colors">
-                                <ArrowDownTrayIcon className="w-4 h-4" />
-                                <span className="hidden sm:inline">تنزيل</span>
-                            </button>
+                            <>
+                                <button onClick={handleOpenExternal} className="flex items-center gap-2 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs sm:text-sm rounded-lg transition-colors" title="فتح في نافذة جديدة">
+                                    <ArrowTopRightOnSquareIcon className="w-4 h-4" />
+                                    <span className="hidden sm:inline">فتح</span>
+                                </button>
+                                <button onClick={handleDownload} className="flex items-center gap-2 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs sm:text-sm rounded-lg transition-colors">
+                                    <ArrowDownTrayIcon className="w-4 h-4" />
+                                    <span className="hidden sm:inline">تنزيل</span>
+                                </button>
+                            </>
                         )}
                         <button onClick={onClose} className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-full transition-colors">
                             <XMarkIcon className="w-6 h-6" />
@@ -518,6 +530,7 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
     const [previewDoc, setPreviewDoc] = React.useState<CaseDocument | null>(null);
     const [isDragging, setIsDragging] = React.useState(false);
     const [isCameraOpen, setIsCameraOpen] = React.useState(false);
+    const fileInputRef = React.useRef<HTMLInputElement>(null);
 
     const caseDocuments = React.useMemo(() => 
         documents.filter(doc => doc.caseId === caseId).sort((a,b) => b.addedAt.getTime() - a.addedAt.getTime()), 
@@ -528,6 +541,9 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
         if (files && files.length > 0) {
             try {
                 await addDocuments(caseId, files);
+                if (fileInputRef.current) {
+                    fileInputRef.current.value = '';
+                }
             } catch (err: any) {
                 alert(`فشل في إضافة الوثائق: ${err.message}`);
             }
@@ -581,14 +597,65 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
         setIsCameraOpen(false);
     };
     
-    const handlePreview = (doc: CaseDocument) => {
+    const handlePreview = async (doc: CaseDocument) => {
+        const isPdf = doc.type === 'application/pdf';
+        // Add check for legacy Word documents (.doc) or specific mime type
+        const isLegacyWord = doc.name.toLowerCase().endsWith('.doc') || doc.type === 'application/msword';
+
+        if (isPdf || isLegacyWord) {
+            try {
+                const file = await getDocumentFile(doc.id);
+                if (file) {
+                    const objectUrl = URL.createObjectURL(file);
+                    
+                    if (isPdf) {
+                        const newWindow = window.open(objectUrl, '_blank');
+                        if (!newWindow || newWindow.closed || typeof newWindow.closed == 'undefined') {
+                            alert('تم منع فتح النافذة المنبثقة. يرجى السماح بالنوافذ المنبثقة لعرض ملفات PDF.');
+                        }
+                    } else {
+                        // For legacy Word files, we use a hidden anchor with the 'download' attribute.
+                        // This preserves the filename and extension, allowing the OS to properly recognize
+                        // the file type and offer the correct "Open with" application (e.g., Word).
+                        // It does trigger a browser download/save action, but this is the standard way
+                        // to hand off a Blob to an external application from a web page.
+                        const a = document.createElement('a');
+                        a.style.display = 'none';
+                        a.href = objectUrl;
+                        a.download = doc.name;
+                        document.body.appendChild(a);
+                        a.click();
+                        
+                        setTimeout(() => {
+                            document.body.removeChild(a);
+                            // Revoke URL after a delay to ensure download starts
+                            setTimeout(() => URL.revokeObjectURL(objectUrl), 10000); 
+                        }, 100);
+                        return; // Exit here
+                    }
+                } else {
+                    alert('تعذر فتح الملف حالياً. تأكد من اكتمال التنزيل.');
+                }
+            } catch (e) {
+                console.error("Error opening file directly:", e);
+                alert('حدث خطأ أثناء محاولة فتح الملف.');
+            }
+            return; // CRITICAL: Return here so setPreviewDoc (modal) is never called for these types
+        }
         setPreviewDoc(doc);
     };
 
     return (
         <div className="space-y-4">
             <div className="flex flex-col sm:flex-row gap-4">
-                 <input type="file" id={`file-upload-${caseId}`} multiple className="hidden" onChange={(e) => handleFileChange(e.target.files)} />
+                 <input 
+                    type="file" 
+                    id={`file-upload-${caseId}`} 
+                    multiple 
+                    className="hidden" 
+                    onChange={(e) => handleFileChange(e.target.files)} 
+                    ref={fileInputRef}
+                 />
                  <div 
                     onDragEnter={handleDragEvents}
                     onDragLeave={handleDragEvents}

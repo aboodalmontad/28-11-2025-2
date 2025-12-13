@@ -18,6 +18,7 @@ interface UseSyncProps {
     onDeletionsSynced: (syncedDeletions: Partial<DeletedIds>) => void;
     onSyncStatusChange: (status: SyncStatus, error: string | null) => void;
     onDocumentsUploaded?: (uploadedDocIds: string[]) => void;
+    excludedDocIds?: Set<string>;
     isOnline: boolean;
     isAuthLoading: boolean;
     syncStatus: SyncStatus;
@@ -175,8 +176,32 @@ const applyDeletionsToLocal = (localFlatData: FlatData, deletions: SyncDeletion[
     };
 };
 
+const cleanupExpiredDocuments = async (remoteDocs: any[], supabase: any) => {
+    const hours72Ago = new Date(Date.now() - 72 * 60 * 60 * 1000);
+    const expiredDocs = remoteDocs.filter((d: any) => new Date(d.added_at) < hours72Ago);
 
-export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletionsSynced, onSyncStatusChange, onDocumentsUploaded, isOnline, isAuthLoading, syncStatus }: UseSyncProps) => {
+    if (expiredDocs.length > 0) {
+        console.log(`Cleaning up ${expiredDocs.length} expired documents from cloud...`);
+        const expiredIds = expiredDocs.map((d: any) => d.id);
+        const expiredPaths = expiredDocs.map((d: any) => d.storage_path).filter((p: any) => !!p);
+
+        // Delete from DB first
+        const { error: dbError } = await supabase.from('case_documents').delete().in('id', expiredIds);
+        if (dbError) {
+            console.error("Failed to delete expired docs metadata:", dbError);
+        } else {
+            // If DB delete success, delete from storage
+            // Note: We do NOT log these deletions to 'sync_deletions' because we WANT local clients to keep their copies (Archive behavior).
+            // Normal delete triggers might log them, but clients should be smart enough not to delete local files if they are 'synced'.
+            if (expiredPaths.length > 0) {
+                const { error: storageError } = await supabase.storage.from('documents').remove(expiredPaths);
+                if (storageError) console.error("Failed to delete expired docs files:", storageError);
+            }
+        }
+    }
+};
+
+export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletionsSynced, onSyncStatusChange, onDocumentsUploaded, excludedDocIds, isOnline, isAuthLoading, syncStatus }: UseSyncProps) => {
     const userRef = React.useRef(user);
     userRef.current = user;
 
@@ -244,6 +269,14 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
             ]);
             const remoteFlatData = transformRemoteToLocal(remoteDataRaw);
 
+            // 1.5 Cloud Cleanup (72h Rule)
+            const supabase = getSupabaseClient();
+            if (supabase && remoteDataRaw.case_documents) {
+                // Fire and forget cleanup to avoid blocking sync UI too much, or await if critical.
+                // We await to ensure we don't sync back expired docs immediately.
+                await cleanupExpiredDocuments(remoteDataRaw.case_documents, supabase);
+            }
+
             // 2. Prepare Local Data
             let localFlatData = flattenData(localData);
             
@@ -281,7 +314,9 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
                 const itemsToUpsert: any[] = [];
 
                 for (const localItem of localItems) {
-                    // Logic to prevent syncing metadata of files that failed to upload
+                    const id = localItem.id ?? localItem.name;
+
+                    // Special Logic for Documents: Archive vs Pending Upload
                     if (key === 'case_documents') {
                         const doc = localItem as CaseDocument;
                         // If it's pending upload and wasn't successfully uploaded in this session, skip upserting it to avoid 404s for others
@@ -289,9 +324,15 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
                             finalMergedItems.set(doc.id, localItem); // Keep it local
                             continue; 
                         }
+                        
+                        // ARCHIVE LOGIC: If doc is synced locally but missing from remote (deleted due to 72h rule or other), keep it local.
+                        // Do NOT push to itemsToUpsert (which would re-upload it).
+                        if (doc.localState === 'synced' && !remoteMap.has(doc.id)) {
+                            finalMergedItems.set(doc.id, doc);
+                            continue;
+                        }
                     }
 
-                    const id = localItem.id ?? localItem.name;
                     let isParentDeleted = false;
                     if (key === 'cases' && deletedIdsSets.clients.has(localItem.client_id)) isParentDeleted = true;
                     if (key === 'stages' && deletedIdsSets.cases.has(localItem.case_id)) isParentDeleted = true;
@@ -309,6 +350,10 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
                             finalMergedItems.set(id, localItem);
                         } else { finalMergedItems.set(id, remoteItem); }
                     } else {
+                        // For documents, we already handled the "missing remote" case above.
+                        // For other entities, if they are missing remotely, it usually means they are new locally and need upsert.
+                        // Or they were deleted remotely. We use 'fetchDeletionsFromSupabase' to handle hard remote deletes.
+                        // If it wasn't in deletion log, we assume it's new.
                         itemsToUpsert.push(localItem);
                         finalMergedItems.set(id, localItem);
                     }
@@ -321,6 +366,12 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
                         const entityKey = key === 'admin_tasks' ? 'adminTasks' : key === 'accounting_entries' ? 'accountingEntries' : key === 'invoice_items' ? 'invoiceItems' : key === 'case_documents' ? 'documents' : key === 'site_finances' ? 'siteFinances' : key;
                         const deletedSet = (deletedIdsSets as any)[entityKey];
                         if (deletedSet) isDeleted = deletedSet.has(id);
+                        
+                        // Prevent resurrection of locally excluded documents
+                        if (key === 'case_documents' && excludedDocIds && excludedDocIds.has(id)) {
+                            isDeleted = true;
+                        }
+
                         if (!isDeleted) finalMergedItems.set(id, remoteItem);
                     }
                 }
@@ -420,7 +471,7 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
             if (err.table) errorMessage = `[جدول: ${err.table}] ${errorMessage}`;
             setStatus('error', `فشل المزامنة: ${errorMessage}`);
         }
-    }, [localData, userRef, isOnline, onDataSynced, deletedIds, onDeletionsSynced, isAuthLoading, syncStatus, onDocumentsUploaded]);
+    }, [localData, userRef, isOnline, onDataSynced, deletedIds, onDeletionsSynced, isAuthLoading, syncStatus, onDocumentsUploaded, excludedDocIds]);
 
     const fetchAndRefresh = React.useCallback(async () => {
         if (syncStatus === 'syncing' || isAuthLoading) return;
