@@ -382,6 +382,12 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
             const db = await getDb();
 
             for (const doc of pendingDocs) {
+                // Check online status before attempt
+                if (typeof navigator !== 'undefined' && !navigator.onLine) {
+                    console.log("Device is offline, pausing downloads.");
+                    break;
+                }
+
                 try {
                     // Double check if file exists in DB (maybe metadata was stale)
                     const existingFile = await db.get(DOCS_FILES_STORE_NAME, doc.id);
@@ -444,12 +450,24 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     
                     console.error(`Failed to auto-download doc ${doc.id}:`, errorMsg);
 
-                    // Mark as error to prevent infinite retries.
-                    // IMPORTANT: Update metadata store first so next sync/load respects this state.
-                    const errorDoc = { ...doc, localState: 'error' as const };
-                    await db.put(DOCS_METADATA_STORE_NAME, errorDoc, doc.id);
-                    // Do not mark as dirty, otherwise it loops
-                    updateData(prev => ({...prev, documents: prev.documents.map(d => d.id === doc.id ? errorDoc : d)}), { markDirty: false });
+                    // Handle transient network errors by resetting state to pending_download instead of error
+                    const isNetworkError = errorMsg.includes('Failed to fetch') || 
+                                           errorMsg.toLowerCase().includes('network') ||
+                                           errorMsg.toLowerCase().includes('connection');
+
+                    if (isNetworkError) {
+                        console.warn(`Network error for doc ${doc.id}, keeping as pending_download for retry.`);
+                        const pendingDoc = { ...doc, localState: 'pending_download' as const };
+                        await db.put(DOCS_METADATA_STORE_NAME, pendingDoc, doc.id);
+                        updateData(prev => ({...prev, documents: prev.documents.map(d => d.id === doc.id ? pendingDoc : d)}), { markDirty: false });
+                    } else {
+                        // Mark as error to prevent infinite retries for permanent errors.
+                        // IMPORTANT: Update metadata store first so next sync/load respects this state.
+                        const errorDoc = { ...doc, localState: 'error' as const };
+                        await db.put(DOCS_METADATA_STORE_NAME, errorDoc, doc.id);
+                        // Do not mark as dirty, otherwise it loops
+                        updateData(prev => ({...prev, documents: prev.documents.map(d => d.id === doc.id ? errorDoc : d)}), { markDirty: false });
+                    }
                 }
             }
         });
@@ -644,13 +662,21 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         isOnline, isAuthLoading, syncStatus
     });
 
-    // Auto Sync
+    // Auto Sync - Debounced trigger for local changes
     React.useEffect(() => {
         if (isOnline && isDirty && userSettings.isAutoSyncEnabled && syncStatus !== 'syncing') {
-            const handler = setTimeout(() => { manualSync(); }, 3000);
+            // Increased debounce time to 15s to reduce 'Syncing indefinitely' perception when offline/flaky
+            const handler = setTimeout(() => { manualSync(); }, 15000);
             return () => clearTimeout(handler);
         }
     }, [isOnline, isDirty, userSettings.isAutoSyncEnabled, syncStatus, manualSync]);
+
+    // Immediate Sync trigger on connection restoration
+    React.useEffect(() => {
+        if (isOnline && userSettings.isAutoSyncEnabled && syncStatus !== 'syncing' && syncStatus !== 'loading') {
+            manualSync();
+        }
+    }, [isOnline, userSettings.isAutoSyncEnabled, manualSync]); // Removed syncStatus from deps to avoid loop, handled inside effect logic
 
     const addRealtimeAlert = React.useCallback((message: string, type: 'sync' | 'userApproval' = 'sync') => {
         setRealtimeAlerts(prev => [...prev, { id: Date.now(), message, type }]);

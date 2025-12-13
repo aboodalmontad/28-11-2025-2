@@ -3,16 +3,16 @@ import * as React from 'react';
 // Fix: Use `import type` for Session and User as they are used as types, not values. This resolves module resolution errors in some environments.
 import type { Session as AuthSession, User } from '@supabase/supabase-js';
 
-// Statically import ALL page components.
-// Removed .tsx extension to ensure compatibility with bundlers.
-import ClientsPage from './pages/ClientsPage';
-import HomePage from './pages/HomePage';
-import AccountingPage from './pages/AccountingPage';
-import SettingsPage from './pages/SettingsPage';
-import LoginPage from './pages/LoginPage';
-import AdminDashboard from './pages/AdminDashboard';
-import PendingApprovalPage from './pages/PendingApprovalPage';
-import SubscriptionExpiredPage from './pages/SubscriptionExpiredPage';
+// Lazy import ALL page components for code splitting.
+// This ensures the browser only downloads the code needed for the current screen.
+const ClientsPage = React.lazy(() => import('./pages/ClientsPage'));
+const HomePage = React.lazy(() => import('./pages/HomePage'));
+const AccountingPage = React.lazy(() => import('./pages/AccountingPage'));
+const SettingsPage = React.lazy(() => import('./pages/SettingsPage'));
+const LoginPage = React.lazy(() => import('./pages/LoginPage'));
+const AdminDashboard = React.lazy(() => import('./pages/AdminDashboard'));
+const PendingApprovalPage = React.lazy(() => import('./pages/PendingApprovalPage'));
+const SubscriptionExpiredPage = React.lazy(() => import('./pages/SubscriptionExpiredPage'));
 
 
 import ConfigurationModal from './components/ConfigurationModal';
@@ -354,6 +354,21 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
 
     }, [session, data.profiles, data.unpostponedSessions, data.setShowUnpostponedSessionsModal]);
 
+    // PRELOAD ALL PAGES ON LOGIN
+    // This ensures all code chunks are downloaded and cached by the Service Worker
+    // immediately after login, fulfilling the "Load everything on first login" requirement.
+    React.useEffect(() => {
+        if (session) {
+            // Trigger download of all lazy-loaded chunks
+            import('./pages/ClientsPage');
+            import('./pages/AccountingPage');
+            import('./pages/SettingsPage');
+            import('./pages/AdminDashboard');
+            import('./pages/PendingApprovalPage');
+            import('./pages/SubscriptionExpiredPage');
+        }
+    }, [session]);
+
     // Check for forced update flag on mount
     React.useEffect(() => {
         const justUpdated = localStorage.getItem('lawyerAppUpdated');
@@ -595,7 +610,11 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     }
     
     if (!session) {
-        return <LoginPage onForceSetup={() => setShowConfigModal(true)} onLoginSuccess={handleLoginSuccess}/>;
+        return (
+            <React.Suspense fallback={<FullScreenLoader text="جاري التحميل..." />}>
+                <LoginPage onForceSetup={() => setShowConfigModal(true)} onLoginSuccess={handleLoginSuccess}/>
+            </React.Suspense>
+        );
     }
     
     // Safety check for profile existence before accessing properties
@@ -615,29 +634,43 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
 
     // Check mobile verification first
     if (effectiveProfile && !effectiveProfile.mobile_verified && effectiveProfile.role !== 'admin') {
-         return <LoginPage 
-             onForceSetup={() => setShowConfigModal(true)} 
-             onLoginSuccess={handleLoginSuccess}
-             initialMode="otp"
-             currentUser={session.user}
-             currentMobile={effectiveProfile.mobile_number}
-             onLogout={handleLogout}
-             onVerificationSuccess={data.fetchAndRefresh}
-         />;
+         return (
+            <React.Suspense fallback={<FullScreenLoader />}>
+                <LoginPage 
+                    onForceSetup={() => setShowConfigModal(true)} 
+                    onLoginSuccess={handleLoginSuccess}
+                    initialMode="otp"
+                    currentUser={session.user}
+                    currentMobile={effectiveProfile.mobile_number}
+                    onLogout={handleLogout}
+                    onVerificationSuccess={data.fetchAndRefresh}
+                />
+            </React.Suspense>
+         );
     }
 
     if (effectiveProfile && !effectiveProfile.is_approved) {
-        return <PendingApprovalPage onLogout={handleLogout} />;
+        return (
+            <React.Suspense fallback={<FullScreenLoader />}>
+                <PendingApprovalPage onLogout={handleLogout} />
+            </React.Suspense>
+        );
     }
 
     if (effectiveProfile && (!effectiveProfile.is_active || (effectiveProfile.subscription_end_date && new Date(effectiveProfile.subscription_end_date) < new Date()))) {
-        return <SubscriptionExpiredPage onLogout={handleLogout} />;
+        return (
+            <React.Suspense fallback={<FullScreenLoader />}>
+                <SubscriptionExpiredPage onLogout={handleLogout} />
+            </React.Suspense>
+        );
     }
     
     if (effectiveProfile && effectiveProfile.role === 'admin') {
          return (
             <DataProvider value={data}>
-                <AdminDashboard onLogout={handleLogout} onOpenConfig={() => setShowConfigModal(true)} />
+                <React.Suspense fallback={<FullScreenLoader />}>
+                    <AdminDashboard onLogout={handleLogout} onOpenConfig={() => setShowConfigModal(true)} />
+                </React.Suspense>
                 <NotificationCenter 
                     appointmentAlerts={data.triggeredAlerts}
                     realtimeAlerts={data.realtimeAlerts}
@@ -732,7 +765,9 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                 <OfflineBanner />
                 {/* Added padding-bottom to main content to prevent overlap with the mobile nav */}
                 <main className="flex-grow p-4 sm:p-6 overflow-y-auto pb-20 sm:pb-6">
-                    {renderPage()}
+                    <React.Suspense fallback={<FullScreenLoader />}>
+                        {renderPage()}
+                    </React.Suspense>
                 </main>
                 
                 <MobileNavbar currentPage={currentPage} onNavigate={handleNavigation} permissions={data.permissions} />
