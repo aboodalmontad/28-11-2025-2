@@ -1,4 +1,3 @@
-
 import * as React from 'react';
 // Fix: Use `import type` for User as it is used as a type, not a value. This resolves module resolution errors in some environments.
 import type { User } from '@supabase/supabase-js';
@@ -202,13 +201,25 @@ const cleanupExpiredDocuments = async (remoteDocs: any[], supabase: any) => {
 };
 
 export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletionsSynced, onSyncStatusChange, onDocumentsUploaded, excludedDocIds, isOnline, isAuthLoading, syncStatus }: UseSyncProps) => {
+    // Refs to store the latest values of data without triggering re-creation of manualSync
     const userRef = React.useRef(user);
+    const localDataRef = React.useRef(localData);
+    const deletedIdsRef = React.useRef(deletedIds);
+    const excludedDocIdsRef = React.useRef(excludedDocIds);
+    // Track syncStatus via ref to break dependency loop in useCallback
+    const syncStatusRef = React.useRef(syncStatus);
+
+    // Update refs on every render
     userRef.current = user;
+    localDataRef.current = localData;
+    deletedIdsRef.current = deletedIds;
+    excludedDocIdsRef.current = excludedDocIds;
+    syncStatusRef.current = syncStatus;
 
     const setStatus = (status: SyncStatus, error: string | null = null) => { onSyncStatusChange(status, error); };
 
     const manualSync = React.useCallback(async () => {
-        if (syncStatus === 'syncing') return;
+        if (syncStatusRef.current === 'syncing') return;
         if (isAuthLoading) return;
         const currentUser = userRef.current;
         if (!isOnline || !currentUser) {
@@ -227,7 +238,7 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
     
         try {
             // 0. Upload Pending Files FIRST
-            const pendingDocs = localData.documents.filter(d => d.localState === 'pending_upload');
+            const pendingDocs = localDataRef.current.documents.filter(d => d.localState === 'pending_upload');
             const uploadedDocIds: string[] = [];
 
             if (pendingDocs.length > 0) {
@@ -278,14 +289,14 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
             }
 
             // 2. Prepare Local Data
-            let localFlatData = flattenData(localData);
+            let localFlatData = flattenData(localDataRef.current);
             
             // 3. Apply Remote Deletions
             localFlatData = applyDeletionsToLocal(localFlatData, remoteDeletions);
 
             const isLocalEffectivelyEmpty = (localFlatData.clients.length === 0 && localFlatData.admin_tasks.length === 0 && localFlatData.appointments.length === 0 && localFlatData.accounting_entries.length === 0 && localFlatData.invoices.length === 0 && localFlatData.case_documents.length === 0);
-            const hasPendingDeletions = Object.values(deletedIds).some(arr => arr.length > 0);
-            const isRemoteEffectivelyEmpty = !remoteDataRaw || Object.values(remoteDataRaw).every(arr => arr?.length === 0);
+            const hasPendingDeletions = Object.values(deletedIdsRef.current).some(arr => arr.length > 0);
+            const isRemoteEffectivelyEmpty = !remoteDataRaw || Object.values(remoteDataRaw).every((arr: any) => arr?.length === 0);
 
             if (isLocalEffectivelyEmpty && !isRemoteEffectivelyEmpty && !hasPendingDeletions) {
                 const freshData = constructData(remoteFlatData);
@@ -298,11 +309,11 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
             const mergedFlatData: Partial<FlatData> = {};
 
             const deletedIdsSets = {
-                clients: new Set(deletedIds.clients), cases: new Set(deletedIds.cases), stages: new Set(deletedIds.stages),
-                sessions: new Set(deletedIds.sessions), adminTasks: new Set(deletedIds.adminTasks), appointments: new Set(deletedIds.appointments),
-                accountingEntries: new Set(deletedIds.accountingEntries), invoices: new Set(deletedIds.invoices),
-                invoiceItems: new Set(deletedIds.invoiceItems), assistants: new Set(deletedIds.assistants),
-                documents: new Set(deletedIds.documents), profiles: new Set(deletedIds.profiles), siteFinances: new Set(deletedIds.siteFinances),
+                clients: new Set(deletedIdsRef.current.clients), cases: new Set(deletedIdsRef.current.cases), stages: new Set(deletedIdsRef.current.stages),
+                sessions: new Set(deletedIdsRef.current.sessions), adminTasks: new Set(deletedIdsRef.current.adminTasks), appointments: new Set(deletedIdsRef.current.appointments),
+                accountingEntries: new Set(deletedIdsRef.current.accountingEntries), invoices: new Set(deletedIdsRef.current.invoices),
+                invoiceItems: new Set(deletedIdsRef.current.invoiceItems), assistants: new Set(deletedIdsRef.current.assistants),
+                documents: new Set(deletedIdsRef.current.documents), profiles: new Set(deletedIdsRef.current.profiles), siteFinances: new Set(deletedIdsRef.current.siteFinances),
             };
 
             for (const key of Object.keys(localFlatData) as (keyof FlatData)[]) {
@@ -368,7 +379,7 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
                         if (deletedSet) isDeleted = deletedSet.has(id);
                         
                         // Prevent resurrection of locally excluded documents
-                        if (key === 'case_documents' && excludedDocIds && excludedDocIds.has(id)) {
+                        if (key === 'case_documents' && excludedDocIdsRef.current && excludedDocIdsRef.current.has(id)) {
                             isDeleted = true;
                         }
 
@@ -415,34 +426,34 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
 
             let successfulDeletions = getInitialDeletedIds();
 
-            if (deletedIds.documentPaths && deletedIds.documentPaths.length > 0) {
+            if (deletedIdsRef.current.documentPaths && deletedIdsRef.current.documentPaths.length > 0) {
                 setStatus('syncing', 'جاري حذف الملفات من السحابة...');
                 const supabase = getSupabaseClient();
                 if (supabase) {
-                    const { error: storageError } = await supabase.storage.from('documents').remove(deletedIds.documentPaths);
-                    if (!storageError) successfulDeletions.documentPaths = deletedIds.documentPaths;
+                    const { error: storageError } = await supabase.storage.from('documents').remove(deletedIdsRef.current.documentPaths);
+                    if (!storageError) successfulDeletions.documentPaths = deletedIdsRef.current.documentPaths;
                 }
             }
             
             const flatDeletes: Partial<FlatData> = {
-                clients: deletedIds.clients.map(id => ({ id })) as any,
-                cases: deletedIds.cases.map(id => ({ id })) as any,
-                stages: deletedIds.stages.map(id => ({ id })) as any,
-                sessions: deletedIds.sessions.map(id => ({ id })) as any,
-                admin_tasks: deletedIds.adminTasks.map(id => ({ id })) as any,
-                appointments: deletedIds.appointments.map(id => ({ id })) as any,
-                accounting_entries: deletedIds.accountingEntries.map(id => ({ id })) as any,
-                assistants: deletedIds.assistants.map(name => ({ name })),
-                invoices: deletedIds.invoices.map(id => ({ id })) as any,
-                invoice_items: deletedIds.invoiceItems.map(id => ({ id })) as any,
-                case_documents: deletedIds.documents.map(id => ({ id })) as any,
-                site_finances: deletedIds.siteFinances.map(id => ({ id })) as any,
+                clients: deletedIdsRef.current.clients.map(id => ({ id })) as any,
+                cases: deletedIdsRef.current.cases.map(id => ({ id })) as any,
+                stages: deletedIdsRef.current.stages.map(id => ({ id })) as any,
+                sessions: deletedIdsRef.current.sessions.map(id => ({ id })) as any,
+                admin_tasks: deletedIdsRef.current.adminTasks.map(id => ({ id })) as any,
+                appointments: deletedIdsRef.current.appointments.map(id => ({ id })) as any,
+                accounting_entries: deletedIdsRef.current.accountingEntries.map(id => ({ id })) as any,
+                assistants: deletedIdsRef.current.assistants.map(name => ({ name })),
+                invoices: deletedIdsRef.current.invoices.map(id => ({ id })) as any,
+                invoice_items: deletedIdsRef.current.invoiceItems.map(id => ({ id })) as any,
+                case_documents: deletedIdsRef.current.documents.map(id => ({ id })) as any,
+                site_finances: deletedIdsRef.current.siteFinances.map(id => ({ id })) as any,
             };
 
             if (Object.values(flatDeletes).some(arr => arr && arr.length > 0)) {
                 setStatus('syncing', 'جاري حذف البيانات من السحابة...');
                 await deleteDataFromSupabase(flatDeletes, currentUser);
-                successfulDeletions = { ...successfulDeletions, ...deletedIds };
+                successfulDeletions = { ...successfulDeletions, ...deletedIdsRef.current };
             }
 
             setStatus('syncing', 'جاري رفع البيانات إلى السحابة...');
@@ -471,10 +482,10 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
             if (err.table) errorMessage = `[جدول: ${err.table}] ${errorMessage}`;
             setStatus('error', `فشل المزامنة: ${errorMessage}`);
         }
-    }, [localData, userRef, isOnline, onDataSynced, deletedIds, onDeletionsSynced, isAuthLoading, syncStatus, onDocumentsUploaded, excludedDocIds]);
+    }, [isOnline, onDataSynced, onDeletionsSynced, isAuthLoading, onDocumentsUploaded]); // Removed syncStatus from deps
 
     const fetchAndRefresh = React.useCallback(async () => {
-        if (syncStatus === 'syncing' || isAuthLoading) return;
+        if (syncStatusRef.current === 'syncing' || isAuthLoading) return;
         const currentUser = userRef.current;
         if (!isOnline || !currentUser) return;
     
@@ -488,10 +499,10 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
             const remoteFlatDataUntyped = transformRemoteToLocal(remoteDataRaw);
     
             const deletedIdsSets = {
-                clients: new Set(deletedIds.clients), cases: new Set(deletedIds.cases), stages: new Set(deletedIds.stages),
-                sessions: new Set(deletedIds.sessions), adminTasks: new Set(deletedIds.adminTasks), appointments: new Set(deletedIds.appointments),
-                accountingEntries: new Set(deletedIds.accountingEntries), invoices: new Set(deletedIds.invoices), invoiceItems: new Set(deletedIds.invoiceItems),
-                assistants: new Set(deletedIds.assistants), documents: new Set(deletedIds.documents), profiles: new Set(deletedIds.profiles), siteFinances: new Set(deletedIds.siteFinances),
+                clients: new Set(deletedIdsRef.current.clients), cases: new Set(deletedIdsRef.current.cases), stages: new Set(deletedIdsRef.current.stages),
+                sessions: new Set(deletedIdsRef.current.sessions), adminTasks: new Set(deletedIdsRef.current.adminTasks), appointments: new Set(deletedIdsRef.current.appointments),
+                accountingEntries: new Set(deletedIdsRef.current.accountingEntries), invoices: new Set(deletedIdsRef.current.invoices), invoiceItems: new Set(deletedIdsRef.current.invoiceItems),
+                assistants: new Set(deletedIdsRef.current.assistants), documents: new Set(deletedIdsRef.current.documents), profiles: new Set(deletedIdsRef.current.profiles), siteFinances: new Set(deletedIdsRef.current.siteFinances),
             };
     
             const remoteFlatData: Partial<FlatData> = {};
@@ -503,37 +514,41 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
                 } else { (remoteFlatData as any)[key] = (remoteFlatDataUntyped as any)[key]; }
             }
     
-            let localFlatData = flattenData(localData);
+            let localFlatData = flattenData(localDataRef.current);
             localFlatData = applyDeletionsToLocal(localFlatData, remoteDeletions);
 
-            const mergedAssistants = Array.from(new Set([...localFlatData.assistants.map(a => a.name), ...(remoteFlatData.assistants || []).map(a => a.name)])).map(name => ({ name }));
-    
-            const mergedFlatData: FlatData = {
-                clients: mergeForRefresh(localFlatData.clients, remoteFlatData.clients || []),
-                cases: mergeForRefresh(localFlatData.cases, remoteFlatData.cases || []),
-                stages: mergeForRefresh(localFlatData.stages, remoteFlatData.stages || []),
-                sessions: mergeForRefresh(localFlatData.sessions, remoteFlatData.sessions || []),
-                admin_tasks: mergeForRefresh(localFlatData.admin_tasks, remoteFlatData.admin_tasks || []),
-                appointments: mergeForRefresh(localFlatData.appointments, remoteFlatData.appointments || []),
-                accounting_entries: mergeForRefresh(localFlatData.accounting_entries, remoteFlatData.accounting_entries || []),
-                assistants: mergedAssistants,
-                invoices: mergeForRefresh(localFlatData.invoices, remoteFlatData.invoices || []),
-                invoice_items: mergeForRefresh(localFlatData.invoice_items, remoteFlatData.invoice_items || []),
-                case_documents: mergeForRefresh(localFlatData.case_documents, remoteFlatData.case_documents || []),
-                profiles: mergeForRefresh(localFlatData.profiles, remoteFlatData.profiles || []),
-                site_finances: mergeForRefresh(localFlatData.site_finances, remoteFlatData.site_finances || []),
-            };
-    
-            const mergedData = constructData(mergedFlatData);
-            onDataSynced(mergedData);
+            // Important: Handle conflicts or just update with remote data.
+            // For fetchAndRefresh, we usually trust remote more, but we can merge.
+            // Using a simple merge strategy here similar to sync but favoring remote for conflict if needed.
+            // Actually manualSync logic already handles merging logic better.
+            // But fetchAndRefresh implies "I want what's on server".
+            // If we just pull, we might lose local unsynced changes.
+            // So we should merge.
+            
+            const mergedFlatData: Partial<FlatData> = {};
+            
+            for (const key of Object.keys(remoteFlatData) as (keyof FlatData)[]) {
+                const remoteItems = (remoteFlatData as any)[key] || [];
+                const localItems = (localFlatData as any)[key] || [];
+                
+                // Merge strategy:
+                // 1. If item in remote and local, take newest.
+                // 2. If item in remote only, take remote.
+                // 3. If item in local only, take local (it might be a new unsynced item).
+                
+                const mergedItems = mergeForRefresh(localItems, remoteItems);
+                (mergedFlatData as any)[key] = mergedItems;
+            }
+            
+            const finalMergedData = constructData(mergedFlatData as FlatData);
+            onDataSynced(finalMergedData);
             setStatus('synced');
+
         } catch (err: any) {
-            let errorMessage = err.message || 'حدث خطأ غير متوقع.';
-            if (String(errorMessage).toLowerCase().includes('failed to fetch')) errorMessage = 'فشل الاتصال بالخادم.';
-            else console.error("Error during realtime refresh:", err);
-            setStatus('error', `فشل تحديث البيانات: ${errorMessage}`);
+            console.error("Fetch error:", err);
+            setStatus('error', `فشل التحديث: ${err.message}`);
         }
-    }, [localData, deletedIds, userRef, isOnline, onDataSynced, isAuthLoading, syncStatus]);
+    }, [isOnline, onDataSynced, isAuthLoading]);
 
     return { manualSync, fetchAndRefresh };
 };
