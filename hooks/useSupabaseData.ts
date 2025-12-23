@@ -355,10 +355,16 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     
                     const { data: blob, error } = await supabase.storage.from('documents').download(doc.storagePath);
                     if (error) {
-                        // If file is missing on server, mark as error to stop infinite retries
-                        if (error.message?.includes('404') || error.message?.includes('Object not found') || (error as any).status === 404) {
-                            console.warn(`Doc ${doc.id} (${doc.name}) not found on cloud (404).`);
+                        // Check specifically for 404/Object Not Found
+                        const isNotFoundError = error.message?.includes('404') || 
+                                              error.message?.includes('Object not found') || 
+                                              (error as any).status === 404;
+                        
+                        if (isNotFoundError) {
+                            console.warn(`Doc ${doc.id} (${doc.name}) not found on cloud (404). Setting to error state to stop retries.`);
                             await db.put(DOCS_METADATA_STORE_NAME, { ...doc, localState: 'error' }, doc.id);
+                            updateData(prev => ({...prev, documents: prev.documents.map(d => d.id === doc.id ? {...d, localState: 'error'} : d)}), { markDirty: false });
+                            continue; // Move to next doc
                         }
                         throw error;
                     }
@@ -370,11 +376,11 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     await db.put(DOCS_METADATA_STORE_NAME, completedDoc, doc.id);
                     updateData(prev => ({...prev, documents: prev.documents.map(d => d.id === doc.id ? completedDoc : d)}), { markDirty: false });
                 } catch (e: any) {
-                    // Standardizing error logging to avoid empty object logs
-                    const errorMsg = e.message || (typeof e === 'string' ? e : JSON.stringify(e));
-                    console.error(`Failed to auto-download doc ${doc.id}:`, e);
+                    // Improved error logging to capture details instead of empty objects
+                    const errorMsg = e.message || (e.error_description) || (typeof e === 'object' ? JSON.stringify(e, Object.getOwnPropertyNames(e)) : String(e));
+                    console.error(`Failed to auto-download doc ${doc.id}: ${errorMsg}`, e);
                     
-                    // Mark as error locally to allow the user to see it and try again later
+                    // Mark as error locally to prevent tight loops
                     await db.put(DOCS_METADATA_STORE_NAME, { ...doc, localState: 'error' }, doc.id);
                     updateData(prev => ({...prev, documents: prev.documents.map(d => d.id === doc.id ? {...d, localState: 'error'} : d)}), { markDirty: false });
                 }

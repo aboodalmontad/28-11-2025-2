@@ -1,10 +1,11 @@
 
 // This version number is incremented to trigger the 'install' event and update the cache.
-const CACHE_NAME = 'lawyer-app-cache-v29-12-2025-v4';
+const CACHE_NAME = 'lawyer-app-cache-v29-12-2025-v5';
 
 const urlsToCache = [
   './',
   './index.html',
+  './index.js', // Ensure bundled app logic is cached
   './manifest.json',
   './icon.svg',
   'https://cdn.tailwindcss.com',
@@ -21,7 +22,10 @@ const urlsToCache = [
 self.addEventListener('install', event => {
   self.skipWaiting(); 
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(urlsToCache))
+    caches.open(CACHE_NAME).then(cache => {
+        // Try caching all assets, but ignore individual failures to ensure the worker installs
+        return Promise.allSettled(urlsToCache.map(url => cache.add(url)));
+    })
   );
 });
 
@@ -65,7 +69,10 @@ self.addEventListener('fetch', event => {
 
         return networkResponse;
       }).catch(err => {
-          // Robust error logging for debugging network failures
+          // If offline and request is for navigation (HTML), fallback to root
+          if (event.request.mode === 'navigate') {
+              return caches.match('./');
+          }
           console.error('Fetch failed for:', event.request.url, err);
           throw err;
       });

@@ -2,19 +2,31 @@
 import * as React from 'react';
 import type { Session as AuthSession, User } from '@supabase/supabase-js';
 
+import ConfigurationModal from './components/ConfigurationModal';
+import { useSupabaseData, SyncStatus } from './hooks/useSupabaseData';
+import { UserIcon, CalculatorIcon, Cog6ToothIcon, NoSymbolIcon, PowerIcon, CalendarDaysIcon, ClipboardDocumentCheckIcon, ExclamationTriangleIcon, ArrowPathIcon } from './components/icons';
+import ContextMenu, { MenuItem } from './components/ContextMenu';
+import AdminTaskModal from './components/AdminTaskModal';
+import { AdminTask, Profile, Permissions } from './types';
+import { getSupabaseClient } from './supabaseClient';
+import { useOnlineStatus } from './hooks/useOnlineStatus';
+import NotificationCenter from './components/RealtimeNotifier';
+import { DataProvider } from './context/DataContext';
+import SyncStatusIndicator from './components/SyncStatusIndicator';
+
 // Helper for lazy loading with enhanced retry logic to fix "Failed to fetch dynamically imported module"
-function lazyWithRetry(componentImport: () => Promise<any>, retries = 3) {
+function lazyWithRetry(componentImport: () => Promise<any>, retries = 5) {
   return React.lazy(async () => {
     for (let i = 0; i < retries; i++) {
       try {
         return await componentImport();
       } catch (error) {
         if (i === retries - 1) throw error;
-        console.error(`Chunk load failed (attempt ${i + 1}/${retries}), retrying in 2s...`, error);
+        console.warn(`Chunk load failed (attempt ${i + 1}/${retries}), retrying in 2s...`, error);
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
     }
-    return await componentImport(); // Should not reach here if retries exhausted
+    return await componentImport();
   });
 }
 
@@ -27,17 +39,41 @@ const AdminDashboard = lazyWithRetry(() => import('./pages/AdminDashboard'));
 const PendingApprovalPage = lazyWithRetry(() => import('./pages/PendingApprovalPage'));
 const SubscriptionExpiredPage = lazyWithRetry(() => import('./pages/SubscriptionExpiredPage'));
 
-import ConfigurationModal from './components/ConfigurationModal';
-import { useSupabaseData, SyncStatus } from './hooks/useSupabaseData';
-import { UserIcon, CalculatorIcon, Cog6ToothIcon, NoSymbolIcon, PowerIcon, CalendarDaysIcon, ClipboardDocumentCheckIcon, ExclamationTriangleIcon, ArrowPathIcon } from './components/icons';
-import ContextMenu, { MenuItem } from './components/ContextMenu';
-import AdminTaskModal from './components/AdminTaskModal';
-import { AdminTask, Profile, Permissions } from './types';
-import { getSupabaseClient } from './supabaseClient';
-import { useOnlineStatus } from './hooks/useOnlineStatus';
-import NotificationCenter from './components/RealtimeNotifier';
-import { DataProvider } from './context/DataContext';
-import SyncStatusIndicator from './components/SyncStatusIndicator';
+// Explicitly defined Props and State interfaces for ErrorBoundary
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+}
+
+// ErrorBoundary class to catch render and chunk-load errors
+// Fix: Ensured inheritance from React.Component with explicit generic types to resolve "Property 'props' does not exist" error.
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() { return { hasError: true }; }
+  componentDidCatch(error: any, errorInfo: any) { console.error("ErrorBoundary caught an error", error, errorInfo); }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4 text-center">
+            <div className="bg-white p-8 rounded-lg shadow-lg border border-red-100 max-w-md">
+                <ExclamationTriangleIcon className="w-16 h-16 text-red-600 mx-auto mb-4" />
+                <h1 className="text-2xl font-bold text-gray-800 mb-4">عذراً، حدث خطأ غير متوقع</h1>
+                <p className="text-gray-600 mb-8">قد يكون هذا بسبب ضعف في الاتصال بالإنترنت أو خطأ مؤقت في تحميل أحد مكونات النظام.</p>
+                <button onClick={() => window.location.reload()} className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-bold shadow-md">تحديث الصفحة</button>
+            </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 type Page = 'home' | 'admin-tasks' | 'clients' | 'accounting' | 'settings';
 
@@ -232,9 +268,14 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
 
     React.useEffect(() => {
         const checkAuth = async () => {
-            // Increased timeout for slower connections to prevent early fallback to "local session"
+            // Early return if offline and we have a cached session to avoid hanging on getSession
+            if (!isOnline && session?.user) {
+                setIsAuthLoading(false);
+                return;
+            }
+
             const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error("Auth Timeout")), 6000)
+                setTimeout(() => reject(new Error("Auth Timeout")), 5000)
             );
 
             try {
@@ -262,6 +303,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                 setSession(null);
                 setIsAuthLoading(false);
                 localStorage.removeItem(LAST_USER_CACHE_KEY);
+                localStorage.removeItem('lawyerAppLastUserCredentials');
             } else if (newSession) {
                 setSession(newSession);
                 setIsAuthLoading(false);
@@ -270,7 +312,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
         });
         
         return () => subscription.unsubscribe();
-    }, [supabase]);
+    }, [supabase, isOnline]);
 
     React.useEffect(() => {
         if (session && data.profiles.length > 0) {
@@ -281,18 +323,27 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
 
     const handleLogout = async () => {
         localStorage.removeItem(LAST_USER_CACHE_KEY);
+        localStorage.removeItem('lawyerAppLastUserCredentials');
         setSession(null);
-        await supabase!.auth.signOut();
+        if (isOnline) await supabase!.auth.signOut();
         onRefresh();
+    };
+
+    const handleLoginSuccess = (user: User, isOffline = false) => {
+        const newSession = { user, access_token: isOffline ? 'local' : 'active' } as AuthSession;
+        setSession(newSession);
+        localStorage.setItem(LAST_USER_CACHE_KEY, JSON.stringify(user));
     };
 
     if (!session && isAuthLoading) return <FullScreenLoader text="جاري التحقق من الهوية..." />;
     
     if (!session) {
         return (
-            <React.Suspense fallback={<FullScreenLoader />}>
-                <LoginPage onForceSetup={() => setShowConfigModal(true)} onLoginSuccess={(u) => setSession({user: u} as AuthSession)}/>
-            </React.Suspense>
+            <ErrorBoundary>
+                <React.Suspense fallback={<FullScreenLoader />}>
+                    <LoginPage onForceSetup={() => setShowConfigModal(true)} onLoginSuccess={handleLoginSuccess}/>
+                </React.Suspense>
+            </ErrorBoundary>
         );
     }
 
@@ -303,9 +354,11 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     if (effectiveProfile && effectiveProfile.role === 'admin') {
          return (
             <DataProvider value={data}>
-                <React.Suspense fallback={<FullScreenLoader />}>
-                    <AdminDashboard onLogout={handleLogout} onOpenConfig={() => setShowConfigModal(true)} />
-                </React.Suspense>
+                <ErrorBoundary>
+                    <React.Suspense fallback={<FullScreenLoader />}>
+                        <AdminDashboard onLogout={handleLogout} onOpenConfig={() => setShowConfigModal(true)} />
+                    </React.Suspense>
+                </ErrorBoundary>
             </DataProvider>
         );
     }
@@ -323,19 +376,21 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
 
     return (
         <DataProvider value={data}>
-            <div className="flex flex-col h-screen bg-gray-50">
-                <Navbar currentPage={currentPage} onNavigate={setCurrentPage} onLogout={handleLogout} syncStatus={data.syncStatus} lastSyncError={data.lastSyncError} isDirty={data.isDirty} isOnline={isOnline} onManualSync={data.manualSync} profile={effectiveProfile || null} isAutoSyncEnabled={data.isAutoSyncEnabled} permissions={data.permissions} />
-                <OfflineBanner />
-                <main className="flex-grow p-4 sm:p-6 overflow-y-auto pb-20 sm:pb-6">
-                    <React.Suspense fallback={<FullScreenLoader />}>
-                        {renderPage()}
-                    </React.Suspense>
-                </main>
-                <MobileNavbar currentPage={currentPage} onNavigate={setCurrentPage} permissions={data.permissions} />
-                <AdminTaskModal isOpen={isAdminTaskModalOpen} onClose={() => setIsAdminTaskModalOpen(false)} onSubmit={(t) => { data.setAdminTasks(prev => [...prev, {...t, id: t.id || `t-${Date.now()}`, completed: false} as AdminTask]); setIsAdminTaskModalOpen(false); }} initialData={initialAdminTaskData} assistants={data.assistants} />
-                <ContextMenu isOpen={contextMenu.isOpen} position={contextMenu.position} menuItems={contextMenu.menuItems} onClose={() => setContextMenu({...contextMenu, isOpen: false})} />
-                <NotificationCenter appointmentAlerts={data.triggeredAlerts} realtimeAlerts={data.realtimeAlerts} userApprovalAlerts={data.userApprovalAlerts} dismissAppointmentAlert={data.dismissAlert} dismissRealtimeAlert={data.dismissRealtimeAlert} dismissUserApprovalAlert={data.dismissUserApprovalAlert} />
-            </div>
+            <ErrorBoundary>
+                <div className="flex flex-col h-screen bg-gray-50">
+                    <Navbar currentPage={currentPage} onNavigate={setCurrentPage} onLogout={handleLogout} syncStatus={data.syncStatus} lastSyncError={data.lastSyncError} isDirty={data.isDirty} isOnline={isOnline} onManualSync={data.manualSync} profile={effectiveProfile || null} isAutoSyncEnabled={data.isAutoSyncEnabled} permissions={data.permissions} />
+                    <OfflineBanner />
+                    <main className="flex-grow p-4 sm:p-6 overflow-y-auto pb-20 sm:pb-6">
+                        <React.Suspense fallback={<FullScreenLoader />}>
+                            {renderPage()}
+                        </React.Suspense>
+                    </main>
+                    <MobileNavbar currentPage={currentPage} onNavigate={setCurrentPage} permissions={data.permissions} />
+                    <AdminTaskModal isOpen={isAdminTaskModalOpen} onClose={() => setIsAdminTaskModalOpen(false)} onSubmit={(t) => { data.setAdminTasks(prev => [...prev, {...t, id: t.id || `t-${Date.now()}`, completed: false} as AdminTask]); setIsAdminTaskModalOpen(false); }} initialData={initialAdminTaskData} assistants={data.assistants} />
+                    <ContextMenu isOpen={contextMenu.isOpen} position={contextMenu.position} menuItems={contextMenu.menuItems} onClose={() => setContextMenu({...contextMenu, isOpen: false})} />
+                    <NotificationCenter appointmentAlerts={data.triggeredAlerts} realtimeAlerts={data.realtimeAlerts} userApprovalAlerts={data.userApprovalAlerts} dismissAppointmentAlert={data.dismissAlert} dismissRealtimeAlert={data.dismissRealtimeAlert} dismissUserApprovalAlert={data.dismissUserApprovalAlert} />
+                </div>
+            </ErrorBoundary>
         </DataProvider>
     );
 };
