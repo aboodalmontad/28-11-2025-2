@@ -1,23 +1,21 @@
 
 import * as React from 'react';
-// Fix: Use `import type` for Session and User as they are used as types, not values. This resolves module resolution errors in some environments.
+// Fix: Use `import type` for Session and User as they are used as types, not a value.
 import type { Session as AuthSession, User } from '@supabase/supabase-js';
 
-// Lazy import ALL page components for code splitting.
-// This ensures the browser only downloads the code needed for the current screen.
-const ClientsPage = React.lazy(() => import('./pages/ClientsPage'));
-const HomePage = React.lazy(() => import('./pages/HomePage'));
-const AccountingPage = React.lazy(() => import('./pages/AccountingPage'));
-const SettingsPage = React.lazy(() => import('./pages/SettingsPage'));
-const LoginPage = React.lazy(() => import('./pages/LoginPage'));
-const AdminDashboard = React.lazy(() => import('./pages/AdminDashboard'));
-const PendingApprovalPage = React.lazy(() => import('./pages/PendingApprovalPage'));
-const SubscriptionExpiredPage = React.lazy(() => import('./pages/SubscriptionExpiredPage'));
-
+// Static imports instead of lazy loading to fix "Failed to fetch dynamically imported module" errors
+// and improve reliability in offline mode/constrained environments.
+import ClientsPage from './pages/ClientsPage';
+import HomePage from './pages/HomePage';
+import AccountingPage from './pages/AccountingPage';
+import SettingsPage from './pages/SettingsPage';
+import LoginPage from './pages/LoginPage';
+import AdminDashboard from './pages/AdminDashboard';
+import PendingApprovalPage from './pages/PendingApprovalPage';
+import SubscriptionExpiredPage from './pages/SubscriptionExpiredPage';
 
 import ConfigurationModal from './components/ConfigurationModal';
 import { useSupabaseData, SyncStatus } from './hooks/useSupabaseData';
-// Fix: Added ExclamationTriangleIcon to the import list to resolve the "Cannot find name" error on line 589.
 import { UserIcon, CalculatorIcon, Cog6ToothIcon, NoSymbolIcon, PowerIcon, PrintIcon, ShareIcon, CalendarDaysIcon, ClipboardDocumentCheckIcon, ExclamationCircleIcon, ExclamationTriangleIcon, ArrowPathIcon } from './components/icons';
 import ContextMenu, { MenuItem } from './components/ContextMenu';
 import AdminTaskModal from './components/AdminTaskModal';
@@ -31,7 +29,6 @@ import PrintableReport from './components/PrintableReport';
 import { printElement } from './utils/printUtils';
 import { formatDate, isSameDay, safeReviveDate } from './utils/dateUtils';
 import SyncStatusIndicator from './components/SyncStatusIndicator';
-
 
 type Page = 'home' | 'admin-tasks' | 'clients' | 'accounting' | 'settings';
 
@@ -54,7 +51,6 @@ const Navbar: React.FC<{
     permissions: Permissions;
 }> = ({ currentPage, onNavigate, onLogout, syncStatus, lastSyncError, isDirty, isOnline, onManualSync, profile, isAutoSyncEnabled, homePageActions, permissions }) => {
     
-    // Define all items, then filter based on permissions
     const allNavItems = [
         { id: 'home', label: 'المفكرة', icon: CalendarDaysIcon, visible: permissions.can_view_agenda }, 
         { id: 'admin-tasks', label: 'المهام الإدارية', icon: ClipboardDocumentCheckIcon, visible: permissions.can_view_admin_tasks },
@@ -71,7 +67,7 @@ const Navbar: React.FC<{
                     <div className="flex flex-col items-start sm:flex-row sm:items-baseline gap-0 sm:gap-2">
                         <h1 className="text-xl font-bold text-gray-800">مكتب المحامي</h1>
                         <div className="flex items-center gap-1 text-xs text-gray-500">
-                            <span>الإصدار: 27-12-2025</span>
+                            <span>الإصدار: 27-12-2025-2</span>
                             {profile && (
                                 <>
                                     <span className="mx-1 text-gray-300">|</span>
@@ -81,7 +77,6 @@ const Navbar: React.FC<{
                         </div>
                     </div>
                 </button>
-                 {/* Desktop Navigation - Hidden on Mobile */}
                  <div className="hidden sm:flex items-center gap-1 sm:gap-2">
                     {navItems.map(item => (
                         <button
@@ -95,7 +90,6 @@ const Navbar: React.FC<{
                         </button>
                     ))}
                 </div>
-                {/* Page Actions - Always visible if conditions met */}
                 {currentPage === 'home' && homePageActions}
             </nav>
             <div className="flex items-center gap-2 sm:gap-4">
@@ -171,7 +165,7 @@ const OfflineBanner: React.FC = () => {
             setIsVisible(false);
             const timer = setTimeout(() => {
                 setIsRendered(false);
-            }, 300); // Match transition duration
+            }, 300);
             return () => clearTimeout(timer);
         }
     }, [isOnline]);
@@ -192,7 +186,6 @@ const OfflineBanner: React.FC = () => {
     );
 };
 
-
 const LAST_USER_CACHE_KEY = 'lawyerAppLastUser';
 const LAST_USER_CREDENTIALS_CACHE_KEY = 'lawyerAppLastUserCredentials';
 const UNPOSTPONED_MODAL_SHOWN_KEY = 'lawyerAppUnpostponedModalShown';
@@ -205,7 +198,6 @@ const FullScreenLoader: React.FC<{ text?: string }> = ({ text = 'جاري الت
 );
 
 const App: React.FC<AppProps> = ({ onRefresh }) => {
-    // 1. Optimistic Session Initialization from LocalStorage
     const [session, setSession] = React.useState<AuthSession | null>(() => {
         if (typeof window !== 'undefined') {
             try {
@@ -228,17 +220,13 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     });
 
     const [isAuthLoading, setIsAuthLoading] = React.useState(!session);
-    
     const [profile, setProfile] = React.useState<Profile | null>(null);
     const [showConfigModal, setShowConfigModal] = React.useState(false);
-
     const [currentPage, setCurrentPage] = React.useState<Page>('home');
     const [isAdminTaskModalOpen, setIsAdminTaskModalOpen] = React.useState(false);
     const [initialAdminTaskData, setInitialAdminTaskData] = React.useState<any>(null);
     const [contextMenu, setContextMenu] = React.useState<{ isOpen: boolean; position: { x: number; y: number }; menuItems: MenuItem[] }>({ isOpen: false, position: { x: 0, y: 0 }, menuItems: [] });
     const [initialInvoiceData, setInitialInvoiceData] = React.useState<{ clientId: string; caseId?: string } | undefined>();
-    
-    // State lifted from HomePage for printing
     const [isPrintModalOpen, setIsPrintModalOpen] = React.useState(false);
     const [isPrintAssigneeModalOpen, setIsPrintAssigneeModalOpen] = React.useState(false);
     const [isShareAssigneeModalOpen, setIsShareAssigneeModalOpen] = React.useState(false);
@@ -251,18 +239,13 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
 
     const supabase = getSupabaseClient();
     const isOnline = useOnlineStatus();
-
-    // Fetch central data
     const data = useSupabaseData(session?.user ?? null, isAuthLoading);
 
-    // Effect: Fix for "Infinite profile loading"
-    // Triggers a manual sync automatically if user is logged in but profile is missing locally.
     React.useEffect(() => {
         const hasSessionButNoProfile = session && !profile && data.profiles.length === 0;
         const canSync = isOnline && !data.isDataLoading && data.syncStatus !== 'syncing' && !isAuthLoading;
         
         if (hasSessionButNoProfile && canSync) {
-            console.log("Profile missing locally, triggering initial sync...");
             data.manualSync();
         }
     }, [session, profile, data.profiles.length, isOnline, data.isDataLoading, data.syncStatus, isAuthLoading]);
@@ -319,11 +302,9 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
         };
 
         checkSession();
-
         return () => subscription.unsubscribe();
     }, [supabase, onRefresh, isOnline]);
     
-
     React.useEffect(() => {
         if (session && data.profiles.length > 0) {
             const userProfile = data.profiles.find(p => p.id === session.user.id);
@@ -338,18 +319,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
             sessionStorage.setItem(UNPOSTPONED_MODAL_SHOWN_KEY, 'true');
         }
 
-    }, [session, data.profiles, data.unpostponedSessions, data.setShowUnpostponedSessionsModal]);
-
-    React.useEffect(() => {
-        if (session) {
-            import('./pages/ClientsPage');
-            import('./pages/AccountingPage');
-            import('./pages/SettingsPage');
-            import('./pages/AdminDashboard');
-            import('./pages/PendingApprovalPage');
-            import('./pages/SubscriptionExpiredPage');
-        }
-    }, [session]);
+    }, [session, data.profiles, data.unpostponedSessions]);
 
     React.useEffect(() => {
         const justUpdated = localStorage.getItem('lawyerAppUpdated');
@@ -443,7 +413,6 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
             .sort((a, b) => a.time.localeCompare(b.time));
     
         const dailySessions = data.allSessions.filter(s => isSameDay(s.date, selectedDate));
-    
         const allUncompletedTasks = data.adminTasks.filter(t => !t.completed);
         const filteredForAssigneeTasks = assignee ? allUncompletedTasks.filter(t => t.assignee === assignee) : allUncompletedTasks;
     
@@ -573,17 +542,12 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     }
     
     if (!session) {
-        return (
-            <React.Suspense fallback={<FullScreenLoader text="جاري التحميل..." />}>
-                <LoginPage onForceSetup={() => setShowConfigModal(true)} onLoginSuccess={handleLoginSuccess}/>
-            </React.Suspense>
-        );
+        return <LoginPage onForceSetup={() => setShowConfigModal(true)} onLoginSuccess={handleLoginSuccess}/>;
     }
     
     const effectiveProfile = profile || data.profiles.find(p => p.id === session.user.id);
     
     if (!effectiveProfile) {
-         // Show specific UI if sync is finished but profile still not found
          if (data.syncStatus === 'synced' || data.syncStatus === 'error') {
              return (
                  <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-6 text-center">
@@ -600,48 +564,35 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                  </div>
              );
          }
-         
          return <FullScreenLoader text="جاري جلب الملف الشخصي من السحابة..." />;
     }
 
     if (effectiveProfile && !effectiveProfile.mobile_verified && effectiveProfile.role !== 'admin') {
          return (
-            <React.Suspense fallback={<FullScreenLoader />}>
-                <LoginPage 
-                    onForceSetup={() => setShowConfigModal(true)} 
-                    onLoginSuccess={handleLoginSuccess}
-                    initialMode="otp"
-                    currentUser={session.user}
-                    currentMobile={effectiveProfile.mobile_number}
-                    onLogout={handleLogout}
-                    onVerificationSuccess={data.fetchAndRefresh}
-                />
-            </React.Suspense>
+            <LoginPage 
+                onForceSetup={() => setShowConfigModal(true)} 
+                onLoginSuccess={handleLoginSuccess}
+                initialMode="otp"
+                currentUser={session.user}
+                currentMobile={effectiveProfile.mobile_number}
+                onLogout={handleLogout}
+                onVerificationSuccess={data.fetchAndRefresh}
+            />
          );
     }
 
     if (effectiveProfile && !effectiveProfile.is_approved) {
-        return (
-            <React.Suspense fallback={<FullScreenLoader />}>
-                <PendingApprovalPage onLogout={handleLogout} />
-            </React.Suspense>
-        );
+        return <PendingApprovalPage onLogout={handleLogout} />;
     }
 
     if (effectiveProfile && (!effectiveProfile.is_active || (effectiveProfile.subscription_end_date && safeReviveDate(effectiveProfile.subscription_end_date) < new Date()))) {
-        return (
-            <React.Suspense fallback={<FullScreenLoader />}>
-                <SubscriptionExpiredPage onLogout={handleLogout} />
-            </React.Suspense>
-        );
+        return <SubscriptionExpiredPage onLogout={handleLogout} />;
     }
     
     if (effectiveProfile && effectiveProfile.role === 'admin') {
          return (
             <DataProvider value={data}>
-                <React.Suspense fallback={<FullScreenLoader />}>
-                    <AdminDashboard onLogout={handleLogout} onOpenConfig={() => setShowConfigModal(true)} />
-                </React.Suspense>
+                <AdminDashboard onLogout={handleLogout} onOpenConfig={() => setShowConfigModal(true)} />
                 <NotificationCenter 
                     appointmentAlerts={data.triggeredAlerts}
                     realtimeAlerts={data.realtimeAlerts}
@@ -731,9 +682,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                 />
                 <OfflineBanner />
                 <main className="flex-grow p-4 sm:p-6 overflow-y-auto pb-20 sm:pb-6">
-                    <React.Suspense fallback={<FullScreenLoader />}>
-                        {renderPage()}
-                    </React.Suspense>
+                    {renderPage()}
                 </main>
                 
                 <MobileNavbar currentPage={currentPage} onNavigate={handleNavigation} permissions={data.permissions} />
