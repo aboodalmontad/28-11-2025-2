@@ -71,7 +71,7 @@ const Navbar: React.FC<{
                     <div className="flex flex-col items-start sm:flex-row sm:items-baseline gap-0 sm:gap-2">
                         <h1 className="text-xl font-bold text-gray-800">مكتب المحامي</h1>
                         <div className="flex items-center gap-1 text-xs text-gray-500">
-                            <span>الإصدار: 29-12-2025</span>
+                            <span>الإصدار: 27-12-2025</span>
                             {profile && (
                                 <>
                                     <span className="mx-1 text-gray-300">|</span>
@@ -109,7 +109,7 @@ const Navbar: React.FC<{
                 />
                 <button 
                     onClick={() => onNavigate('settings')} 
-                    className={`p-2 rounded-full transition-colors ${currentPage === 'settings' ? 'bg-gray-200 text-gray-800' : 'text-gray-500 hover:bg-gray-100'}`} 
+                    className={`p-2 rounded-full transition-colors ${currentPage === 'settings' ? 'bg-200 text-gray-800' : 'text-gray-500 hover:bg-gray-100'}`} 
                     title="الإعدادات"
                 >
                     <Cog6ToothIcon className="w-5 h-5" />
