@@ -119,38 +119,6 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 GRANT EXECUTE ON FUNCTION public.verify_mobile_otp(text, text) TO anon, authenticated;
 
--- Function to handle password reset via OTP
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-
-CREATE OR REPLACE FUNCTION public.reset_password_with_otp(target_mobile text, code_to_check text, new_password text)
-RETURNS boolean AS $$
-DECLARE
-    target_profile record;
-BEGIN
-    SELECT * INTO target_profile FROM public.profiles WHERE mobile_number = target_mobile;
-    
-    IF target_profile IS NULL OR target_profile.otp_code IS NULL THEN
-        RETURN false;
-    END IF;
-
-    IF target_profile.otp_code = code_to_check THEN
-        -- Update Supabase Auth Password
-        UPDATE auth.users
-        SET encrypted_password = crypt(new_password, gen_salt('bf')),
-            updated_at = now()
-        WHERE id = target_profile.id;
-
-        -- Clear OTP
-        UPDATE public.profiles SET otp_code = null WHERE id = target_profile.id;
-        RETURN true;
-    ELSE
-        RETURN false;
-    END IF;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, auth, extensions;
-GRANT EXECUTE ON FUNCTION public.reset_password_with_otp(text, text, text) TO anon, authenticated;
-
-
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
 DECLARE
@@ -362,7 +330,7 @@ const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ onRetry }) => {
                             </div>
                             <div className="ms-3">
                                 <p className="text-sm text-blue-700">
-                                    هذا التحديث ضروري لإضافة ميزة استعادة كلمة المرور وإصلاح صلاحيات التخزين. يرجى نسخ الكود الجديد وتشغيله.
+                                    هذا التحديث ضروري لإصلاح مشاكل تحميل الوثائق (صلاحيات التخزين)، بالإضافة لإصلاحات المزامنة السابقة. يرجى نسخ الكود الجديد وتشغيله.
                                 </p>
                             </div>
                         </div>
