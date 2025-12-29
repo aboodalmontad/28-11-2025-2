@@ -1,7 +1,7 @@
 
 import * as React from 'react';
 import { getSupabaseClient } from '../supabaseClient';
-import { ExclamationCircleIcon, EyeIcon, EyeSlashIcon, ClipboardDocumentIcon, ClipboardDocumentCheckIcon, ArrowTopRightOnSquareIcon, CheckCircleIcon, UserGroupIcon } from '../components/icons';
+import { ExclamationCircleIcon, EyeIcon, EyeSlashIcon, ClipboardDocumentIcon, ClipboardDocumentCheckIcon, ArrowTopRightOnSquareIcon, CheckCircleIcon, UserGroupIcon, KeyIcon } from '../components/icons';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import type { User } from '@supabase/supabase-js';
 
@@ -40,7 +40,8 @@ const DatabaseIcon: React.FC<{ className?: string }> = ({ className = "w-6 h-6" 
 );
 
 const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, initialMode = 'login', currentUser, currentMobile, onVerificationSuccess, onLogout }) => {
-    const [authStep, setAuthStep] = React.useState<'login' | 'signup' | 'otp'>(initialMode);
+    const [authStep, setAuthStep] = React.useState<'login' | 'signup' | 'otp' | 'forgot-password'>(initialMode);
+    const [forgotPasswordStep, setForgotPasswordStep] = React.useState<'request' | 'verify'>('request');
     const [loading, setLoading] = React.useState(false);
     const [error, setError] = React.useState<React.ReactNode | null>(null);
     const [message, setMessage] = React.useState<string | null>(null);
@@ -48,6 +49,7 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
     const [authFailed, setAuthFailed] = React.useState(false); 
     const [showPassword, setShowPassword] = React.useState(false);
     const [otpCode, setOtpCode] = React.useState('');
+    const [newPassword, setNewPassword] = React.useState('');
     const [isAssistantSignup, setIsAssistantSignup] = React.useState(false);
     const isOnline = useOnlineStatus();
 
@@ -63,8 +65,6 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
             setForm(prev => ({ ...prev, mobile: currentMobile }));
         }
     }, [currentMobile]);
-
-    // ... (cached credentials logic same as before)
 
     const supabase = getSupabaseClient();
 
@@ -106,8 +106,91 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
         if (authFailed) setAuthFailed(false);
     };
 
+    const handleForgotPasswordRequest = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoading(true);
+        setError(null);
+        setMessage(null);
+
+        const normalizedMobile = normalizeMobileForDB(form.mobile);
+        if (!normalizedMobile) {
+            setError('رقم الجوال غير صالح.');
+            setLoading(false);
+            return;
+        }
+
+        if (!supabase) { setError("Supabase client is not available."); setLoading(false); return; }
+
+        try {
+            // 1. Check if user exists first (optional, but good UX)
+            const { data: exists } = await supabase.rpc('check_if_mobile_exists', { mobile_to_check: normalizedMobile });
+            if (!exists) {
+                throw new Error("رقم الجوال غير مسجل.");
+            }
+
+            // 2. Generate OTP
+            const { data: userWithOtp, error: findUserError } = await supabase.from('profiles').select('id').eq('mobile_number', normalizedMobile).single();
+            if (findUserError || !userWithOtp) throw new Error("تعذر العثور على المستخدم.");
+
+            const { data: code, error: otpError } = await supabase.rpc('generate_mobile_otp', { target_user_id: userWithOtp.id });
+            if (otpError) throw otpError;
+
+            // 3. Send via WhatsApp (Simulation)
+            if (code) {
+                const cleanMobile = normalizedMobile.replace(/^0+/, '');
+                const waNumber = `963${cleanMobile}`;
+                const message = `كود التحقق لاستعادة كلمة المرور هو: *${code}*`;
+                const url = `https://wa.me/${waNumber}?text=${encodeURIComponent(message)}`;
+                window.open(url, '_blank');
+                
+                setMessage("تم إرسال كود التحقق عبر واتساب. يرجى إدخاله أدناه.");
+                setForgotPasswordStep('verify');
+            }
+        } catch (err: any) {
+            setError(err.message || "حدث خطأ أثناء إرسال الكود.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleForgotPasswordReset = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoading(true);
+        setError(null);
+
+        const normalizedMobile = normalizeMobileForDB(form.mobile);
+        if (!normalizedMobile) { setError('رقم الجوال غير صالح.'); setLoading(false); return; }
+        if (newPassword.length < 6) { setError('كلمة المرور يجب أن تكون 6 أحرف على الأقل.'); setLoading(false); return; }
+
+        if (!supabase) { setError("Supabase client is not available."); setLoading(false); return; }
+
+        try {
+            const { data: success, error: rpcError } = await supabase.rpc('reset_password_with_otp', {
+                target_mobile: normalizedMobile,
+                code_to_check: otpCode.trim(),
+                new_password: newPassword
+            });
+
+            if (rpcError) throw rpcError;
+
+            if (success) {
+                setMessage("تم تغيير كلمة المرور بنجاح. يمكنك الآن تسجيل الدخول.");
+                setAuthStep('login');
+                setForgotPasswordStep('request');
+                setForm(prev => ({ ...prev, password: '' })); // Clear password field
+                setOtpCode('');
+                setNewPassword('');
+            } else {
+                throw new Error("رمز التحقق غير صحيح.");
+            }
+        } catch (err: any) {
+            setError(err.message || "فشل تغيير كلمة المرور.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const handleOtpSubmit = async (e: React.FormEvent) => {
-        // ... (otp submit logic same as before)
         e.preventDefault();
         setLoading(true);
         setError(null);
@@ -151,7 +234,6 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
         if (!supabase) { setError("Supabase client is not available."); setLoading(false); return; }
     
         if (authStep === 'login') {
-            // ... (login logic)
             try {
                 const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password: form.password });
                 if (signInError) throw signInError;
@@ -214,7 +296,7 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
 
                 <div className="bg-white p-8 rounded-lg shadow-md">
                     <h2 className="text-2xl font-bold text-center text-gray-700 mb-6">
-                        {authStep === 'login' ? 'تسجيل الدخول' : (authStep === 'signup' ? 'إنشاء حساب جديد' : 'تأكيد رقم الجوال')}
+                        {authStep === 'login' ? 'تسجيل الدخول' : (authStep === 'signup' ? 'إنشاء حساب جديد' : (authStep === 'forgot-password' ? 'استعادة كلمة المرور' : 'تأكيد رقم الجوال'))}
                     </h2>
 
                     {error && <div className="mb-4 p-4 text-sm text-red-800 bg-red-100 rounded-lg flex items-start gap-3"><ExclamationCircleIcon className="w-5 h-5 flex-shrink-0 mt-0.5" /><div>{error}</div></div>}
@@ -229,6 +311,36 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                             </form>
                             <div className="text-center">
                                 {onLogout ? <button onClick={onLogout} className="text-sm text-gray-600">تسجيل الخروج</button> : <button onClick={() => setAuthStep('login')} className="text-sm text-blue-600">العودة</button>}
+                            </div>
+                        </div>
+                    ) : authStep === 'forgot-password' ? (
+                        <div className="space-y-6">
+                            {forgotPasswordStep === 'request' ? (
+                                <form onSubmit={handleForgotPasswordRequest} className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700">رقم الجوال المرتبط بالحساب</label>
+                                        <input name="mobile" type="tel" value={form.mobile} onChange={handleInputChange} required className="mt-1 block w-full px-3 py-2 border rounded-md" placeholder="09xxxxxxxx" />
+                                    </div>
+                                    <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white p-2 rounded">{loading ? 'جاري الإرسال...' : 'إرسال رمز التحقق'}</button>
+                                </form>
+                            ) : (
+                                <form onSubmit={handleForgotPasswordReset} className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700">رمز التحقق (تم إرساله عبر واتساب)</label>
+                                        <input type="text" value={otpCode} onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))} className="mt-1 block w-full text-center text-xl tracking-widest px-3 py-2 border rounded-md" placeholder="------" required />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700">كلمة المرور الجديدة</label>
+                                        <div className="relative mt-1">
+                                            <input type={showPassword ? 'text' : 'password'} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required className="block w-full px-3 py-2 border rounded-md" />
+                                            <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute inset-y-0 left-0 px-3 flex items-center text-gray-400">{showPassword ? <EyeSlashIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}</button>
+                                        </div>
+                                    </div>
+                                    <button type="submit" disabled={loading} className="w-full bg-green-600 text-white p-2 rounded">{loading ? 'جاري التحديث...' : 'تغيير كلمة المرور'}</button>
+                                </form>
+                            )}
+                            <div className="text-center">
+                                <button onClick={() => { setAuthStep('login'); setForgotPasswordStep('request'); setError(null); setMessage(null); }} className="text-sm text-blue-600">العودة لتسجيل الدخول</button>
                             </div>
                         </div>
                     ) : (
@@ -262,11 +374,19 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                                     <input name="password" type={showPassword ? 'text' : 'password'} value={form.password} onChange={handleInputChange} required className="block w-full px-3 py-2 border rounded-md" />
                                     <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute inset-y-0 left-0 px-3 flex items-center text-gray-400">{showPassword ? <EyeSlashIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}</button>
                                 </div>
+                                {authStep === 'login' && (
+                                    <div className="mt-2 text-left">
+                                        <button type="button" onClick={() => { setAuthStep('forgot-password'); setError(null); setMessage(null); }} className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1">
+                                            <KeyIcon className="w-4 h-4" />
+                                            نسيت كلمة المرور؟
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                             <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white p-2 rounded">{loading ? 'جاري التحميل...' : (authStep === 'login' ? 'تسجيل الدخول' : 'إنشاء الحساب')}</button>
                         </form>
                     )}
-                    {authStep !== 'otp' && (
+                    {authStep !== 'otp' && authStep !== 'forgot-password' && (
                         <p className="mt-6 text-center text-sm text-gray-600">
                             {authStep === 'login' ? 'ليس لديك حساب؟' : 'لديك حساب بالفعل؟'}
                             <a href="#" onClick={toggleView} className="font-medium text-blue-600 ms-1">{authStep === 'login' ? 'أنشئ حساباً جديداً' : 'سجل الدخول'}</a>
