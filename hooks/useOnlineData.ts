@@ -171,9 +171,8 @@ export const fetchDeletionsFromSupabase = async (): Promise<SyncDeletion[]> => {
         } else {
             msg = String(err);
         }
-        console.warn("Fetch deletions failed (non-critical, continuing sync):", msg);
-        // Return empty array to allow sync to proceed even if deletions check fails
-        return []; 
+        console.error("Fetch deletions error:", msg);
+        throw new Error(msg); 
     }
 };
 
