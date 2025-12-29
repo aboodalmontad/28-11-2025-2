@@ -1,3 +1,4 @@
+
 const esbuild = require('esbuild');
 const fs = require('fs-extra');
 const path = require('path');
@@ -15,7 +16,9 @@ async function build() {
         await esbuild.build({
             entryPoints: ['index.tsx'],
             bundle: true,
-            outfile: path.join(publicDir, 'index.js'),
+            // Use outdir and splitting for proper dynamic imports handling
+            outdir: publicDir,
+            splitting: true,
             jsx: 'automatic',
             format: 'esm', // Output as an ES Module
             sourcemap: true,
@@ -33,8 +36,6 @@ async function build() {
                 'react-router-dom',
                 'react/*', // To handle react/jsx-runtime and other react sub-modules
                 'docx-preview',
-                'pdfjs-dist',
-                'pdfjs-dist/build/pdf.worker.mjs',
             ],
         });
 
