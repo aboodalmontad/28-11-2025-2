@@ -17,7 +17,7 @@ const SubscriptionExpiredPage = React.lazy(() => import('./pages/SubscriptionExp
 
 import ConfigurationModal from './components/ConfigurationModal';
 import { useSupabaseData, SyncStatus } from './hooks/useSupabaseData';
-import { UserIcon, CalculatorIcon, Cog6ToothIcon, NoSymbolIcon, PowerIcon, PrintIcon, ShareIcon, CalendarDaysIcon, ClipboardDocumentCheckIcon, ExclamationCircleIcon, ArrowPathIcon } from './components/icons';
+import { UserIcon, CalculatorIcon, Cog6ToothIcon, NoSymbolIcon, PowerIcon, PrintIcon, ShareIcon, CalendarDaysIcon, ClipboardDocumentCheckIcon, ExclamationCircleIcon, ArrowPathIcon, WifiIcon } from './components/icons';
 import ContextMenu, { MenuItem } from './components/ContextMenu';
 import AdminTaskModal from './components/AdminTaskModal';
 import { AdminTask, Profile, Client, Appointment, AccountingEntry, Invoice, CaseDocument, AppData, SiteFinancialEntry, Permissions } from './types';
@@ -232,9 +232,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     const [isAuthLoading, setIsAuthLoading] = React.useState(!session);
     
     const [profile, setProfile] = React.useState<Profile | null>(null);
-    const [authError, setAuthError] = React.useState<string | null>(null);
     const [showConfigModal, setShowConfigModal] = React.useState(false);
-    const [loginMessage, setLoginMessage] = React.useState<string | null>(null);
 
     const [currentPage, setCurrentPage] = React.useState<Page>('home');
     const [isAdminTaskModalOpen, setIsAdminTaskModalOpen] = React.useState(false);
@@ -255,6 +253,22 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
 
     const supabase = getSupabaseClient();
     const isOnline = useOnlineStatus();
+
+    // Fetch central data
+    const data = useSupabaseData(session?.user ?? null, isAuthLoading);
+
+    // Monitor online status and notify user
+    const prevOnlineRef = React.useRef(isOnline);
+    React.useEffect(() => {
+        if (prevOnlineRef.current !== isOnline) {
+            if (isOnline) {
+                data.addRealtimeAlert('تم استعادة الاتصال بالإنترنت. جاري مزامنة البيانات...', 'sync');
+            } else {
+                data.addRealtimeAlert('انقطع الاتصال بالإنترنت. التطبيق يعمل الآن في وضع الأوفلاين.', 'sync');
+            }
+            prevOnlineRef.current = isOnline;
+        }
+    }, [isOnline, data.addRealtimeAlert]);
 
     // This effect handles authentication state changes and initial verification.
     React.useEffect(() => {
@@ -280,7 +294,6 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
              // 1. If we are OFFLINE, skip server verification entirely.
              //    Trust the optimistic session we loaded from localStorage.
              if (!isOnline) {
-                 console.log("App started offline. Trusting cached session.");
                  setIsAuthLoading(false);
                  return;
              }
@@ -290,13 +303,10 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                 const { data: { session: serverSession }, error } = await supabase!.auth.getSession();
                 
                 if (error) {
-                    console.warn("Initial session verification failed:", error.message);
                     const errorMessage = error.message.toLowerCase();
                     
                     // Handle "Invalid Refresh Token" specifically by aggressively clearing local state
                     if (errorMessage.includes("refresh token") || errorMessage.includes("not found")) {
-                        console.error("Critical Auth Error: Invalid Refresh Token. Cleaning up...");
-                        
                         localStorage.removeItem(LAST_USER_CACHE_KEY);
                         localStorage.removeItem(LAST_USER_CREDENTIALS_CACHE_KEY);
                         Object.keys(localStorage).forEach(key => {
@@ -307,23 +317,12 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                         setSession(null);
                         onRefresh(); 
                     }
-                    else if (errorMessage.includes("failed to fetch") || errorMessage.includes("network")) {
-                        console.warn("Network error during session check. Keeping optimistic session.");
-                    } else {
-                         setSession(null);
-                    }
                 } else if (serverSession) {
                     setSession(serverSession);
                     localStorage.setItem(LAST_USER_CACHE_KEY, JSON.stringify(serverSession.user));
-                } else {
-                    // No session found (logged out)
-                    if (session) {
-                         setSession(null);
-                         localStorage.removeItem(LAST_USER_CACHE_KEY);
-                    }
                 }
              } catch (err) {
-                 console.warn("Unexpected error during session check:", err);
+                 console.warn("Session check error:", err);
              } finally {
                  setIsAuthLoading(false);
              }
@@ -334,8 +333,6 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
         return () => subscription.unsubscribe();
     }, [supabase, onRefresh, isOnline]);
     
-    // Fetch user profile when session is available
-    const data = useSupabaseData(session?.user ?? null, isAuthLoading);
 
     React.useEffect(() => {
         if (session && data.profiles) {
@@ -355,8 +352,6 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     }, [session, data.profiles, data.unpostponedSessions, data.setShowUnpostponedSessionsModal]);
 
     // PRELOAD ALL PAGES ON LOGIN
-    // This ensures all code chunks are downloaded and cached by the Service Worker
-    // immediately after login, fulfilling the "Load everything on first login" requirement.
     React.useEffect(() => {
         if (session) {
             // Trigger download of all lazy-loaded chunks
@@ -373,7 +368,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     React.useEffect(() => {
         const justUpdated = localStorage.getItem('lawyerAppUpdated');
         if (justUpdated === 'true') {
-            data.addRealtimeAlert('تم تحديث التطبيق إلى آخر إصدار بنجاح', 'sync');
+            data.addRealtimeAlert('تم تحديث التطبيق بنجاح!', 'sync');
             localStorage.removeItem('lawyerAppUpdated');
         }
     }, [data.addRealtimeAlert]);
@@ -407,9 +402,9 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
             // 3. Try to sign out from Supabase (if online)
             await supabase!.auth.signOut();
         } catch (error) {
-            console.warn("Logout network failed, state cleared anyway:", error);
+            console.warn("Logout error:", error);
         } finally {
-            // 4. Force a hard app refresh/remount instead of browser reload to avoid 404s/refused connections in preview envs
+            // 4. Force a hard app refresh/remount instead of browser reload
             onRefresh();
         }
     };
@@ -464,8 +459,6 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
         setCurrentPage('accounting');
     };
 
-    // --- Print/Share Logic (Lifted from HomePage) ---
-    // ... (Report generation logic remains same)
     const handleGenerateAssigneeReport = (assignee: string | null) => {
         const dailyAppointments = data.appointments
             .filter(a => isSameDay(a.date, selectedDate))
@@ -572,23 +565,18 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
 
     // --- Render Logic ---
 
-    // Do not show loader if we have a session (optimistic load). 
-    // Only show it if we are truly waiting for initial auth and have no cached session.
     if (isAuthLoading && !session) {
-        return <FullScreenLoader text="جاري تحميل البيانات..." />;
+        return <FullScreenLoader text="جاري التحقق من الهوية..." />;
     }
     
-    // If we have a session, but data is still loading from IDB, show loader.
-    // NOTE: useSupabaseData now sets isDataLoading to false immediately after loading local data.
     if (data.isDataLoading && session) {
-         return <FullScreenLoader text="جاري تحميل البيانات..." />;
+         return <FullScreenLoader text="جاري تحميل قاعدة البيانات المحلية..." />;
     }
     
     const handleLoginSuccess = (user: User, isOfflineLogin: boolean = false) => {
         if (!isOfflineLogin) {
             localStorage.setItem(LAST_USER_CACHE_KEY, JSON.stringify(user));
         }
-        // If offline login, we manually update session here because onAuthStateChange might not fire.
         if (isOfflineLogin) {
              const offlineSession = {
                  access_token: "offline_access_token",
@@ -617,22 +605,14 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
         );
     }
     
-    // Safety check for profile existence before accessing properties
     const effectiveProfile = profile || data.profiles.find(p => p.id === session.user.id);
     
     if (!effectiveProfile) {
-         // If absolutely no profile data is available yet, show loader
-         // Exception: Offline mode might have no profile loaded yet if cache was cleared.
          if (isOnline && data.profiles.length === 0) {
-             return <FullScreenLoader text="جاري تحميل الملف الشخصي..." />;
-         }
-         // Fallback for offline edge case or initial load delay
-         if (!isOnline && !profile) {
-             return <FullScreenLoader text="جاري تحميل البيانات..." />;
+             return <FullScreenLoader text="جاري جلب الملف الشخصي من السحابة..." />;
          }
     }
 
-    // Check mobile verification first
     if (effectiveProfile && !effectiveProfile.mobile_verified && effectiveProfile.role !== 'admin') {
          return (
             <React.Suspense fallback={<FullScreenLoader />}>
@@ -684,11 +664,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     }
 
     const renderPage = () => {
-        // Permission check wrapper
-        const checkPermission = (allowed: boolean) => {
-            if (allowed) return true;
-            return false;
-        };
+        const checkPermission = (allowed: boolean) => allowed;
 
         switch (currentPage) {
             case 'clients':
@@ -763,7 +739,6 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                     permissions={data.permissions}
                 />
                 <OfflineBanner />
-                {/* Added padding-bottom to main content to prevent overlap with the mobile nav */}
                 <main className="flex-grow p-4 sm:p-6 overflow-y-auto pb-20 sm:pb-6">
                     <React.Suspense fallback={<FullScreenLoader />}>
                         {renderPage()}
@@ -804,7 +779,6 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                     dismissUserApprovalAlert={data.dismissUserApprovalAlert}
                 />
 
-                 {/* Modals lifted from HomePage */}
                 {isPrintAssigneeModalOpen && (
                     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50 no-print p-4 overflow-y-auto" onClick={() => setIsPrintAssigneeModalOpen(false)}>
                         <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg" onClick={e => e.stopPropagation()}>

@@ -1,5 +1,6 @@
+
 import * as React from 'react';
-import { ArrowPathIcon, NoSymbolIcon, CheckCircleIcon, ExclamationCircleIcon } from './icons';
+import { ArrowPathIcon, NoSymbolIcon, CheckCircleIcon, ExclamationCircleIcon, WifiIcon } from './icons';
 import { SyncStatus } from '../hooks/useSync';
 
 interface SyncStatusIndicatorProps {
@@ -17,9 +18,9 @@ const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({ status, lastE
     let displayStatus;
     if (!isOnline) {
         displayStatus = {
-            icon: <NoSymbolIcon className="w-5 h-5 text-gray-500" />,
+            icon: <WifiIcon className="w-5 h-5 text-red-500" />,
             text: 'غير متصل',
-            className: 'text-gray-500',
+            className: 'text-red-500',
             title: 'أنت غير متصل بالإنترنت. التغييرات محفوظة محلياً.'
         };
     } else if (!isAutoSyncEnabled && isDirty) {
@@ -79,11 +80,13 @@ const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({ status, lastE
         <button
             onClick={canSyncManually ? onManualSync : undefined}
             disabled={!canSyncManually}
-            className={`flex items-center gap-2 text-sm font-semibold p-2 rounded-lg ${canSyncManually ? 'cursor-pointer hover:bg-gray-100' : 'cursor-default'} ${className}`}
+            className={`flex items-center gap-2 text-sm font-bold p-2 rounded-lg transition-all duration-200 ${canSyncManually ? 'cursor-pointer hover:bg-gray-100' : 'cursor-default'} ${className}`}
             title={displayStatus.title}
         >
-            {displayStatus.icon}
-            <span className={`${displayStatus.className} hidden sm:inline`}>{displayStatus.text}</span>
+            <span className="flex items-center justify-center">
+                {displayStatus.icon}
+            </span>
+            <span className={`${displayStatus.className} hidden md:inline`}>{displayStatus.text}</span>
         </button>
     );
 };
