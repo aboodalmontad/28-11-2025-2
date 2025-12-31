@@ -1,23 +1,22 @@
 
 import * as React from 'react';
-// Fix: Use `import type` for Session and User as they are used as types, not values. This resolves module resolution errors in some environments.
+// Fix: Use `import type` for Session and User as they are used as types, not a value.
 import type { Session as AuthSession, User } from '@supabase/supabase-js';
 
-// Lazy import ALL page components for code splitting.
-// This ensures the browser only downloads the code needed for the current screen.
-const ClientsPage = React.lazy(() => import('./pages/ClientsPage'));
-const HomePage = React.lazy(() => import('./pages/HomePage'));
-const AccountingPage = React.lazy(() => import('./pages/AccountingPage'));
-const SettingsPage = React.lazy(() => import('./pages/SettingsPage'));
-const LoginPage = React.lazy(() => import('./pages/LoginPage'));
-const AdminDashboard = React.lazy(() => import('./pages/AdminDashboard'));
-const PendingApprovalPage = React.lazy(() => import('./pages/PendingApprovalPage'));
-const SubscriptionExpiredPage = React.lazy(() => import('./pages/SubscriptionExpiredPage'));
-
+// Static imports instead of lazy loading to fix "Failed to fetch dynamically imported module" errors
+// and improve reliability in offline mode/constrained environments.
+import ClientsPage from './pages/ClientsPage';
+import HomePage from './pages/HomePage';
+import AccountingPage from './pages/AccountingPage';
+import SettingsPage from './pages/SettingsPage';
+import LoginPage from './pages/LoginPage';
+import AdminDashboard from './pages/AdminDashboard';
+import PendingApprovalPage from './pages/PendingApprovalPage';
+import SubscriptionExpiredPage from './pages/SubscriptionExpiredPage';
 
 import ConfigurationModal from './components/ConfigurationModal';
 import { useSupabaseData, SyncStatus } from './hooks/useSupabaseData';
-import { UserIcon, CalculatorIcon, Cog6ToothIcon, NoSymbolIcon, PowerIcon, PrintIcon, ShareIcon, CalendarDaysIcon, ClipboardDocumentCheckIcon, ExclamationCircleIcon, ArrowPathIcon, WifiIcon } from './components/icons';
+import { UserIcon, CalculatorIcon, Cog6ToothIcon, NoSymbolIcon, PowerIcon, PrintIcon, ShareIcon, CalendarDaysIcon, ClipboardDocumentCheckIcon, ExclamationCircleIcon, ExclamationTriangleIcon, ArrowPathIcon } from './components/icons';
 import ContextMenu, { MenuItem } from './components/ContextMenu';
 import AdminTaskModal from './components/AdminTaskModal';
 import { AdminTask, Profile, Client, Appointment, AccountingEntry, Invoice, CaseDocument, AppData, SiteFinancialEntry, Permissions } from './types';
@@ -28,9 +27,8 @@ import NotificationCenter, { RealtimeAlert } from './components/RealtimeNotifier
 import { IDataContext, DataProvider } from './context/DataContext';
 import PrintableReport from './components/PrintableReport';
 import { printElement } from './utils/printUtils';
-import { formatDate, isSameDay } from './utils/dateUtils';
+import { formatDate, isSameDay, safeReviveDate } from './utils/dateUtils';
 import SyncStatusIndicator from './components/SyncStatusIndicator';
-
 
 type Page = 'home' | 'admin-tasks' | 'clients' | 'accounting' | 'settings';
 
@@ -53,9 +51,8 @@ const Navbar: React.FC<{
     permissions: Permissions;
 }> = ({ currentPage, onNavigate, onLogout, syncStatus, lastSyncError, isDirty, isOnline, onManualSync, profile, isAutoSyncEnabled, homePageActions, permissions }) => {
     
-    // Define all items, then filter based on permissions
     const allNavItems = [
-        { id: 'home', label: 'المفكرة', icon: CalendarDaysIcon, visible: permissions.can_view_agenda }, // Changed to check permissions
+        { id: 'home', label: 'المفكرة', icon: CalendarDaysIcon, visible: permissions.can_view_agenda }, 
         { id: 'admin-tasks', label: 'المهام الإدارية', icon: ClipboardDocumentCheckIcon, visible: permissions.can_view_admin_tasks },
         { id: 'clients', label: 'الموكلين', icon: UserIcon, visible: permissions.can_view_clients || permissions.can_view_cases },
         { id: 'accounting', label: 'المحاسبة', icon: CalculatorIcon, visible: permissions.can_view_finance },
@@ -70,7 +67,7 @@ const Navbar: React.FC<{
                     <div className="flex flex-col items-start sm:flex-row sm:items-baseline gap-0 sm:gap-2">
                         <h1 className="text-xl font-bold text-gray-800">مكتب المحامي</h1>
                         <div className="flex items-center gap-1 text-xs text-gray-500">
-                            <span>الإصدار: 29-12-2025</span>
+                            <span>الإصدار: 27-12-2025-3</span>
                             {profile && (
                                 <>
                                     <span className="mx-1 text-gray-300">|</span>
@@ -80,7 +77,6 @@ const Navbar: React.FC<{
                         </div>
                     </div>
                 </button>
-                 {/* Desktop Navigation - Hidden on Mobile */}
                  <div className="hidden sm:flex items-center gap-1 sm:gap-2">
                     {navItems.map(item => (
                         <button
@@ -94,7 +90,6 @@ const Navbar: React.FC<{
                         </button>
                     ))}
                 </div>
-                {/* Page Actions - Always visible if conditions met */}
                 {currentPage === 'home' && homePageActions}
             </nav>
             <div className="flex items-center gap-2 sm:gap-4">
@@ -108,7 +103,7 @@ const Navbar: React.FC<{
                 />
                 <button 
                     onClick={() => onNavigate('settings')} 
-                    className={`p-2 rounded-full transition-colors ${currentPage === 'settings' ? 'bg-gray-200 text-gray-800' : 'text-gray-500 hover:bg-gray-100'}`} 
+                    className={`p-2 rounded-full transition-colors ${currentPage === 'settings' ? 'bg-200 text-gray-800' : 'text-gray-500 hover:bg-gray-100'}`} 
                     title="الإعدادات"
                 >
                     <Cog6ToothIcon className="w-5 h-5" />
@@ -127,7 +122,7 @@ const MobileNavbar: React.FC<{
     permissions: Permissions;
 }> = ({ currentPage, onNavigate, permissions }) => {
     const allNavItems = [
-        { id: 'home', label: 'المفكرة', icon: CalendarDaysIcon, visible: permissions.can_view_agenda }, // Changed to check permissions
+        { id: 'home', label: 'المفكرة', icon: CalendarDaysIcon, visible: permissions.can_view_agenda }, 
         { id: 'admin-tasks', label: 'المهام', icon: ClipboardDocumentCheckIcon, visible: permissions.can_view_admin_tasks },
         { id: 'clients', label: 'الموكلين', icon: UserIcon, visible: permissions.can_view_clients || permissions.can_view_cases },
         { id: 'accounting', label: 'المحاسبة', icon: CalculatorIcon, visible: permissions.can_view_finance },
@@ -170,7 +165,7 @@ const OfflineBanner: React.FC = () => {
             setIsVisible(false);
             const timer = setTimeout(() => {
                 setIsRendered(false);
-            }, 300); // Match transition duration
+            }, 300);
             return () => clearTimeout(timer);
         }
     }, [isOnline]);
@@ -191,7 +186,6 @@ const OfflineBanner: React.FC = () => {
     );
 };
 
-
 const LAST_USER_CACHE_KEY = 'lawyerAppLastUser';
 const LAST_USER_CREDENTIALS_CACHE_KEY = 'lawyerAppLastUserCredentials';
 const UNPOSTPONED_MODAL_SHOWN_KEY = 'lawyerAppUnpostponedModalShown';
@@ -204,15 +198,12 @@ const FullScreenLoader: React.FC<{ text?: string }> = ({ text = 'جاري الت
 );
 
 const App: React.FC<AppProps> = ({ onRefresh }) => {
-    // 1. Optimistic Session Initialization from LocalStorage
-    // This prevents the "flash of login page" and allows instant offline access.
     const [session, setSession] = React.useState<AuthSession | null>(() => {
         if (typeof window !== 'undefined') {
             try {
                 const lastUserRaw = localStorage.getItem(LAST_USER_CACHE_KEY);
                 if (lastUserRaw) {
                     const user = JSON.parse(lastUserRaw) as User;
-                    // Construct a minimal valid session object for offline use
                     return {
                         access_token: "optimistic_access_token",
                         refresh_token: "optimistic_refresh_token",
@@ -228,19 +219,14 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
         return null;
     });
 
-    // 2. Auth loading is false if we have an optimistic session, allowing instant render.
-    const [isAuthLoading, setIsAuthLoading] = React.useState(!session);
-    
+    const [isAuthLoading, setIsAuthLoading] = React.useState(true);
     const [profile, setProfile] = React.useState<Profile | null>(null);
     const [showConfigModal, setShowConfigModal] = React.useState(false);
-
     const [currentPage, setCurrentPage] = React.useState<Page>('home');
     const [isAdminTaskModalOpen, setIsAdminTaskModalOpen] = React.useState(false);
     const [initialAdminTaskData, setInitialAdminTaskData] = React.useState<any>(null);
     const [contextMenu, setContextMenu] = React.useState<{ isOpen: boolean; position: { x: number; y: number }; menuItems: MenuItem[] }>({ isOpen: false, position: { x: 0, y: 0 }, menuItems: [] });
     const [initialInvoiceData, setInitialInvoiceData] = React.useState<{ clientId: string; caseId?: string } | undefined>();
-    
-    // State lifted from HomePage for printing
     const [isPrintModalOpen, setIsPrintModalOpen] = React.useState(false);
     const [isPrintAssigneeModalOpen, setIsPrintAssigneeModalOpen] = React.useState(false);
     const [isShareAssigneeModalOpen, setIsShareAssigneeModalOpen] = React.useState(false);
@@ -253,26 +239,24 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
 
     const supabase = getSupabaseClient();
     const isOnline = useOnlineStatus();
-
-    // Fetch central data
     const data = useSupabaseData(session?.user ?? null, isAuthLoading);
 
-    // Monitor online status and notify user
-    const prevOnlineRef = React.useRef(isOnline);
     React.useEffect(() => {
-        if (prevOnlineRef.current !== isOnline) {
-            if (isOnline) {
-                data.addRealtimeAlert('تم استعادة الاتصال بالإنترنت. جاري مزامنة البيانات...', 'sync');
-            } else {
-                data.addRealtimeAlert('انقطع الاتصال بالإنترنت. التطبيق يعمل الآن في وضع الأوفلاين.', 'sync');
-            }
-            prevOnlineRef.current = isOnline;
+        const hasSessionButNoProfile = session && !profile && data.profiles.length === 0;
+        const canSync = isOnline && !data.isDataLoading && data.syncStatus !== 'syncing' && !isAuthLoading;
+        
+        if (hasSessionButNoProfile && canSync) {
+            data.manualSync();
         }
-    }, [isOnline, data.addRealtimeAlert]);
+    }, [session, profile, data.profiles.length, isOnline, data.isDataLoading, data.syncStatus, isAuthLoading]);
 
-    // This effect handles authentication state changes and initial verification.
     React.useEffect(() => {
-        const { data: { subscription } } = supabase!.auth.onAuthStateChange((event, newSession) => {
+        if (!supabase) {
+            setIsAuthLoading(false);
+            return;
+        }
+
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
             if (event === 'SIGNED_OUT') {
                 setSession(null);
                 setIsAuthLoading(false);
@@ -289,23 +273,17 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
             }
         });
         
-        // Initial Session Check Logic
         const checkSession = async () => {
-             // 1. If we are OFFLINE, skip server verification entirely.
-             //    Trust the optimistic session we loaded from localStorage.
              if (!isOnline) {
                  setIsAuthLoading(false);
                  return;
              }
 
-             // 2. If ONLINE, attempt to verify with Supabase.
              try {
-                const { data: { session: serverSession }, error } = await supabase!.auth.getSession();
+                const { data: { session: serverSession }, error } = await supabase.auth.getSession();
                 
                 if (error) {
                     const errorMessage = error.message.toLowerCase();
-                    
-                    // Handle "Invalid Refresh Token" specifically by aggressively clearing local state
                     if (errorMessage.includes("refresh token") || errorMessage.includes("not found")) {
                         localStorage.removeItem(LAST_USER_CACHE_KEY);
                         localStorage.removeItem(LAST_USER_CREDENTIALS_CACHE_KEY);
@@ -313,7 +291,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                             if (key.startsWith('sb-')) localStorage.removeItem(key);
                         });
                         
-                        await supabase!.auth.signOut().catch(() => {}); 
+                        await supabase.auth.signOut().catch(() => {}); 
                         setSession(null);
                         onRefresh(); 
                     }
@@ -329,51 +307,33 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
         };
 
         checkSession();
-
         return () => subscription.unsubscribe();
     }, [supabase, onRefresh, isOnline]);
     
-
     React.useEffect(() => {
-        if (session && data.profiles) {
+        if (session && data.profiles.length > 0) {
             const userProfile = data.profiles.find(p => p.id === session.user.id);
             setProfile(userProfile || null);
-        } else {
+        } else if (!session) {
             setProfile(null);
         }
         
-        // Show unpostponed sessions modal once per session
         const modalShown = sessionStorage.getItem(UNPOSTPONED_MODAL_SHOWN_KEY);
         if (session && data.unpostponedSessions.length > 0 && !modalShown) {
             data.setShowUnpostponedSessionsModal(true);
             sessionStorage.setItem(UNPOSTPONED_MODAL_SHOWN_KEY, 'true');
         }
 
-    }, [session, data.profiles, data.unpostponedSessions, data.setShowUnpostponedSessionsModal]);
+    }, [session, data.profiles, data.unpostponedSessions]);
 
-    // PRELOAD ALL PAGES ON LOGIN
-    React.useEffect(() => {
-        if (session) {
-            // Trigger download of all lazy-loaded chunks
-            import('./pages/ClientsPage');
-            import('./pages/AccountingPage');
-            import('./pages/SettingsPage');
-            import('./pages/AdminDashboard');
-            import('./pages/PendingApprovalPage');
-            import('./pages/SubscriptionExpiredPage');
-        }
-    }, [session]);
-
-    // Check for forced update flag on mount
     React.useEffect(() => {
         const justUpdated = localStorage.getItem('lawyerAppUpdated');
         if (justUpdated === 'true') {
-            data.addRealtimeAlert('تم تحديث التطبيق بنجاح!', 'sync');
+            data.addRealtimeAlert('لقد تم تحديث التطبيق إلى أحدث إصدار متاح بنجاح! شكراً لصبركم.', 'sync');
             localStorage.removeItem('lawyerAppUpdated');
         }
     }, [data.addRealtimeAlert]);
 
-    // Close actions menu on outside click
     React.useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (actionsMenuRef.current && !actionsMenuRef.current.contains(event.target as Node)) {
@@ -386,25 +346,21 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     
     const handleLogout = async () => {
         try {
-            // 1. Clear storage first
             localStorage.removeItem(LAST_USER_CACHE_KEY);
             localStorage.removeItem(LAST_USER_CREDENTIALS_CACHE_KEY);
-            // Clear Supabase internal keys
             Object.keys(localStorage).forEach(key => {
                 if (key.startsWith('sb-')) localStorage.removeItem(key);
             });
             
-            // 2. Immediately update state to show Login Page and hide Loader
             setSession(null);
             setProfile(null);
             setIsAuthLoading(false);
-
-            // 3. Try to sign out from Supabase (if online)
-            await supabase!.auth.signOut();
+            if (supabase) {
+                await supabase.auth.signOut();
+            }
         } catch (error) {
             console.warn("Logout error:", error);
         } finally {
-            // 4. Force a hard app refresh/remount instead of browser reload
             onRefresh();
         }
     };
@@ -419,11 +375,10 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     };
 
     const handleSaveAdminTask = (taskData: Omit<AdminTask, 'completed'> & { id?: string }) => {
-        if (taskData.id) { // Editing
+        if (taskData.id) { 
             data.setAdminTasks(prev => prev.map(t => t.id === taskData.id ? { ...t, ...taskData, updated_at: new Date() } : t));
-        } else { // Adding
+        } else { 
             const { id, ...restOfTaskData } = taskData;
-
             const newLocation = restOfTaskData.location || 'غير محدد';
             const maxOrderIndex = data.adminTasks
                 .filter(t => (t.location || 'غير محدد') === newLocation)
@@ -465,7 +420,6 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
             .sort((a, b) => a.time.localeCompare(b.time));
     
         const dailySessions = data.allSessions.filter(s => isSameDay(s.date, selectedDate));
-    
         const allUncompletedTasks = data.adminTasks.filter(t => !t.completed);
         const filteredForAssigneeTasks = assignee ? allUncompletedTasks.filter(t => t.assignee === assignee) : allUncompletedTasks;
     
@@ -556,14 +510,11 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                 }
             });
         }
-        if (filteredSessions.length === 0 && filteredAppointments.length === 0 && taskLocations.length === 0) message += "لا توجد بنود في جدول الأعمال لهذا اليوم.";
         
         const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
         window.open(whatsappUrl, '_blank');
         setIsShareAssigneeModalOpen(false);
     };
-
-    // --- Render Logic ---
 
     if (isAuthLoading && !session) {
         return <FullScreenLoader text="جاري التحقق من الهوية..." />;
@@ -598,59 +549,57 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     }
     
     if (!session) {
-        return (
-            <React.Suspense fallback={<FullScreenLoader text="جاري التحميل..." />}>
-                <LoginPage onForceSetup={() => setShowConfigModal(true)} onLoginSuccess={handleLoginSuccess}/>
-            </React.Suspense>
-        );
+        return <LoginPage onForceSetup={() => setShowConfigModal(true)} onLoginSuccess={handleLoginSuccess}/>;
     }
     
     const effectiveProfile = profile || data.profiles.find(p => p.id === session.user.id);
     
     if (!effectiveProfile) {
-         if (isOnline && data.profiles.length === 0) {
-             return <FullScreenLoader text="جاري جلب الملف الشخصي من السحابة..." />;
+         if (data.syncStatus === 'synced' || data.syncStatus === 'error') {
+             return (
+                 <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-6 text-center">
+                     <ExclamationTriangleIcon className="w-16 h-16 text-red-500 mb-4" />
+                     <h2 className="text-2xl font-bold text-gray-800">تعذر العثور على ملفك الشخصي</h2>
+                     <p className="mt-2 text-gray-600">قد يكون هناك تأخير في إعداد حسابك أو مشكلة في قاعدة البيانات.</p>
+                     <div className="mt-8 flex gap-4">
+                        <button onClick={handleLogout} className="px-6 py-2 bg-gray-200 text-gray-800 font-semibold rounded-lg hover:bg-gray-300">تسجيل الخروج</button>
+                        <button onClick={data.manualSync} className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 flex items-center gap-2">
+                            <ArrowPathIcon className={`w-5 h-5 ${data.syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
+                            إعادة المحاولة
+                        </button>
+                     </div>
+                 </div>
+             );
          }
+         return <FullScreenLoader text="جاري جلب الملف الشخصي من السحابة..." />;
     }
 
     if (effectiveProfile && !effectiveProfile.mobile_verified && effectiveProfile.role !== 'admin') {
          return (
-            <React.Suspense fallback={<FullScreenLoader />}>
-                <LoginPage 
-                    onForceSetup={() => setShowConfigModal(true)} 
-                    onLoginSuccess={handleLoginSuccess}
-                    initialMode="otp"
-                    currentUser={session.user}
-                    currentMobile={effectiveProfile.mobile_number}
-                    onLogout={handleLogout}
-                    onVerificationSuccess={data.fetchAndRefresh}
-                />
-            </React.Suspense>
+            <LoginPage 
+                onForceSetup={() => setShowConfigModal(true)} 
+                onLoginSuccess={handleLoginSuccess}
+                initialMode="otp"
+                currentUser={session.user}
+                currentMobile={effectiveProfile.mobile_number}
+                onLogout={handleLogout}
+                onVerificationSuccess={data.fetchAndRefresh}
+            />
          );
     }
 
     if (effectiveProfile && !effectiveProfile.is_approved) {
-        return (
-            <React.Suspense fallback={<FullScreenLoader />}>
-                <PendingApprovalPage onLogout={handleLogout} />
-            </React.Suspense>
-        );
+        return <PendingApprovalPage onLogout={handleLogout} />;
     }
 
-    if (effectiveProfile && (!effectiveProfile.is_active || (effectiveProfile.subscription_end_date && new Date(effectiveProfile.subscription_end_date) < new Date()))) {
-        return (
-            <React.Suspense fallback={<FullScreenLoader />}>
-                <SubscriptionExpiredPage onLogout={handleLogout} />
-            </React.Suspense>
-        );
+    if (effectiveProfile && (!effectiveProfile.is_active || (effectiveProfile.subscription_end_date && safeReviveDate(effectiveProfile.subscription_end_date) < new Date()))) {
+        return <SubscriptionExpiredPage onLogout={handleLogout} />;
     }
     
     if (effectiveProfile && effectiveProfile.role === 'admin') {
          return (
             <DataProvider value={data}>
-                <React.Suspense fallback={<FullScreenLoader />}>
-                    <AdminDashboard onLogout={handleLogout} onOpenConfig={() => setShowConfigModal(true)} />
-                </React.Suspense>
+                <AdminDashboard onLogout={handleLogout} onOpenConfig={() => setShowConfigModal(true)} />
                 <NotificationCenter 
                     appointmentAlerts={data.triggeredAlerts}
                     realtimeAlerts={data.realtimeAlerts}
@@ -740,9 +689,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                 />
                 <OfflineBanner />
                 <main className="flex-grow p-4 sm:p-6 overflow-y-auto pb-20 sm:pb-6">
-                    <React.Suspense fallback={<FullScreenLoader />}>
-                        {renderPage()}
-                    </React.Suspense>
+                    {renderPage()}
                 </main>
                 
                 <MobileNavbar currentPage={currentPage} onNavigate={handleNavigation} permissions={data.permissions} />
@@ -834,7 +781,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                     </div>
                 )}
 
-                {isPrintModalOpen && (
+                {isPrintModalOpen && printableReportData && (
                     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setIsPrintModalOpen(false)}>
                         <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
                             <div className="overflow-y-auto" ref={printReportRef}>
