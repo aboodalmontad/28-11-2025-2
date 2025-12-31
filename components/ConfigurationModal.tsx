@@ -42,6 +42,9 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS permissions jsonb DEFAULT '
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
 
+-- إضافة كشاف لسرعة البحث عن أرقام الجوال
+CREATE INDEX IF NOT EXISTS idx_profiles_mobile_number ON public.profiles(mobile_number);
+
 -- 2. الدوال والمشغلات (Functions & Triggers)
 
 CREATE OR REPLACE FUNCTION public.get_data_owner_id()
@@ -102,12 +105,45 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 GRANT EXECUTE ON FUNCTION public.generate_mobile_otp(uuid) TO anon, authenticated;
 
+-- Function to generate OTP using mobile number directly (Updated to return JSON with Name)
+DROP FUNCTION IF EXISTS public.generate_otp_by_mobile(text);
+CREATE OR REPLACE FUNCTION public.generate_otp_by_mobile(mobile_to_check text)
+RETURNS jsonb AS $$
+DECLARE
+    found_record record;
+    new_otp text;
+    clean_mobile text;
+BEGIN
+    clean_mobile := trim(mobile_to_check);
+    
+    SELECT id, full_name INTO found_record FROM public.profiles 
+    WHERE trim(mobile_number) = clean_mobile 
+       OR mobile_number = RIGHT(clean_mobile, 9)
+       OR RIGHT(mobile_number, 9) = RIGHT(clean_mobile, 9)
+    LIMIT 1;
+
+    IF found_record.id IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    new_otp := floor(random() * (999999 - 100000 + 1) + 100000)::text;
+    UPDATE public.profiles SET otp_code = new_otp, otp_expires_at = NULL WHERE id = found_record.id;
+    
+    RETURN jsonb_build_object('code', new_otp, 'full_name', found_record.full_name);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+GRANT EXECUTE ON FUNCTION public.generate_otp_by_mobile(text) TO anon, authenticated;
+
 CREATE OR REPLACE FUNCTION public.verify_mobile_otp(target_mobile text, code_to_check text)
 RETURNS boolean AS $$
 DECLARE
     profile_record record;
 BEGIN
-    SELECT * INTO profile_record FROM public.profiles WHERE mobile_number = target_mobile;
+    SELECT * INTO profile_record FROM public.profiles 
+    WHERE trim(mobile_number) = trim(target_mobile) 
+       OR RIGHT(mobile_number, 9) = RIGHT(trim(target_mobile), 9)
+    LIMIT 1;
+
     IF profile_record IS NULL OR profile_record.otp_code IS NULL THEN RAISE EXCEPTION 'Invalid request.'; END IF;
     IF profile_record.otp_code = code_to_check THEN
         UPDATE public.profiles SET mobile_verified = true, otp_code = null WHERE id = profile_record.id;
@@ -118,6 +154,41 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 GRANT EXECUTE ON FUNCTION public.verify_mobile_otp(text, text) TO anon, authenticated;
+
+-- Function to handle password reset via OTP
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+CREATE OR REPLACE FUNCTION public.reset_password_with_otp(target_mobile text, code_to_check text, new_password text)
+RETURNS boolean AS $$
+DECLARE
+    target_profile record;
+BEGIN
+    SELECT * INTO target_profile FROM public.profiles 
+    WHERE trim(mobile_number) = trim(target_mobile)
+       OR RIGHT(mobile_number, 9) = RIGHT(trim(target_mobile), 9)
+    LIMIT 1;
+    
+    IF target_profile IS NULL OR target_profile.otp_code IS NULL THEN
+        RETURN false;
+    END IF;
+
+    IF target_profile.otp_code = code_to_check THEN
+        -- Update Supabase Auth Password
+        UPDATE auth.users
+        SET encrypted_password = crypt(new_password, gen_salt('bf')),
+            updated_at = now()
+        WHERE id = target_profile.id;
+
+        -- Clear OTP
+        UPDATE public.profiles SET otp_code = null WHERE id = target_profile.id;
+        RETURN true;
+    ELSE
+        RETURN false;
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, auth, extensions;
+GRANT EXECUTE ON FUNCTION public.reset_password_with_otp(text, text, text) TO anon, authenticated;
+
 
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
@@ -266,17 +337,12 @@ FROM auth.users au
 WHERE au.id NOT IN (SELECT id FROM public.profiles);
 
 -- 8. Storage Policies (Safe Execution Block)
--- This block attempts to drop and create policies but ignores permission errors (42501)
--- to allows the script to complete even if the user is not the bucket owner.
-
 DO $$
 BEGIN
-    -- محاولة حذف السياسات القديمة (تجاهل الخطأ إذا لم تكن المالك)
     BEGIN DROP POLICY IF EXISTS "Allow User Uploads" ON storage.objects; EXCEPTION WHEN OTHERS THEN NULL; END;
     BEGIN DROP POLICY IF EXISTS "Allow User Downloads" ON storage.objects; EXCEPTION WHEN OTHERS THEN NULL; END;
     BEGIN DROP POLICY IF EXISTS "Allow User Deletes" ON storage.objects; EXCEPTION WHEN OTHERS THEN NULL; END;
     
-    -- محاولة إنشاء السياسات الجديدة (تجاهل الخطأ إذا كانت موجودة بالفعل)
     BEGIN
         CREATE POLICY "Allow User Uploads" ON storage.objects FOR INSERT TO authenticated WITH CHECK (
             bucket_id = 'documents' AND (
@@ -319,7 +385,7 @@ const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ onRetry }) => {
             <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
                 <div className="flex items-center gap-3 mb-4 text-amber-600">
                     <ServerIcon className="w-8 h-8" />
-                    <h2 className="text-2xl font-bold">تحديث قاعدة البيانات (إصلاح المزامنة والصلاحيات)</h2>
+                    <h2 className="text-2xl font-bold">تحديث قاعدة البيانات (استعادة كلمة المرور)</h2>
                 </div>
                 
                 <div className="overflow-y-auto flex-grow pr-2">
@@ -330,7 +396,7 @@ const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ onRetry }) => {
                             </div>
                             <div className="ms-3">
                                 <p className="text-sm text-blue-700">
-                                    هذا التحديث ضروري لإصلاح مشاكل تحميل الوثائق (صلاحيات التخزين)، بالإضافة لإصلاحات المزامنة السابقة. يرجى نسخ الكود الجديد وتشغيله.
+                                    لإصلاح خطأ "تعذر العثور على المستخدم" و "Function not found"، يرجى نسخ الكود أدناه وتشغيله في Supabase SQL Editor.
                                 </p>
                             </div>
                         </div>

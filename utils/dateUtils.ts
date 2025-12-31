@@ -72,6 +72,17 @@ export const parseInputDateString = (dateString: string | null | undefined): Dat
     return d;
 };
 
+// Fix: Added safeReviveDate to resolve the "Module has no exported member" error in App.tsx.
+/**
+ * Safely revives a date value (string or object) into a Date object.
+ * Returns the current date if the input is invalid or null.
+ */
+export const safeReviveDate = (date: any): Date => {
+    if (!date) return new Date();
+    const d = new Date(date);
+    return isNaN(d.getTime()) ? new Date() : d;
+};
+
 
 // --- Holiday and Weekend Logic ---
 

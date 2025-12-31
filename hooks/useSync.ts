@@ -1,3 +1,4 @@
+
 import * as React from 'react';
 // Fix: Use `import type` for User as it is used as a type, not a value. This resolves module resolution errors in some environments.
 import type { User } from '@supabase/supabase-js';
@@ -295,7 +296,8 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
             localFlatData = applyDeletionsToLocal(localFlatData, remoteDeletions);
 
             const isLocalEffectivelyEmpty = (localFlatData.clients.length === 0 && localFlatData.admin_tasks.length === 0 && localFlatData.appointments.length === 0 && localFlatData.accounting_entries.length === 0 && localFlatData.invoices.length === 0 && localFlatData.case_documents.length === 0);
-            const hasPendingDeletions = Object.values(deletedIdsRef.current).some(arr => arr.length > 0);
+            const hasPendingDeletions = Object.values(deletedIdsRef.current).some((arr: any) => arr.length > 0);
+            // Fix: Cast arr to any to avoid "Property length does not exist on type unknown" error
             const isRemoteEffectivelyEmpty = !remoteDataRaw || Object.values(remoteDataRaw).every((arr: any) => arr?.length === 0);
 
             if (isLocalEffectivelyEmpty && !isRemoteEffectivelyEmpty && !hasPendingDeletions) {
@@ -482,7 +484,7 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
             if (err.table) errorMessage = `[جدول: ${err.table}] ${errorMessage}`;
             setStatus('error', `فشل المزامنة: ${errorMessage}`);
         }
-    }, [isOnline, onDataSynced, onDeletionsSynced, isAuthLoading, onDocumentsUploaded]); // Removed syncStatus from deps
+    }, [isOnline, onDataSynced, onDeletionsSynced, isAuthLoading, onDocumentsUploaded]); // Removed syncStatus from deps to fix infinite loop
 
     const fetchAndRefresh = React.useCallback(async () => {
         if (syncStatusRef.current === 'syncing' || isAuthLoading) return;
@@ -522,8 +524,6 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
             // Using a simple merge strategy here similar to sync but favoring remote for conflict if needed.
             // Actually manualSync logic already handles merging logic better.
             // But fetchAndRefresh implies "I want what's on server".
-            // If we just pull, we might lose local unsynced changes.
-            // So we should merge.
             
             const mergedFlatData: Partial<FlatData> = {};
             
