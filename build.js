@@ -16,7 +16,9 @@ async function build() {
         await esbuild.build({
             entryPoints: ['index.tsx'],
             bundle: true,
-            outfile: path.join(publicDir, 'index.js'),
+            // Use outdir and splitting for proper dynamic imports handling
+            outdir: publicDir,
+            splitting: true,
             jsx: 'automatic',
             format: 'esm', // Output as an ES Module
             sourcemap: true,
