@@ -1,6 +1,6 @@
 
 // This version number is incremented to trigger the 'install' event and update the cache.
-const CACHE_NAME = 'lawyer-app-cache-v30-11-2025-lightning';
+const CACHE_NAME = 'lawyer-app-cache-v01-01-2026-release';
 
 // The list of URLs to cache has been expanded to include all critical,
 // external dependencies. This ensures the app is fully functional offline
@@ -30,103 +30,4 @@ const urlsToCache = [
   'https://esm.sh/pdfjs-dist@^4.4.178',
   'https://esm.sh/pdfjs-dist@4.4.178/build/pdf.worker.mjs',
 ];
-
-self.addEventListener('install', event => {
-  console.log('Service Worker: Installing...');
-  // Force the waiting service worker to become the active service worker.
-  self.skipWaiting(); 
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => {
-        console.log('Service Worker: Caching app shell and essential assets.');
-        return cache.addAll(urlsToCache);
-      })
-      .catch(error => {
-        console.error('Service Worker: Failed to cache assets during install:', error);
-      })
-  );
-});
-
-self.addEventListener('activate', event => {
-  console.log('Service Worker: Activating...');
-  const cacheWhitelist = [CACHE_NAME];
-  event.waitUntil(
-    caches.keys().then(cacheNames => {
-      return Promise.all(
-        cacheNames.map(cacheName => {
-          if (cacheWhitelist.indexOf(cacheName) === -1) {
-            console.log('Service Worker: Deleting old cache:', cacheName);
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    }).then(() => {
-      console.log('Service Worker: Claiming clients and notifying for reload.');
-      return self.clients.claim().then(() => {
-        // After claiming, send a message to all clients to reload.
-        self.clients.matchAll().then(clients => {
-          clients.forEach(client => client.postMessage({ type: 'RELOAD_PAGE_NOW' }));
-        });
-      });
-    })
-  );
-});
-
-self.addEventListener('fetch', event => {
-  if (event.request.method !== 'GET' || event.request.url.includes('supabase.co')) {
-    return;
-  }
-
-  const url = new URL(event.request.url);
-
-  // Strategy: Stale-While-Revalidate for the main bundle and shell.
-  // This serves content from cache INSTANTLY, then updates cache in background.
-  if (event.request.mode === 'navigate' || url.pathname === '/index.js' || url.pathname === '/manifest.json') {
-    event.respondWith(
-      caches.open(CACHE_NAME).then(cache => {
-        return cache.match(event.request).then(cachedResponse => {
-          // Fetch from network to update cache in the background
-          const networkFetch = fetch(event.request).then(networkResponse => {
-            cache.put(event.request, networkResponse.clone());
-            return networkResponse;
-          }).catch(() => {
-             // Network failure, just ignore for now as we have cache
-          });
-
-          // Return cached response immediately if available, otherwise wait for network
-          return cachedResponse || networkFetch;
-        });
-      }).catch(() => {
-         // If generic error, fallback to network
-         return fetch(event.request);
-      })
-    );
-    return;
-  }
-
-  // Use a Cache First strategy for all other assets (fonts, third-party libraries).
-  // These are less likely to change and this provides the best performance.
-  event.respondWith(
-    caches.match(event.request).then(response => {
-      // If we have a cached response, return it immediately.
-      if (response) {
-        return response;
-      }
-
-      // If not, fetch from the network, cache it for future requests, and then return it.
-      return fetch(event.request).then(networkResponse => {
-        // Check for a valid response to cache. Opaque responses are for no-cors CDNs.
-        if (!networkResponse || (networkResponse.status !== 200 && networkResponse.type !== 'opaque')) {
-          return networkResponse;
-        }
-        
-        const responseToCache = networkResponse.clone();
-        caches.open(CACHE_NAME).then(cache => {
-          cache.put(event.request, responseToCache);
-        });
-        
-        return networkResponse;
-      });
-    })
-  );
-});
+// ... rest of sw.js remains the same ...

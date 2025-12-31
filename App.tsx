@@ -65,7 +65,7 @@ const Navbar: React.FC<{
                     <div className="flex flex-col items-start sm:flex-row sm:items-baseline gap-0 sm:gap-2">
                         <h1 className="text-xl font-bold text-gray-800">مكتب المحامي</h1>
                         <div className="flex items-center gap-1 text-xs text-gray-500">
-                            <span>الإصدار: 30-12-2025</span>
+                            <span>الإصدار: 1-1-2026</span>
                             {profile && (
                                 <>
                                     <span className="mx-1 text-gray-300">|</span>
@@ -177,6 +177,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     const [showConfigModal, setShowConfigModal] = React.useState(false);
     const [currentPage, setCurrentPage] = React.useState<Page>('home');
     const [isAdminTaskModalOpen, setIsAdminTaskModalOpen] = React.useState(false);
+    const [initialAdminTaskData, setInitialAdminTaskData] = React.useState<any>(null);
     const [contextMenu, setContextMenu] = React.useState<{ isOpen: boolean; position: { x: number; y: number }; menuItems: MenuItem[] }>({ isOpen: false, position: { x: 0, y: 0 }, menuItems: [] });
     const [initialInvoiceData, setInitialInvoiceData] = React.useState<{ clientId: string; caseId?: string } | undefined>();
     const [selectedDate, setSelectedDate] = React.useState(new Date());
@@ -235,6 +236,11 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
         onRefresh();
     };
 
+    const handleOpenAdminTaskModal = (initialData: any = null) => {
+        setInitialAdminTaskData(initialData);
+        setIsAdminTaskModalOpen(true);
+    };
+
     const handleSaveAdminTask = (taskData: any) => {
         if (taskData.id) {
             data.setAdminTasks(prev => prev.map(t => t.id === taskData.id ? { ...t, ...taskData, updated_at: new Date() } : t));
@@ -247,11 +253,11 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
 
     const renderPage = () => {
         switch (currentPage) {
-            case 'clients': return <ClientsPage showContextMenu={(e, items) => setContextMenu({ isOpen: true, position: { x: e.clientX, y: e.clientY }, menuItems: items })} onOpenAdminTaskModal={setIsAdminTaskModalOpen as any} onCreateInvoice={(cid, csid) => { setInitialInvoiceData({ clientId: cid, caseId: csid }); setCurrentPage('accounting'); }} />;
+            case 'clients': return <ClientsPage showContextMenu={(e, items) => setContextMenu({ isOpen: true, position: { x: e.clientX, y: e.clientY }, menuItems: items })} onOpenAdminTaskModal={handleOpenAdminTaskModal} onCreateInvoice={(cid, csid) => { setInitialInvoiceData({ clientId: cid, caseId: csid }); setCurrentPage('accounting'); }} />;
             case 'accounting': return <AccountingPage initialInvoiceData={initialInvoiceData} clearInitialInvoiceData={() => setInitialInvoiceData(undefined)} />;
             case 'settings': return <SettingsPage />;
-            case 'admin-tasks': return <HomePage onOpenAdminTaskModal={setIsAdminTaskModalOpen as any} showContextMenu={(e, items) => setContextMenu({ isOpen: true, position: { x: e.clientX, y: e.clientY }, menuItems: items })} mainView="adminTasks" selectedDate={selectedDate} setSelectedDate={setSelectedDate} />;
-            case 'home': default: return <HomePage onOpenAdminTaskModal={setIsAdminTaskModalOpen as any} showContextMenu={(e, items) => setContextMenu({ isOpen: true, position: { x: e.clientX, y: e.clientY }, menuItems: items })} mainView="agenda" selectedDate={selectedDate} setSelectedDate={setSelectedDate} />;
+            case 'admin-tasks': return <HomePage onOpenAdminTaskModal={handleOpenAdminTaskModal} showContextMenu={(e, items) => setContextMenu({ isOpen: true, position: { x: e.clientX, y: e.clientY }, menuItems: items })} mainView="adminTasks" selectedDate={selectedDate} setSelectedDate={setSelectedDate} />;
+            case 'home': default: return <HomePage onOpenAdminTaskModal={handleOpenAdminTaskModal} showContextMenu={(e, items) => setContextMenu({ isOpen: true, position: { x: e.clientX, y: e.clientY }, menuItems: items })} mainView="agenda" selectedDate={selectedDate} setSelectedDate={setSelectedDate} />;
         }
     };
 
@@ -314,7 +320,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                 </main>
                 <MobileNavbar currentPage={currentPage} onNavigate={setCurrentPage} permissions={data.permissions} />
                 
-                <AdminTaskModal isOpen={isAdminTaskModalOpen} onClose={() => setIsAdminTaskModalOpen(false)} onSubmit={handleSaveAdminTask} assistants={data.assistants} />
+                <AdminTaskModal isOpen={isAdminTaskModalOpen} onClose={() => setIsAdminTaskModalOpen(false)} onSubmit={handleSaveAdminTask} initialData={initialAdminTaskData} assistants={data.assistants} />
                 <ContextMenu isOpen={contextMenu.isOpen} position={contextMenu.position} menuItems={contextMenu.menuItems} onClose={() => setContextMenu(p => ({ ...p, isOpen: false }))} />
                 <UnpostponedSessionsModal isOpen={data.showUnpostponedSessionsModal} onClose={() => data.setShowUnpostponedSessionsModal(false)} sessions={data.unpostponedSessions} onPostpone={data.postponeSession} assistants={data.assistants} />
                 <NotificationCenter appointmentAlerts={data.triggeredAlerts} realtimeAlerts={data.realtimeAlerts} userApprovalAlerts={data.userApprovalAlerts} dismissAppointmentAlert={data.dismissAlert} dismissRealtimeAlert={data.dismissRealtimeAlert} dismissUserApprovalAlert={data.dismissUserApprovalAlert} />
