@@ -25,23 +25,40 @@ export const checkSupabaseSchema = async () => {
         return { success: false, error: 'unconfigured', message: 'Supabase client is not configured.' };
     }
 
+    const tableChecks: { [key: string]: string } = {
+        'profiles': 'id', 'clients': 'id', 'cases': 'id',
+        'stages': 'id', 'sessions': 'id', 'admin_tasks': 'id',
+        'appointments': 'id', 'accounting_entries': 'id', 'assistants': 'name',
+        'invoices': 'id', 'invoice_items': 'id', 'case_documents': 'id',
+        'site_finances': 'id',
+        'sync_deletions': 'id',
+    };
+    
+    const tableCheckPromises = Object.entries(tableChecks).map(([table, query]) =>
+        supabase.from(table).select(query, { head: true }).then(res => ({ ...res, table }))
+    );
+
     try {
-        // Test a simple query to verify connection and credentials
-        const { error } = await supabase.from('profiles').select('id', { head: true, count: 'exact' });
-        
-        if (error) {
-            const message = String(error.message || '').toLowerCase();
-            if (message.includes('failed to fetch')) {
-                return { success: false, error: 'network', message: 'تعذر الاتصال بالخادم. قد يكون السبب حظر المتصفح للطلب (CORS) أو انقطاع الإنترنت.' };
+        const results = await Promise.all(tableCheckPromises);
+        for (const result of results) {
+            if (result.error) {
+                const message = String(result.error.message || '').toLowerCase();
+                const code = String(result.error.code || '');
+                
+                if (code === '42P01' || message.includes('does not exist') || message.includes('could not find the table') || message.includes('relation') ) {
+                    return { success: false, error: 'uninitialized', message: `Database uninitialized. Missing table: ${result.table}.` };
+                } else {
+                    throw result.error;
+                }
             }
-            if (error.code === '42P01') {
-                return { success: false, error: 'uninitialized', message: 'قاعدة البيانات غير مهيأة بشكل كامل.' };
-            }
-            throw error;
         }
         return { success: true, error: null, message: '' };
     } catch (err: any) {
-        return { success: false, error: 'unknown', message: err.message || 'حدث خطأ أثناء فحص الاتصال.' };
+        const message = String(err?.message || err?.error_description || err || '').toLowerCase();
+        if (message.includes('failed to fetch') || message.includes('networkerror')) {
+            return { success: false, error: 'network', message: 'فشل الاتصال بالسيرفر. يرجى التحقق من اتصال الإنترنت.' };
+        }
+        return { success: false, error: 'unknown', message: `فحص قاعدة البيانات فشل: ${message}` };
     }
 };
 
@@ -86,7 +103,7 @@ export const fetchDataFromSupabase = async (): Promise<Partial<FlatData>> => {
     ];
 
     for (const { res, name } of results) {
-        if (res.error) throw new Error(`Failed to fetch ${name}: ${res.error.message}`);
+        if (res.error) throw new Error(`فشل تحميل بيانات ${name}: ${res.error.message}`);
     }
 
     return {
@@ -111,12 +128,13 @@ export const fetchDeletionsFromSupabase = async (): Promise<SyncDeletion[]> => {
     if (!supabase) return [];
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
     try {
         const { data, error } = await supabase.from('sync_deletions').select('*').gte('deleted_at', thirtyDaysAgo.toISOString());
         if (error) throw error;
         return data || [];
     } catch (err) {
-        console.warn("Fetch deletions failed:", err);
+        console.warn("Fetch deletions failed (non-critical):", err);
         return []; 
     }
 };
@@ -124,22 +142,24 @@ export const fetchDeletionsFromSupabase = async (): Promise<SyncDeletion[]> => {
 export const deleteDataFromSupabase = async (deletions: Partial<FlatData>, user: User) => {
     const supabase = getSupabaseClient();
     if (!supabase) throw new Error('Supabase client not available.');
-    const deletionOrder: (keyof FlatData)[] = [
-        'case_documents', 'invoice_items', 'sessions', 'stages', 'cases', 'invoices', 
-        'admin_tasks', 'appointments', 'accounting_entries', 'assistants', 'clients',
-        'site_finances', 'profiles',
-    ];
+
+    const deletionOrder: (keyof FlatData)[] = ['case_documents', 'invoice_items', 'sessions', 'stages', 'cases', 'invoices', 'admin_tasks', 'appointments', 'accounting_entries', 'assistants', 'clients', 'site_finances', 'profiles'];
+
     for (const table of deletionOrder) {
         const itemsToDelete = (deletions as any)[table];
         if (itemsToDelete && itemsToDelete.length > 0) {
             const primaryKeyColumn = table === 'assistants' ? 'name' : 'id';
             const ids = itemsToDelete.map((i: any) => i[primaryKeyColumn]);
+            
             if (table !== 'profiles') {
                 const deletionsLog = ids.map((id: string) => ({ table_name: table, record_id: id, user_id: user.id }));
                 await supabase.from('sync_deletions').insert(deletionsLog);
             }
-            const { error } = await supabase.from(table).delete().in(primaryKeyColumn, ids);
-            if (error) throw error;
+
+            const query = supabase.from(table).delete().in(primaryKeyColumn, ids);
+            if (table !== 'profiles' && table !== 'assistants') query.eq('user_id', user.id);
+            const { error } = await query;
+            if (error) throw new Error(`فشل حذف بيانات من ${table}: ${error.message}`);
         }
     }
 };
@@ -148,6 +168,7 @@ export const upsertDataToSupabase = async (data: Partial<FlatData>, user: User) 
     const supabase = getSupabaseClient();
     if (!supabase) throw new Error('Supabase client not available.');
     const userId = user.id;
+
     const dataToUpsert = {
         clients: data.clients?.map(({ contactInfo, ...rest }) => ({ ...rest, user_id: userId, contact_info: contactInfo })),
         cases: data.cases?.map(({ clientName, opponentName, feeAgreement, ...rest }) => ({ ...rest, user_id: userId, client_name: clientName, opponent_name: opponentName, fee_agreement: feeAgreement })),
@@ -167,7 +188,7 @@ export const upsertDataToSupabase = async (data: Partial<FlatData>, user: User) 
     const upsertTable = async (table: string, records: any[] | undefined, options: { onConflict?: string } = {}) => {
         if (!records || records.length === 0) return [];
         const { data: responseData, error } = await supabase.from(table).upsert(records, options).select();
-        if (error) throw error;
+        if (error) throw new Error(`فشل تحديث جدول ${table}: ${error.message}`);
         return responseData || [];
     };
     
@@ -181,16 +202,11 @@ export const upsertDataToSupabase = async (data: Partial<FlatData>, user: User) 
     results.invoices = await upsertTable('invoices', dataToUpsert.invoices);
     results.invoice_items = await upsertTable('invoice_items', dataToUpsert.invoice_items);
     results.case_documents = await upsertTable('case_documents', dataToUpsert.case_documents);
-    const [adminTasks, appointments, accountingEntries, site_finances] = await Promise.all([
-        upsertTable('admin_tasks', dataToUpsert.admin_tasks),
-        upsertTable('appointments', dataToUpsert.appointments),
-        upsertTable('accounting_entries', dataToUpsert.accounting_entries),
-        upsertTable('site_finances', dataToUpsert.site_finances),
-    ]);
-    results.admin_tasks = adminTasks;
-    results.appointments = appointments;
-    results.accounting_entries = accountingEntries;
-    results.site_finances = site_finances;
+    results.admin_tasks = await upsertTable('admin_tasks', dataToUpsert.admin_tasks);
+    results.appointments = await upsertTable('appointments', dataToUpsert.appointments);
+    results.accounting_entries = await upsertTable('accounting_entries', dataToUpsert.accounting_entries);
+    results.site_finances = await upsertTable('site_finances', dataToUpsert.site_finances);
+    
     return results;
 };
 
@@ -200,7 +216,7 @@ export const transformRemoteToLocal = (remote: any): Partial<FlatData> => {
         clients: remote.clients?.map(({ contact_info, ...r }: any) => ({ ...r, contactInfo: contact_info })),
         cases: remote.cases?.map(({ client_name, opponent_name, fee_agreement, ...r }: any) => ({ ...r, clientName: client_name, opponentName: opponent_name, feeAgreement: fee_agreement })),
         stages: remote.stages?.map(({ case_number, first_session_date, decision_date, decision_number, decision_summary, decision_notes, ...r }: any) => ({ ...r, caseNumber: case_number, firstSessionDate: first_session_date, decisionDate: decision_date, decisionNumber: decision_number, decisionSummary: decision_summary, decisionNotes: decision_notes })),
-        sessions: remote.sessions?.map(({ case_number, client_name, opponent_name, postponement_reason, next_postponement_reason, is_postponed, next_session_date, ...r }: any) => ({ ...r, caseNumber: case_number, clientName: client_name, opponentName: opponent_name, postponementReason: postponement_reason, nextPostponementReason: next_postponement_reason, isPostponed: is_postponed, nextSessionDate: next_session_date })),
+        sessions: remote.sessions?.map(({ case_number, client_name, opponent_name, postponement_reason, next_postponement_reason, is_postponed, next_session_date, ...r }: any) => ({ ...r, caseNumber: case_number, clientName: client_name, opponentName: opponent_name, postponementReason: postponement_reason, nextPostponementReason: next_postponement_reason, is_postponed: is_postponed, nextSessionDate: next_session_date })),
         admin_tasks: remote.admin_tasks?.map(({ due_date, order_index, ...r }: any) => ({ ...r, dueDate: due_date, orderIndex: order_index })),
         appointments: remote.appointments?.map(({ reminder_time_in_minutes, ...r }: any) => ({ ...r, reminderTimeInMinutes: reminder_time_in_minutes })),
         accounting_entries: remote.accounting_entries?.map(({ client_id, case_id, client_name, ...r }: any) => ({ ...r, clientId: client_id, caseId: case_id, clientName: client_name })),

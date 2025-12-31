@@ -33,7 +33,8 @@ const EntriesTab: React.FC = () => {
                 entry.amount.toString().includes(searchQuery)
             );
         });
-        return filtered.sort((a, b) => b.date.getTime() - a.date.getTime());
+        // FIX: Ensure date is treated as a Date object for getTime()
+        return filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }, [accountingEntries, searchQuery]);
 
     const handleOpenModal = (entry?: AccountingEntry) => {
@@ -187,7 +188,7 @@ const EntriesTab: React.FC = () => {
     );
 };
 
-// --- TAB: INVOICES ---
+// ... (Rest of the component remains the same)
 const InvoicesTab: React.FC<{ initialInvoiceData?: { clientId: string, caseId?: string }, clearInitialInvoiceData: () => void }> = ({ initialInvoiceData, clearInitialInvoiceData }) => {
     const { invoices, setInvoices, clients, deleteInvoice, permissions } = useData();
     const [modal, setModal] = React.useState<{ isOpen: boolean; data?: Invoice }>({ isOpen: false });
@@ -205,14 +206,13 @@ const InvoicesTab: React.FC<{ initialInvoiceData?: { clientId: string, caseId?: 
                 caseId: initialInvoiceData.caseId,
                 caseSubject: caseItem?.subject,
                 issueDate: new Date(),
-                dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // +1 week
+                dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), 
                 items: [{ id: `item-${Date.now()}`, description: 'أتعاب محاماة', amount: 0 }],
                 taxRate: 0,
                 discount: 0,
                 status: 'draft'
             };
-            // @ts-ignore
-            setModal({ isOpen: true, data: newInvoice }); 
+            setModal({ isOpen: true, data: newInvoice as any }); 
             clearInitialInvoiceData();
         }
     }, [initialInvoiceData, clients, clearInitialInvoiceData]);
@@ -304,7 +304,7 @@ const InvoicesTab: React.FC<{ initialInvoiceData?: { clientId: string, caseId?: 
     );
 };
 
-// --- INVOICE MODAL ---
+// ... (Keep the rest as is)
 const InvoiceModal: React.FC<{ isOpen: boolean; onClose: () => void; initialData?: Partial<Invoice>; onSave: (inv: Invoice) => void; clients: Client[] }> = ({ isOpen, onClose, initialData, onSave, clients }) => {
     const [formData, setFormData] = React.useState<Partial<Invoice>>({
         items: [{ id: `item-${Date.now()}`, description: '', amount: 0 }],
@@ -417,7 +417,6 @@ const InvoiceModal: React.FC<{ isOpen: boolean; onClose: () => void; initialData
     );
 };
 
-// --- TAB: REPORTS ---
 const ReportsTab: React.FC = () => {
     const { accountingEntries } = useData();
     const reportsData = React.useMemo(() => {
@@ -465,11 +464,9 @@ const ReportsTab: React.FC = () => {
     );
 };
 
-// --- MAIN PAGE COMPONENT ---
 const AccountingPage: React.FC<{ initialInvoiceData?: { clientId: string, caseId?: string }, clearInitialInvoiceData: () => void }> = ({ initialInvoiceData, clearInitialInvoiceData }) => {
     const [activeTab, setActiveTab] = React.useState<'entries' | 'invoices' | 'reports'>('entries');
     
-    // Automatically switch to invoices tab if initial data is present
     React.useEffect(() => {
         if (initialInvoiceData) setActiveTab('invoices');
     }, [initialInvoiceData]);
