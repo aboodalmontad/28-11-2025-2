@@ -219,7 +219,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
         return null;
     });
 
-    const [isAuthLoading, setIsAuthLoading] = React.useState(true);
+    const [isAuthLoading, setIsAuthLoading] = React.useState(!session);
     const [profile, setProfile] = React.useState<Profile | null>(null);
     const [showConfigModal, setShowConfigModal] = React.useState(false);
     const [currentPage, setCurrentPage] = React.useState<Page>('home');
@@ -251,12 +251,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     }, [session, profile, data.profiles.length, isOnline, data.isDataLoading, data.syncStatus, isAuthLoading]);
 
     React.useEffect(() => {
-        if (!supabase) {
-            setIsAuthLoading(false);
-            return;
-        }
-
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
+        const { data: { subscription } } = supabase!.auth.onAuthStateChange((event, newSession) => {
             if (event === 'SIGNED_OUT') {
                 setSession(null);
                 setIsAuthLoading(false);
@@ -280,7 +275,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
              }
 
              try {
-                const { data: { session: serverSession }, error } = await supabase.auth.getSession();
+                const { data: { session: serverSession }, error } = await supabase!.auth.getSession();
                 
                 if (error) {
                     const errorMessage = error.message.toLowerCase();
@@ -291,7 +286,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                             if (key.startsWith('sb-')) localStorage.removeItem(key);
                         });
                         
-                        await supabase.auth.signOut().catch(() => {}); 
+                        await supabase!.auth.signOut().catch(() => {}); 
                         setSession(null);
                         onRefresh(); 
                     }
@@ -355,9 +350,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
             setSession(null);
             setProfile(null);
             setIsAuthLoading(false);
-            if (supabase) {
-                await supabase.auth.signOut();
-            }
+            await supabase!.auth.signOut();
         } catch (error) {
             console.warn("Logout error:", error);
         } finally {
