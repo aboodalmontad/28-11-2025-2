@@ -1,7 +1,6 @@
-
 import * as React from 'react';
 import { getSupabaseClient } from '../supabaseClient';
-import { ExclamationCircleIcon, EyeIcon, EyeSlashIcon, ClipboardDocumentIcon, ClipboardDocumentCheckIcon, ArrowTopRightOnSquareIcon, CheckCircleIcon, UserGroupIcon, KeyIcon } from '../components/icons';
+import { ExclamationCircleIcon, EyeIcon, EyeSlashIcon, ClipboardDocumentIcon, ClipboardDocumentCheckIcon, ArrowPathIcon, CheckCircleIcon, UserGroupIcon, KeyIcon } from '../components/icons';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import type { User } from '@supabase/supabase-js';
 
@@ -122,40 +121,34 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
         if (!supabase) { setError("Supabase client is not available."); setLoading(false); return; }
 
         try {
-            // Step 1: Call RPC to generate the code in the system so the Admin can see it
-            // The RPC now returns an object { code: string, full_name: string }
-            const { data: res, error: otpError } = await supabase.rpc('generate_otp_by_mobile', { 
-                mobile_to_check: normalizedMobile 
-            });
-
-            if (otpError) {
-                if (otpError.code === 'PGRST202' || String(otpError.message).includes('Could not find the function')) {
-                    setError(
-                        <div className="space-y-2">
-                            <p>يجب تحديث إعدادات قاعدة البيانات لاستخدام هذه الميزة.</p>
-                            <button onClick={onForceSetup} className="underline font-bold">اضغط هنا لفتح معالج التحديث</button>
-                        </div>
-                    );
-                    return;
-                }
-                throw otpError;
+            const { data: exists } = await supabase.rpc('check_if_mobile_exists', { mobile_to_check: normalizedMobile });
+            if (!exists) {
+                throw new Error("رقم الجوال غير مسجل.");
             }
 
-            if (!res || !res.code) {
-                throw new Error("رقم الجوال غير مسجل في النظام. تأكد من إدخال الرقم الصحيح.");
-            }
+            const { data: userWithOtp, error: findUserError } = await supabase.from('profiles').select('id').eq('mobile_number', normalizedMobile).single();
+            if (findUserError || !userWithOtp) throw new Error("تعذر العثور على المستخدم.");
 
-            // Step 2: Send WhatsApp to the MANAGER with user name and phone
-            const managerWaNumber = "963958932922";
-            const messageText = `طلب تغيير كلمة مرور:\nالمستخدم: ${res.full_name}\nرقم الهاتف: ${normalizedMobile}\nيريد تغيير كلمة المرور الخاصة به. يرجى تزويده بكود التحقق الظاهر في لوحة التحكم الخاصة بك.`;
-            const url = `https://wa.me/${managerWaNumber}?text=${encodeURIComponent(messageText)}`;
-            window.open(url, '_blank');
-            
-            setMessage("تم إرسال طلبك إلى المدير. يرجى التواصل معه للحصول على كود التحقق وإدخاله أدناه.");
-            setForgotPasswordStep('verify');
-            
+            const { data: code, error: otpError } = await supabase.rpc('generate_mobile_otp', { target_user_id: userWithOtp.id });
+            if (otpError) throw otpError;
+
+            if (code) {
+                const cleanMobile = normalizedMobile.replace(/^0+/, '');
+                const waNumber = `963${cleanMobile}`;
+                const message = `كود التحقق لاستعادة كلمة المرور هو: *${code}*`;
+                const url = `https://wa.me/${waNumber}?text=${encodeURIComponent(message)}`;
+                window.open(url, '_blank');
+                
+                setMessage("تم إرسال كود التحقق عبر واتساب. يرجى إدخاله أدناه.");
+                setForgotPasswordStep('verify');
+            }
         } catch (err: any) {
-            setError(err.message || "حدث خطأ أثناء إرسال الطلب.");
+            const msg = String(err?.message || err || '').toLowerCase();
+            if (msg.includes('failed to fetch') || msg.includes('network')) {
+                setError("تعذر الاتصال بالخادم. يرجى التحقق من الإنترنت.");
+            } else {
+                setError(err?.message || "حدث خطأ أثناء إرسال الكود.");
+            }
         } finally {
             setLoading(false);
         }
@@ -185,14 +178,19 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                 setMessage("تم تغيير كلمة المرور بنجاح. يمكنك الآن تسجيل الدخول.");
                 setAuthStep('login');
                 setForgotPasswordStep('request');
-                setForm(prev => ({ ...prev, password: '' })); // Clear password field
+                setForm(prev => ({ ...prev, password: '' })); 
                 setOtpCode('');
                 setNewPassword('');
             } else {
                 throw new Error("رمز التحقق غير صحيح.");
             }
         } catch (err: any) {
-            setError(err.message || "فشل تغيير كلمة المرور.");
+            const msg = String(err?.message || err || '').toLowerCase();
+            if (msg.includes('failed to fetch') || msg.includes('network')) {
+                setError("تعذر الاتصال بالخادم. يرجى التأكد من الإنترنت.");
+            } else {
+                setError(err?.message || "فشل تغيير كلمة المرور.");
+            }
         } finally {
             setLoading(false);
         }
@@ -220,7 +218,16 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                     } else { setAuthStep('login'); setOtpCode(''); }
                 }
             } else { throw new Error("رمز التحقق غير صحيح."); }
-        } catch (err: any) { setError(err.message); } finally { setLoading(false); }
+        } catch (err: any) {
+            const msg = String(err?.message || err || '').toLowerCase();
+            if (msg.includes('failed to fetch') || msg.includes('network')) {
+                setError("تعذر الاتصال بالخادم. يرجى التأكد من الإنترنت.");
+            } else {
+                setError(err?.message || "فشل التحقق.");
+            }
+        } finally {
+            setLoading(false);
+        }
     };
 
     const handleAuth = async (e: React.FormEvent) => {
@@ -262,7 +269,12 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                     localStorage.setItem(LAST_USER_CREDENTIALS_CACHE_KEY, JSON.stringify({ mobile: form.mobile, password: form.password }));
                 }
             } catch (err: any) {
-                 setError(err.message || "فشل تسجيل الدخول.");
+                 const msg = String(err?.message || err || '').toLowerCase();
+                 if (msg.includes('failed to fetch') || msg.includes('network')) {
+                     setError("تعذر الاتصال بالخادم. يرجى التأكد من الإنترنت.");
+                 } else {
+                     setError(err?.message || "فشل تسجيل الدخول.");
+                 }
             } finally { setLoading(false); }
         } else { // Sign up
             try {
@@ -290,7 +302,14 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                     setMessage(isAssistantSignup ? "تم إرسال طلب الانضمام. يرجى التواصل مع المحامي لتفعيل حسابك." : "تم إنشاء الحساب بنجاح.");
                     setAuthStep('otp');
                 }
-            } catch (err: any) { setError(err.message); } finally { setLoading(false); }
+            } catch (err: any) {
+                const msg = String(err?.message || err || '').toLowerCase();
+                if (msg.includes('failed to fetch') || msg.includes('network')) {
+                    setError("تعذر الاتصال بالخادم. يرجى التأكد من الإنترنت.");
+                } else {
+                    setError(err?.message || "فشل إنشاء الحساب.");
+                }
+            } finally { setLoading(false); }
         }
     };
 
@@ -329,12 +348,12 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                                         <label className="block text-sm font-medium text-gray-700">رقم الجوال المرتبط بالحساب</label>
                                         <input name="mobile" type="tel" value={form.mobile} onChange={handleInputChange} required className="mt-1 block w-full px-3 py-2 border rounded-md" placeholder="09xxxxxxxx" />
                                     </div>
-                                    <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white p-2 rounded">{loading ? 'جاري الإرسال...' : 'إرسال طلب استعادة للمدير'}</button>
+                                    <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white p-2 rounded">{loading ? 'جاري الإرسال...' : 'إرسال رمز التحقق'}</button>
                                 </form>
                             ) : (
                                 <form onSubmit={handleForgotPasswordReset} className="space-y-4">
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700">رمز التحقق (الذي يزودك به المدير)</label>
+                                        <label className="block text-sm font-medium text-gray-700">رمز التحقق (تم إرساله عبر واتساب)</label>
                                         <input type="text" value={otpCode} onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))} className="mt-1 block w-full text-center text-xl tracking-widest px-3 py-2 border rounded-md" placeholder="------" required />
                                     </div>
                                     <div>
@@ -406,7 +425,7 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                 </div>
                 
                 <div className="mt-8 text-center">
-                    <p className="text-xs text-gray-400 mb-1">الإصدار: 29-12-2025</p>
+                    <p className="text-xs text-gray-400 mb-1">الإصدار: 15-12-2025</p>
                     <p className="text-xs text-gray-400">جميع حقوق الملكية محفوظة لشركة الحلول التقنية © {new Date().getFullYear()}</p>
                 </div>
             </div>

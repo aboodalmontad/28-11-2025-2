@@ -1,4 +1,6 @@
 
+export type SyncStatus = 'loading' | 'syncing' | 'synced' | 'error' | 'unconfigured' | 'uninitialized';
+
 export interface Permissions {
     // General (عام)
     can_view_agenda: boolean; // عرض المفكرة والصفحة الرئيسية
