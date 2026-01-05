@@ -1,17 +1,16 @@
 
 import * as React from 'react';
 import type { User } from '@supabase/supabase-js';
-import { checkSupabaseSchema, fetchDataFromSupabase, upsertDataToSupabase, FlatData, transformRemoteToLocal, mapFetchError, fetchDeletionsFromSupabase } from './useOnlineData.js';
+import { checkSupabaseSchema, fetchDataFromSupabase, upsertDataToSupabase, deleteRecordsFromSupabase, FlatData, transformRemoteToLocal, mapFetchError, fetchDeletionsFromSupabase } from './useOnlineData.js';
 import { Client, Case, Stage, Session, AppData, DeletedIds } from '../types.js';
+import { getDb, PENDING_DELETIONS_STORE_NAME } from '../utils/db.js';
 
 export type SyncStatus = 'loading' | 'syncing' | 'synced' | 'error' | 'unconfigured' | 'uninitialized';
 
 interface UseSyncProps {
     user: User | null;
     localData: AppData;
-    deletedIds: DeletedIds;
     onDataSynced: (mergedData: AppData) => void;
-    onDeletionsSynced: (syncedDeletions: Partial<DeletedIds>) => void;
     onSyncStatusChange: (status: SyncStatus, error: string | null) => void;
     isOnline: boolean;
     isAuthLoading: boolean;
@@ -81,6 +80,7 @@ const constructData = (flatData: Partial<FlatData>): AppData => {
         invoices: (flatData.invoices || []).map(inv => ({...inv, items: invoiceItemMap.get(inv.id) || []})) as any,
         documents: (flatData.case_documents || []) as any,
         profiles: (flatData.profiles || []) as any,
+        /* Fix: Changed property name from site_finances to siteFinances to match AppData interface */
         siteFinances: (flatData.site_finances || []) as any,
     };
 };
@@ -91,11 +91,8 @@ export const useSync = ({ user, localData, onDataSynced, onSyncStatusChange, isO
     };
 
     const manualSync = React.useCallback(async () => {
-        // إذا لم يكن هناك إنترنت، لا تحاول المزامنة ولكن لا تظهر خطأ أحمر إلا إذا كانت المزامنة جارية فعلاً وفشلت
         if (!isOnline || !user || user.access_token === 'offline') {
-            if (syncStatus === 'syncing' || syncStatus === 'loading') {
-                setStatus('synced');
-            }
+            if (syncStatus === 'syncing' || syncStatus === 'loading') setStatus('synced');
             return;
         }
     
@@ -103,11 +100,33 @@ export const useSync = ({ user, localData, onDataSynced, onSyncStatusChange, isO
         try {
             const schemaCheck = await checkSupabaseSchema();
             if (!schemaCheck.success) {
-                const mappedErr = schemaCheck.error === 'network' ? 'error' : (schemaCheck.error as SyncStatus);
-                setStatus(mappedErr, schemaCheck.message);
+                setStatus(schemaCheck.error === 'network' ? 'error' : (schemaCheck.error as SyncStatus), schemaCheck.message);
                 return;
             }
+
+            const db = await getDb();
+            
+            // 1. معالجة الحذوفات المحلية العالقة
+            const pendingDeletes = await db.getAll(PENDING_DELETIONS_STORE_NAME);
+            if (pendingDeletes.length > 0) {
+                const groupedDeletes = pendingDeletes.reduce((acc, curr) => {
+                    if (!acc[curr.table_name]) acc[curr.table_name] = [];
+                    acc[curr.table_name].push(curr.record_id);
+                    return acc;
+                }, {} as Record<string, string[]>);
+
+                for (const [table, ids] of Object.entries(groupedDeletes)) {
+                    /* Fix: Explicitly cast ids as string[] to satisfy deleteRecordsFromSupabase signature */
+                    await deleteRecordsFromSupabase(table, ids as string[], user.id);
+                }
+                await db.clear(PENDING_DELETIONS_STORE_NAME);
+            }
+
+            // 2. جلب الحذوفات من السيرفر (التي قام بها آخرون)
+            const remoteDeletions = await fetchDeletionsFromSupabase();
+            const remoteDeletedIdsSet = new Set(remoteDeletions.map(d => `${d.table_name}:${d.record_id}`));
     
+            // 3. جلب البيانات ودمجها
             const remoteDataRaw = await fetchDataFromSupabase();
             const remoteFlatData = transformRemoteToLocal(remoteDataRaw);
             let localFlatData = flattenData(localData);
@@ -123,8 +142,12 @@ export const useSync = ({ user, localData, onDataSynced, onSyncStatusChange, isO
                 const finalMerged = new Map<string, any>();
                 const toUpsert: any[] = [];
 
+                // دمج المحلي مع البعيد
                 for (const local of locals) {
                     const id = local.id ?? local.name;
+                    // إذا حذف أحدهم هذا العنصر من السيرفر، لا تضعه في الدمج النهائي (إلا إذا عدلته أنت محلياً بعد الحذف - هنا نفضل الحذف لضمان السلامة)
+                    if (remoteDeletedIdsSet.has(`${key}:${id}`)) continue;
+
                     const remote = remoteMap.get(id);
                     if (!remote || new Date(local.updated_at || 0) >= new Date(remote.updated_at || 0)) {
                         toUpsert.push(local);
@@ -133,10 +156,15 @@ export const useSync = ({ user, localData, onDataSynced, onSyncStatusChange, isO
                         finalMerged.set(id, remote);
                     }
                 }
+                
+                // إضافة العناصر الجديدة من السيرفر
                 for (const remote of remotes) {
                     const id = remote.id ?? remote.name;
-                    if (!finalMerged.has(id)) finalMerged.set(id, remote);
+                    if (!finalMerged.has(id) && !remoteDeletedIdsSet.has(`${key}:${id}`)) {
+                        finalMerged.set(id, remote);
+                    }
                 }
+                
                 (flatUpserts as any)[key] = toUpsert;
                 (mergedFlatData as any)[key] = Array.from(finalMerged.values());
             }

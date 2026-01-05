@@ -7,7 +7,7 @@ import { useSync } from './useSync.js';
 import { getSupabaseClient } from '../supabaseClient.js';
 import { isBeforeToday } from '../utils/dateUtils.js';
 import { RealtimeAlert } from '../components/RealtimeNotifier.js';
-import { getDb, DATA_STORE_NAME, DOCS_FILES_STORE_NAME } from '../utils/db.js';
+import { getDb, DATA_STORE_NAME, DOCS_FILES_STORE_NAME, PENDING_DELETIONS_STORE_NAME } from '../utils/db.js';
 
 const defaultAssistants = ['أحمد', 'فاطمة', 'سارة', 'بدون تخصيص'];
 
@@ -88,7 +88,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     const supabase = getSupabaseClient();
     const effectiveUserId = React.useMemo(() => user?.id || null, [user]);
 
-    // 1. تحميل البيانات المحلية (أو السحابية إذا كان أول دخول)
+    // 1. تحميل البيانات المحلية
     React.useEffect(() => {
         if (isAuthLoading) return;
         if (!user || !effectiveUserId) { setIsDataLoading(false); setSyncStatus('unconfigured'); return; }
@@ -102,12 +102,8 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     setIsDataLoading(false);
                     setSyncStatus('synced');
                 } else {
-                    // أول مرة - جلب من السحابة
-                    if (isOnline) {
-                        await manualSync();
-                    } else {
-                        setSyncStatus('synced');
-                    }
+                    if (isOnline) await manualSync();
+                    else setSyncStatus('synced');
                     setIsDataLoading(false);
                 }
             } catch (e) {
@@ -122,12 +118,19 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         if (!userRef.current || !effectiveUserId) return;
         setData(currentData => {
             const newData = typeof updater === 'function' ? (updater as any)(currentData) : updater;
-            // حفظ محلي فوري
             getDb().then(db => db.put(DATA_STORE_NAME, newData, effectiveUserId)).catch(e => console.error("DB Save failed:", e));
             if (options.markDirty) setDirty(true);
             return newData;
         });
     }, [effectiveUserId]);
+
+    const recordDeletion = async (tableName: string, recordId: string) => {
+        try {
+            const db = await getDb();
+            await db.add(PENDING_DELETIONS_STORE_NAME, { table_name: tableName, record_id: recordId, user_id: effectiveUserId });
+            setDirty(true);
+        } catch (e) { console.error("Failed to record deletion:", e); }
+    };
 
     const onDataSynced = React.useCallback((mergedData: AppData) => {
         const fixedData = validateAndFixData(mergedData);
@@ -136,15 +139,14 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     }, [updateData]);
 
     const { manualSync } = useSync({
-        user, localData: data, deletedIds: getInitialDeletedIds(), onDataSynced, onDeletionsSynced: () => {},
+        user, localData: data, onDataSynced,
         onSyncStatusChange: (status, error) => { setSyncStatus(status); setLastSyncError(error); },
         isOnline, isAuthLoading, syncStatus
     });
 
-    // 2. المزامنة التلقائية عند عودة الإنترنت أو عند حدوث تغييرات
     React.useEffect(() => {
         if (isOnline && isDirty && syncStatus === 'synced' && !isAuthLoading && user && isAutoSyncEnabled) {
-            const timer = setTimeout(() => manualSync(), 3000); // مزامنة بعد 3 ثوانٍ من الهدوء
+            const timer = setTimeout(() => manualSync(), 3000);
             return () => clearTimeout(timer);
         }
     }, [isDirty, isOnline, manualSync, syncStatus, isAuthLoading, user, isAutoSyncEnabled]);
@@ -225,14 +227,14 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         setProfiles: (updater: React.SetStateAction<Profile[]>) => updateData(prev => ({ ...prev, profiles: typeof updater === 'function' ? (updater as any)(prev.profiles) : updater })),
         setSiteFinances: (updater: React.SetStateAction<SiteFinancialEntry[]>) => updateData(prev => ({ ...prev, siteFinances: typeof updater === 'function' ? (updater as any)(prev.siteFinances) : updater })),
         setFullData: (newData: AppData) => updateData(newData),
-        deleteClient: (id: string) => updateData(prev => ({ ...prev, clients: prev.clients.filter(c => c.id !== id) })),
-        deleteCase: (caseId: string, clientId: string) => updateData(prev => ({ ...prev, clients: prev.clients.map(c => c.id === clientId ? { ...c, cases: c.cases.filter(cs => cs.id !== caseId) } : c) })),
-        deleteStage: (stageId: string, caseId: string, clientId: string) => updateData(prev => ({ ...prev, clients: prev.clients.map(c => c.id === clientId ? { ...c, cases: c.cases.map(cs => cs.id === caseId ? { ...cs, stages: cs.stages.filter(st => st.id !== stageId) } : cs) } : c) })),
-        deleteSession: (sessionId: string, stageId: string, caseId: string, clientId: string) => updateData(prev => ({ ...prev, clients: prev.clients.map(c => c.id === clientId ? { ...c, cases: c.cases.map(cs => cs.id === caseId ? { ...cs, stages: cs.stages.map(st => st.id === stageId ? { ...st, sessions: st.sessions.filter(s => s.id !== sessionId) } : st) } : cs) } : c) })),
-        deleteAdminTask: (id: string) => updateData(prev => ({ ...prev, adminTasks: prev.adminTasks.filter(t => t.id !== id) })),
-        deleteAppointment: (id: string) => updateData(prev => ({ ...prev, appointments: prev.appointments.filter(a => a.id !== id) })),
-        deleteAccountingEntry: (id: string) => updateData(prev => ({ ...prev, accountingEntries: prev.accountingEntries.filter(e => e.id !== id) })),
-        deleteInvoice: (id: string) => updateData(prev => ({ ...prev, invoices: prev.invoices.filter(i => i.id !== id) })),
+        deleteClient: (id: string) => { recordDeletion('clients', id); updateData(prev => ({ ...prev, clients: prev.clients.filter(c => c.id !== id) })); },
+        deleteCase: (caseId: string, clientId: string) => { recordDeletion('cases', caseId); updateData(prev => ({ ...prev, clients: prev.clients.map(c => c.id === clientId ? { ...c, cases: c.cases.filter(cs => cs.id !== caseId) } : c) })); },
+        deleteStage: (stageId: string, caseId: string, clientId: string) => { recordDeletion('stages', stageId); updateData(prev => ({ ...prev, clients: prev.clients.map(c => c.id === clientId ? { ...c, cases: c.cases.map(cs => cs.id === caseId ? { ...cs, stages: cs.stages.filter(st => st.id !== stageId) } : cs) } : c) })); },
+        deleteSession: (sessionId: string, stageId: string, caseId: string, clientId: string) => { recordDeletion('sessions', sessionId); updateData(prev => ({ ...prev, clients: prev.clients.map(c => c.id === clientId ? { ...c, cases: c.cases.map(cs => cs.id === caseId ? { ...cs, stages: cs.stages.map(st => st.id === stageId ? { ...st, sessions: st.sessions.filter(s => s.id !== sessionId) } : st) } : cs) } : c) })); },
+        deleteAdminTask: (id: string) => { recordDeletion('admin_tasks', id); updateData(prev => ({ ...prev, adminTasks: prev.adminTasks.filter(t => t.id !== id) })); },
+        deleteAppointment: (id: string) => { recordDeletion('appointments', id); updateData(prev => ({ ...prev, appointments: prev.appointments.filter(a => a.id !== id) })); },
+        deleteAccountingEntry: (id: string) => { recordDeletion('accounting_entries', id); updateData(prev => ({ ...prev, accountingEntries: prev.accountingEntries.filter(e => e.id !== id) })); },
+        deleteInvoice: (id: string) => { recordDeletion('invoices', id); updateData(prev => ({ ...prev, invoices: prev.invoices.filter(i => i.id !== id) })); },
         allSessions, unpostponedSessions, isDataLoading, isDirty, syncStatus, lastSyncError,
         manualSync, fetchAndRefresh: manualSync,
         triggeredAlerts, dismissAlert: (id: string) => setTriggeredAlerts(prev => prev.filter(a => a.id !== id)),

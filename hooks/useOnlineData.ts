@@ -74,10 +74,33 @@ export const fetchDeletionsFromSupabase = async (): Promise<SyncDeletion[]> => {
     const supabase = getSupabaseClient();
     if (!supabase) return [];
     try {
-        const { data, error } = await supabase.from('sync_deletions').select('*').limit(100);
+        const { data, error } = await supabase.from('sync_deletions').select('*').limit(500);
         if (error) return [];
         return data || [];
     } catch (err: any) { return []; }
+};
+
+export const deleteRecordsFromSupabase = async (tableName: string, recordIds: string[], userId: string) => {
+    const supabase = getSupabaseClient();
+    if (!supabase || recordIds.length === 0) return;
+    
+    try {
+        // 1. تنفيذ الحذف من الجدول الأصلي
+        const { error: delError } = await supabase.from(tableName).delete().in('id', recordIds);
+        if (delError) throw delError;
+
+        // 2. تسجيل الحذف في جدول sync_deletions ليراه الآخرون
+        const deletionLogs = recordIds.map(id => ({
+            table_name: tableName,
+            record_id: id,
+            user_id: userId,
+            deleted_at: new Date().toISOString()
+        }));
+        
+        await supabase.from('sync_deletions').insert(deletionLogs);
+    } catch (err) {
+        console.error(`Failed to delete from ${tableName} on cloud:`, err);
+    }
 };
 
 export const upsertDataToSupabase = async (data: Partial<FlatData>, user: User) => {
