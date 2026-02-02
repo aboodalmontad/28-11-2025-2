@@ -6,7 +6,6 @@ import { formatDate, toInputDateString } from '../utils/dateUtils';
 import { CheckCircleIcon, NoSymbolIcon, PencilIcon, TrashIcon, ExclamationTriangleIcon, PhoneIcon, ShareIcon, ArrowPathIcon, ClipboardDocumentIcon, UserIcon, UserGroupIcon } from '../components/icons';
 import { useData } from '../context/DataContext';
 import UserDetailsModal from '../components/UserDetailsModal';
-import { mapFetchError } from '../hooks/useOnlineData';
 
 const formatSubscriptionDateRange = (user: Profile): string => {
     const { subscription_start_date, subscription_end_date } = user;
@@ -51,9 +50,16 @@ const UserRow: React.FC<UserRowProps> = ({ user, lawyer, onView, onEdit, onDelet
         });
     };
 
+    const sendOtpToUser = (otpCode: string, mobile: string) => {
+        if (!otpCode || !mobile) return;
+        const cleanMobile = mobile.replace(/\D/g, '');
+        const waNumber = cleanMobile.startsWith('0') ? '963' + cleanMobile.substring(1) : cleanMobile;
+        const messageText = `مرحباً ${user.full_name}، لقد تم طلب تغيير كلمة المرور لتطبيق مكتب المحامي. رمز التحقق الخاص بك هو: *${otpCode}*. وبإمكانك تجاهل هذه الرسالة إن كنت لم تطلب تغيير كلمة المرور.`;
+        const url = `https://wa.me/${waNumber}?text=${encodeURIComponent(messageText)}`;
+        window.open(url, '_blank');
+    };
+
     const isAssistant = !!lawyer;
-    
-    // Check parent status: Active, Approved, and Subscription Valid
     const isParentSubscriptionValid = lawyer ? (!lawyer.subscription_end_date || new Date(lawyer.subscription_end_date) >= new Date()) : true;
     const isParentActive = lawyer ? (lawyer.is_active && lawyer.is_approved && isParentSubscriptionValid) : true;
 
@@ -68,8 +74,6 @@ const UserRow: React.FC<UserRowProps> = ({ user, lawyer, onView, onEdit, onDelet
                             {user.full_name}
                         </button>
                         {user.role === 'admin' && <span className="text-xs font-semibold text-purple-600 mt-1 me-6">(مدير)</span>}
-                        
-                        {/* Dependency Status Indicator */}
                         {isAssistant && !isParentActive && (
                             <span className="text-xs text-red-500 mt-1 me-6 flex items-center gap-1" title="صلاحية هذا الحساب معطلة لأن حساب المحامي الرئيسي غير نشط أو منتهي الصلاحية">
                                 <ExclamationTriangleIcon className="w-3 h-3"/>
@@ -82,44 +86,53 @@ const UserRow: React.FC<UserRowProps> = ({ user, lawyer, onView, onEdit, onDelet
             <td className="px-6 py-4 text-sm" dir="ltr">{getDisplayPhoneNumber(user.mobile_number)}</td>
             <td className="px-6 py-4 text-sm text-gray-500">{user.created_at ? formatDate(new Date(user.created_at)) : '-'}</td>
             <td className="px-6 py-4">
-                <div className="flex items-center gap-2 flex-wrap">
-                    {user.mobile_verified ? (
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200">
-                            تم التحقق
-                        </span>
-                    ) : (
-                        <div className="flex flex-col gap-2 w-full max-w-[140px]">
-                            <div className="flex items-center justify-between gap-2">
-                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
-                                    غير مؤكد
-                                </span>
-                                {user.role !== 'admin' && (
-                                    <button 
-                                        onClick={() => onGenerateOtp(user)}
-                                        disabled={generatingOtpFor === user.id}
-                                        className="text-blue-600 hover:text-blue-800 disabled:opacity-50 p-1 bg-blue-50 rounded-full hover:bg-blue-100 transition-colors"
-                                        title="إرسال كود التحقق عبر واتساب"
-                                    >
-                                        {generatingOtpFor === user.id ? <ArrowPathIcon className="w-4 h-4 animate-spin"/> : <ShareIcon className="w-4 h-4" />}
-                                    </button>
-                                )}
-                            </div>
-                            <div 
-                                className={`flex items-center justify-center gap-2 text-xs font-bold border rounded-md px-2 py-1.5 cursor-pointer transition-all ${user.otp_code ? 'text-blue-700 bg-blue-50 border-blue-300 hover:bg-blue-100' : 'text-gray-400 bg-gray-50 border-gray-200'}`}
-                                title={user.otp_code ? "نسخ الكود" : "لا يوجد كود نشط"}
-                                onClick={() => user.otp_code && copyToClipboard(user.otp_code, user.id)}
+                <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                        {user.mobile_verified ? (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-green-100 text-green-800 border border-green-200">
+                                مؤكد
+                            </span>
+                        ) : (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-800 border border-red-200">
+                                غير مؤكد
+                            </span>
+                        )}
+                        {user.role !== 'admin' && (
+                            <button 
+                                onClick={() => onGenerateOtp(user)}
+                                disabled={generatingOtpFor === user.id}
+                                className="text-blue-600 hover:text-blue-800 disabled:opacity-50 p-1 bg-blue-50 rounded-full hover:bg-blue-100 transition-colors"
+                                title="توليد كود جديد (تحقق أو استعادة)"
                             >
-                                {user.otp_code ? (
-                                    <>
-                                        <span className="font-mono text-sm tracking-wider">{user.otp_code}</span>
-                                        <ClipboardDocumentIcon className="w-3 h-3 text-blue-500" />
-                                    </>
-                                ) : (
-                                    <span>- - - - - -</span>
-                                )}
+                                {generatingOtpFor === user.id ? <ArrowPathIcon className="w-3.5 h-3.5 animate-spin"/> : <ArrowPathIcon className="w-3.5 h-3.5" />}
+                            </button>
+                        )}
+                    </div>
+
+                    {user.otp_code ? (
+                        <div className="flex flex-col gap-1">
+                            <span className="text-[9px] text-blue-600 font-bold uppercase">كود نشط:</span>
+                            <div className="flex items-center gap-1">
+                                <div 
+                                    className="flex-grow flex items-center justify-between gap-2 text-xs font-bold border border-blue-300 bg-blue-50 rounded-md px-2 py-1.5 cursor-pointer hover:bg-blue-100 transition-all"
+                                    title="نسخ الكود"
+                                    onClick={() => copyToClipboard(user.otp_code!, user.id)}
+                                >
+                                    <span className="font-mono text-sm tracking-widest">{user.otp_code}</span>
+                                    <ClipboardDocumentIcon className="w-3.5 h-3.5 text-blue-500" />
+                                </div>
+                                <button 
+                                    onClick={() => sendOtpToUser(user.otp_code!, user.mobile_number)}
+                                    className="p-1.5 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors shadow-sm"
+                                    title="إرسال الكود للمستخدم عبر واتساب"
+                                >
+                                    <ShareIcon className="w-4 h-4" />
+                                </button>
                             </div>
-                            {copiedOtpId === user.id && <span className="text-[10px] text-green-600 text-center font-bold">تم النسخ!</span>}
+                            {copiedOtpId === user.id && <span className="text-[9px] text-green-600 text-center font-bold">تم النسخ!</span>}
                         </div>
+                    ) : (
+                        <span className="text-[10px] text-gray-400 font-mono">- - - - - -</span>
                     )}
                 </div>
             </td>
@@ -161,12 +174,10 @@ const AdminPage: React.FC = () => {
         e.preventDefault();
         if (!editingUser) return;
         
-        // Optimistic update
         setUsers(prevUsers => prevUsers.map(u => 
             u.id === editingUser.id ? { ...editingUser, updated_at: new Date() } : u
         ));
 
-        // If using real backend, you would make the API call here
         if (supabase) {
              try {
                  const { error } = await supabase.from('profiles').update({
@@ -179,17 +190,13 @@ const AdminPage: React.FC = () => {
                      mobile_verified: editingUser.mobile_verified
                  }).eq('id', editingUser.id);
                  if (error) throw error;
-                 
-                 // Refresh data to confirm changes from server
                  fetchAndRefresh(); 
              } catch (err: any) {
                  console.error("Failed to update user in DB:", err);
-                 alert("فشل تحديث البيانات: " + mapFetchError(err));
-                 // Revert optimistic update by refreshing
+                 alert("فشل تحديث البيانات في قاعدة البيانات: " + err.message);
                  fetchAndRefresh();
              }
         }
-
         setEditingUser(null);
     };
 
@@ -206,7 +213,7 @@ const AdminPage: React.FC = () => {
             setUsers(prevUsers => prevUsers.filter(u => u.id !== userToDeleteId));
             
         } catch (err: any) {
-            setError("فشل حذف المستخدم: " + mapFetchError(err));
+            setError("فشل حذف المستخدم: " + err.message);
         } finally {
             setUserToDelete(null);
         }
@@ -249,33 +256,21 @@ const AdminPage: React.FC = () => {
             const { data: code, error } = await supabase.rpc('generate_mobile_otp', {
                 target_user_id: user.id
             });
-
             if (error) throw error;
-
             if (code) {
-                // Update local state to show code immediately without refresh
                 setUsers(prev => prev.map(u => u.id === user.id ? { ...u, otp_code: code } : u));
-
-                const cleanMobile = user.mobile_number.replace(/\D/g, '').replace(/^0+/, ''); 
-                const waNumber = `963${cleanMobile}`; 
-                const message = `كود التحقق الخاص بك لمكتب المحامي هو: *${code}*`;
-                const url = `https://wa.me/${waNumber}?text=${encodeURIComponent(message)}`;
-                window.open(url, '_blank');
+                alert(`تم توليد الكود بنجاح: ${code}`);
             }
         } catch (err: any) {
             console.error("Error generating OTP:", err);
-            alert("فشل توليد كود التحقق: " + mapFetchError(err));
+            alert("فشل توليد كود التحقق: " + err.message);
         } finally {
             setGeneratingOtpFor(null);
         }
     };
     
-    // Organize users into hierarchy: Lawyers (and admins) at top, their assistants nested
     const groupedUsers = React.useMemo(() => {
-        // 1. Find all users who are NOT assistants (Lawyers/Admins)
         const lawyers = users.filter(u => !u.lawyer_id); 
-        
-        // 2. Create a map of lawyer_id -> [assistants]
         const assistantMap = new Map<string, Profile[]>();
         users.filter(u => u.lawyer_id).forEach(assistant => {
             const lawyerId = assistant.lawyer_id!;
@@ -285,7 +280,6 @@ const AdminPage: React.FC = () => {
             assistantMap.get(lawyerId)!.push(assistant);
         });
 
-        // 3. Sort lawyers: Admins first, then by newest
         const sortedLawyers = [...lawyers].sort((a, b) => {
              if (a.role === 'admin' && b.role !== 'admin') return -1;
              if (a.role !== 'admin' && b.role === 'admin') return 1;
@@ -294,7 +288,6 @@ const AdminPage: React.FC = () => {
              return dateB - dateA;
         });
 
-        // 4. Return structure for rendering
         return sortedLawyers.map(lawyer => ({
             lawyer,
             assistants: assistantMap.get(lawyer.id) || []
@@ -321,7 +314,7 @@ const AdminPage: React.FC = () => {
                             <th className="px-6 py-3 rounded-tr-lg">المستخدم (المحامي / المساعد)</th>
                             <th className="px-6 py-3">رقم الجوال</th>
                             <th className="px-6 py-3">تاريخ التسجيل</th>
-                            <th className="px-6 py-3">التحقق</th>
+                            <th className="px-6 py-3">التحقق والكود</th>
                             <th className="px-6 py-3">موافق عليه</th>
                             <th className="px-6 py-3">الحساب نشط</th>
                             <th className="px-6 py-3 rounded-tl-lg">إجراءات</th>
@@ -330,7 +323,6 @@ const AdminPage: React.FC = () => {
                     <tbody>
                         {groupedUsers.map(({ lawyer, assistants }) => (
                             <React.Fragment key={lawyer.id}>
-                                {/* Lawyer Row */}
                                 <UserRow 
                                     user={lawyer}
                                     onView={() => setViewingUser(lawyer)}
@@ -342,12 +334,11 @@ const AdminPage: React.FC = () => {
                                     generatingOtpFor={generatingOtpFor}
                                     currentAdminId={userId}
                                 />
-                                {/* Assistants Rows */}
                                 {assistants.length > 0 && assistants.map(assistant => (
                                     <UserRow 
                                         key={assistant.id}
                                         user={assistant}
-                                        lawyer={lawyer} // Pass the parent lawyer to check dependency
+                                        lawyer={lawyer} 
                                         onView={() => setViewingUser(assistant)}
                                         onEdit={() => setEditingUser(assistant)}
                                         onDelete={() => setUserToDelete(assistant)}

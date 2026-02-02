@@ -2,12 +2,11 @@
 import { openDB, IDBPDatabase } from 'idb';
 
 export const DB_NAME = 'LawyerAppData';
-export const DB_VERSION = 13; // Incremented version to add deletions store
+export const DB_VERSION = 12; // Incremented version
 export const DATA_STORE_NAME = 'appData';
 export const DOCS_FILES_STORE_NAME = 'caseDocumentFiles';
 export const DOCS_METADATA_STORE_NAME = 'caseDocumentMetadata';
 export const LOCAL_EXCLUDED_DOCS_STORE_NAME = 'localExcludedDocuments';
-export const PENDING_DELETIONS_STORE_NAME = 'pendingDeletions';
 
 export async function getDb(): Promise<IDBPDatabase> {
   return openDB(DB_NAME, DB_VERSION, {
@@ -18,11 +17,6 @@ export async function getDb(): Promise<IDBPDatabase> {
         }
         if (oldVersion < 12) {
             if (!db.objectStoreNames.contains(LOCAL_EXCLUDED_DOCS_STORE_NAME)) db.createObjectStore(LOCAL_EXCLUDED_DOCS_STORE_NAME);
-        }
-        if (oldVersion < 13) {
-            if (!db.objectStoreNames.contains(PENDING_DELETIONS_STORE_NAME)) {
-                db.createObjectStore(PENDING_DELETIONS_STORE_NAME, { keyPath: 'id', autoIncrement: true });
-            }
         }
         if (!db.objectStoreNames.contains(DATA_STORE_NAME)) db.createObjectStore(DATA_STORE_NAME);
         if (!db.objectStoreNames.contains(DOCS_FILES_STORE_NAME)) db.createObjectStore(DOCS_FILES_STORE_NAME);

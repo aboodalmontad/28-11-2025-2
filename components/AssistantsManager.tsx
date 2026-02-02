@@ -4,7 +4,6 @@ import { Profile, Permissions, defaultPermissions } from '../types';
 import { useData } from '../context/DataContext';
 import { getSupabaseClient } from '../supabaseClient';
 import { UserIcon, CheckCircleIcon, NoSymbolIcon, PencilIcon, TrashIcon, ExclamationTriangleIcon } from './icons';
-import { mapFetchError } from '../hooks/useOnlineData';
 
 interface AssistantsManagerProps {
     onClose: () => void;
@@ -139,7 +138,7 @@ const AssistantsManager: React.FC<AssistantsManagerProps> = ({ onClose }) => {
             setProfiles(prev => prev.map(p => p.id === assistant.id ? { ...p, ...updates } : p));
             if (editingAssistant?.id === assistant.id) setEditingAssistant(null);
         } catch (err: any) {
-            alert("فشل تحديث بيانات المساعد: " + mapFetchError(err));
+            alert("فشل تحديث بيانات المساعد: " + err.message);
         }
     };
 
@@ -163,7 +162,7 @@ const AssistantsManager: React.FC<AssistantsManagerProps> = ({ onClose }) => {
                  if (error) throw error;
                  setProfiles(prev => prev.filter(p => p.id !== id)); // Remove from local view immediately
              } catch (err: any) {
-                 alert("فشل حذف المساعد: " + mapFetchError(err));
+                 alert("فشل حذف المساعد: " + err.message);
              }
         }
     };

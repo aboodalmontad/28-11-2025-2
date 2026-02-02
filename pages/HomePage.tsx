@@ -11,6 +11,7 @@ import { MenuItem } from '../components/ContextMenu';
 import { useDebounce } from '../hooks/useDebounce';
 import { useData } from '../context/DataContext';
 
+// ... (Constants importanceMap, importanceMapAdminTasks, formatTime, and AppointmentsTable remain the same)
 const importanceMap: { [key: string]: { text: string, className: string } } = {
     normal: { text: 'عادي', className: 'bg-gray-100 text-gray-800' },
     important: { text: 'مهم', className: 'bg-yellow-100 text-yellow-800' },
@@ -149,6 +150,7 @@ const HomePage: React.FC<HomePageProps> = ({
         permissions, // Destructure permissions
     } = useData();
 
+    // ... (State variables and effects remain the same)
     const [calendarViewDate, setCalendarViewDate] = React.useState(selectedDate);
     type ViewMode = 'daily' | 'unpostponed' | 'upcoming';
     const [viewMode, setViewMode] = React.useState<ViewMode>('daily');
@@ -184,6 +186,7 @@ const HomePage: React.FC<HomePageProps> = ({
         setCalendarViewDate(selectedDate);
     }, [selectedDate]);
 
+    // ... (Appointment and Task Handlers remain same)
     const handleOpenAddAppointmentModal = () => {
         setEditingAppointment(null);
         setNewAppointment({ title: '', date: toInputDateString(selectedDate), time: '', importance: 'normal', reminderTimeInMinutes: 15, assignee: 'بدون تخصيص' });
@@ -332,6 +335,7 @@ const HomePage: React.FC<HomePageProps> = ({
         window.open(whatsappUrl, '_blank');
     };
 
+    // ... (Drag and Drop Handlers remain the same)
     const handleDragStart = (e: React.DragEvent, type: 'task' | 'group', id: string) => { e.stopPropagation(); document.body.classList.add('grabbing'); if (type === 'task') { e.dataTransfer.setData('application/lawyer-app-task-id', id); e.dataTransfer.effectAllowed = 'move'; draggedTaskId.current = id; } else { e.dataTransfer.setData('application/lawyer-app-group-location', id); e.dataTransfer.effectAllowed = 'move'; setDraggedGroupLocation(id); } setIsDragging(true); };
     const handleDragEnd = () => { document.body.classList.remove('grabbing'); draggedTaskId.current = null; setDraggedGroupLocation(null); setIsDragging(false); setDragOverTaskId(null); setDropPosition(null); setDragOverLocation(null); };
 
@@ -408,22 +412,7 @@ const HomePage: React.FC<HomePageProps> = ({
 
     // Memos
     const dailyData = React.useMemo(() => ({ dailySessions: allSessions.filter(s => isSameDay(s.date, selectedDate)), dailyAppointments: appointments.filter(a => isSameDay(a.date, selectedDate)) }), [selectedDate, allSessions, appointments]);
-    const upcomingSessions = React.useMemo(() => { 
-        const tomorrow = new Date(selectedDate); 
-        tomorrow.setDate(tomorrow.getDate() + 1); 
-        tomorrow.setHours(0, 0, 0, 0); 
-        return allSessions
-            .filter(s => {
-                const sessionDate = s.date instanceof Date ? s.date : new Date(s.date);
-                return sessionDate >= tomorrow;
-            })
-            .sort((a, b) => {
-                const da = a.date instanceof Date ? a.date : new Date(a.date);
-                const db = b.date instanceof Date ? b.date : new Date(b.date);
-                return da.getTime() - db.getTime();
-            }); 
-    }, [allSessions, selectedDate]);
-
+    const upcomingSessions = React.useMemo(() => { const tomorrow = new Date(selectedDate); tomorrow.setDate(tomorrow.getDate() + 1); tomorrow.setHours(0, 0, 0, 0); return allSessions.filter(s => new Date(s.date) >= tomorrow).sort((a, b) => a.date.getTime() - b.date.getTime()); }, [allSessions, selectedDate]);
     const groupedTasks: Record<string, AdminTask[]> = React.useMemo(() => {
         const isCompleted = activeTaskTab === 'completed';
         const filtered = adminTasks.filter(task => {
@@ -451,6 +440,7 @@ const HomePage: React.FC<HomePageProps> = ({
     const handleShowTodaysAgenda = () => { const today = new Date(); setSelectedDate(today); setCalendarViewDate(today); setViewMode('daily'); };
     const getTitle = () => { switch(viewMode) { case 'unpostponed': return "الجلسات غير المرحلة"; case 'upcoming': return `الجلسات القادمة (بعد ${formatDate(selectedDate)})`; case 'daily': default: return `جدول أعمال يوم: ${formatDate(selectedDate)}`; } };
     
+    // ... (ContextMenu Handlers remain same)
     const handleAppointmentContextMenu = (event: React.MouseEvent, appointment: Appointment) => { const menuItems: MenuItem[] = [ { label: 'إرسال إلى المهام الإدارية', icon: <BuildingLibraryIcon className="w-4 h-4" />, onClick: () => { const description = `متابعة موعد "${appointment.title}" يوم ${formatDate(appointment.date)} الساعة ${formatTime(appointment.time)}.\nالمكلف: ${appointment.assignee || 'غير محدد'}.\nالأهمية: ${importanceMap[appointment.importance]?.text}.`; onOpenAdminTaskModal({ task: description, assignee: appointment.assignee, importance: appointment.importance, }); } }, { label: 'مشاركة عبر واتساب', icon: <ShareIcon className="w-4 h-4" />, onClick: () => { const message = [ `*موعد:* ${appointment.title}`, `*التاريخ:* ${formatDate(appointment.date)}`, `*الوقت:* ${formatTime(appointment.time)}`, `*المسؤول:* ${appointment.assignee || 'غير محدد'}`, `*الأهمية:* ${importanceMap[appointment.importance]?.text}` ].join('\n'); const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`; window.open(whatsappUrl, '_blank'); } } ]; showContextMenu(event, menuItems); }
     const handleSessionContextMenu = (event: React.MouseEvent, session: Session) => { let client, caseItem, stage; for (const c of clients) { for (const cs of c.cases) { const s = cs.stages.find(st => st.id === session.stageId); if (s) { client = c; caseItem = cs; stage = s; break; } } if (stage) break; } let description = ''; let message = ''; if (client && caseItem && stage) { const details = [ `*الموكل:* ${client.name}`, `*الخصم:* ${caseItem.opponentName}`, `*القضية:* ${caseItem.subject}`, `*المحكمة:* ${stage.court}`, `*رقم الأساس:* ${stage.caseNumber}`, `*تاريخ الجلسة:* ${formatDate(session.date)}`, `*المكلف بالحضور:* ${session.assignee || 'غير محدد'}`, `*سبب التأجيل السابق:* ${session.postponementReason || 'لا يوجد'}` ]; if (session.stageDecisionDate) { details.push('---'); details.push(`*تم حسم المرحلة:*`); details.push(`*تاريخ الحسم:* ${formatDate(new Date(session.stageDecisionDate))}`); if (stage.decisionNumber) details.push(`*رقم القرار:* ${stage.decisionNumber}`); if (stage.decisionSummary) details.push(`*ملخص القرار:* ${stage.decisionSummary}`); } description = `متابعة جلسة قضائية:\n- ${details.join('\n- ')}`; message = `*ملخص جلسة قضائية:*\n${details.join('\n')}`; } else { description = `متابعة جلسة قضية (${session.clientName} ضد ${session.opponentName}) يوم ${formatDate(session.date)} في محكمة ${session.court} (أساس: ${session.caseNumber}).\nسبب التأجيل السابق: ${session.postponementReason || 'لا يوجد'}.\nالمكلف بالحضور: ${session.assignee}.`; message = [ `*جلسة قضائية:*`, `*القضية:* ${session.clientName} ضد ${session.opponentName}`, `*المحكمة:* ${session.court} (أساس: ${session.caseNumber})`, `*التاريخ:* ${formatDate(session.date)}`, `*المسؤول:* ${session.assignee || 'غير محدد'}`, `*سبب التأجيل السابق:* ${session.postponementReason || 'لا يوجد'}` ].join('\n'); } const menuItems: MenuItem[] = [ { label: 'إرسال إلى المهام الإدارية', icon: <BuildingLibraryIcon className="w-4 h-4" />, onClick: () => { onOpenAdminTaskModal({ task: description, assignee: session.assignee, }); } }, { label: 'مشاركة عبر واتساب', icon: <ShareIcon className="w-4 h-4" />, onClick: () => { const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`; window.open(whatsappUrl, '_blank'); } } ]; showContextMenu(event, menuItems); }
     const handleAdminTaskContextMenu = (event: React.MouseEvent, task: AdminTask) => { const menuItems: MenuItem[] = [ { label: 'مشاركة عبر واتساب', icon: <ShareIcon className="w-4 h-4" />, onClick: () => handleShareTask(task), }, ]; showContextMenu(event, menuItems); };
@@ -532,7 +522,9 @@ const HomePage: React.FC<HomePageProps> = ({
                                         </div>
                                         <AppointmentsTable 
                                             appointments={dailyData.dailyAppointments} 
-                                            onAddAppointment={permissions.can_add_admin_task ? handleOpenAddAppointmentModal : () => {}} 
+                                            // ...
+                                            onAddAppointment={permissions.can_add_admin_task ? handleOpenAddAppointmentModal : () => {}} // Using general task permission or add a new one for appointments
+                                            // Note: Appointments currently don't have distinct permissions in the interface, using Admin Task ones as proxy or keep basic
                                             onEdit={permissions.can_edit_admin_task ? handleOpenEditAppointmentModal : () => {}}
                                             onDelete={permissions.can_delete_admin_task ? openDeleteAppointmentModal : () => {}}
                                             onContextMenu={handleAppointmentContextMenu} 
@@ -608,6 +600,7 @@ const HomePage: React.FC<HomePageProps> = ({
                             </div>
                         </div>
                     </div>
+                    {/* ... (rest of admin tasks view) */}
                     <div className="border-b border-gray-200">
                         <nav className="-mb-px flex space-x-4" aria-label="Tabs">
                             <button
@@ -784,6 +777,7 @@ const HomePage: React.FC<HomePageProps> = ({
                     <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
                         <h2 className="text-xl font-bold mb-4">{editingAppointment ? 'تعديل موعد' : 'إضافة موعد جديد'}</h2>
                         <form onSubmit={handleSaveAppointment}>
+                            {/* ... (Appointment form inputs) ... */}
                             <div className="space-y-4">
                                 <div>
                                     <label htmlFor="title" className="block text-sm font-medium text-gray-700">الموعد</label>

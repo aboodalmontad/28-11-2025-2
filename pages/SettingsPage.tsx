@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { TrashIcon, ExclamationTriangleIcon, CloudArrowUpIcon, ArrowPathIcon, PlusIcon, CheckCircleIcon, XCircleIcon, ArrowDownTrayIcon, ArrowUpTrayIcon, ShieldCheckIcon, UserGroupIcon } from '../components/icons';
 import { Client, AdminTask, Appointment, AccountingEntry } from '../types';
-// Fix: Removed APP_DATA_KEY import as it is no longer exported from useSupabaseData and is unused here.
+import { APP_DATA_KEY } from '../hooks/useSupabaseData';
 import { useData } from '../context/DataContext';
 import { openDB } from 'idb';
 import AssistantsManager from '../components/AssistantsManager';
