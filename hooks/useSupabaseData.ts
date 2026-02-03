@@ -7,6 +7,7 @@ import { getSupabaseClient } from '../supabaseClient';
 import { isBeforeToday, toInputDateString } from '../utils/dateUtils';
 import { RealtimeAlert } from '../components/RealtimeNotifier';
 import { getDb, DATA_STORE_NAME, DOCS_FILES_STORE_NAME, DOCS_METADATA_STORE_NAME, LOCAL_EXCLUDED_DOCS_STORE_NAME } from '../utils/db';
+import { safeQuery } from './useOnlineData';
 
 export const APP_DATA_KEY = 'lawyerBusinessManagementData';
 export type SyncStatus = SyncStatusType;
@@ -254,7 +255,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     const [syncStatus, setSyncStatus] = React.useState<SyncStatus>('loading');
     const [lastSyncError, setLastSyncError] = React.useState<string | null>(null);
     const [isDataLoading, setIsDataLoading] = React.useState(true);
-    const [isFetchingOwnerId, setIsFetchingOwnerId] = React.useState(false); // CRITICAL: Prevent sync until owner is resolved
+    const [isFetchingOwnerId, setIsFetchingOwnerId] = React.useState(false); 
     const [triggeredAlerts, setTriggeredAlerts] = React.useState<Appointment[]>([]);
     const [showUnpostponedSessionsModal, setShowUnpostponedSessionsModal] = React.useState(false);
     const [realtimeAlerts, setRealtimeAlerts] = React.useState<RealtimeAlert[]>([]);
@@ -272,7 +273,6 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         if (currentUserProfile && currentUserProfile.lawyer_id) {
             return currentUserProfile.lawyer_id; 
         }
-        // Check if we have it in localStorage
         const cached = localStorage.getItem(`lawyer_app_owner_id_${user.id}`);
         if (cached) return cached;
         
@@ -439,7 +439,15 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 if (isOnlineNow && supabase) {
                     setIsFetchingOwnerId(true);
                     try {
-                        const { data: profile, error } = await supabase.from('profiles').select('lawyer_id').eq('id', user.id).maybeSingle();
+                        // CRITICAL: We fetch the profile with a fallback to prevent infinite loading if the recursion issue still exists in DB
+                        const profilePromise = safeQuery<{ lawyer_id: string | null }>(() => supabase.from('profiles').select('lawyer_id').eq('id', user.id).maybeSingle());
+                        
+                        // Wait for profile, but timeout after 10 seconds if it hangs
+                        const profile = await Promise.race([
+                            profilePromise,
+                            new Promise<null>((resolve) => setTimeout(() => resolve(null), 10000))
+                        ]);
+
                         if (profile && profile.lawyer_id) {
                             ownerId = profile.lawyer_id;
                             localStorage.setItem(`lawyer_app_owner_id_${user.id}`, ownerId);
@@ -479,7 +487,6 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 setIsDataLoading(false);
 
                 if (isOnlineNow) {
-                    manualSync().catch(console.error);
                     downloadMissingFiles(finalDocs);
                 } else {
                     setSyncStatus('synced');
@@ -579,7 +586,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         onSyncStatusChange: handleSyncStatusChange,
         onDocumentsUploaded: handleDocumentsUploaded,
         excludedDocIds, 
-        isOnline, isAuthLoading: isAuthLoading || isFetchingOwnerId, syncStatus // Include isFetchingOwnerId
+        isOnline, isAuthLoading: isAuthLoading || isFetchingOwnerId, syncStatus 
     });
 
     React.useEffect(() => {
@@ -615,6 +622,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         setAppointments: (updater) => updateData(prev => ({ ...prev, appointments: updater(prev.appointments) })),
         setAccountingEntries: (updater) => updateData(prev => ({ ...prev, accountingEntries: updater(prev.accountingEntries) })),
         setInvoices: (updater) => updateData(prev => ({ ...prev, invoices: updater(prev.invoices) })),
+        setInvoicesState: (updater: (prev: Invoice[]) => Invoice[]) => updateData(prev => ({ ...prev, invoices: updater(prev.invoices) })),
         setAssistants: (updater) => updateData(prev => ({ ...prev, assistants: updater(prev.assistants) })),
         setDocuments: (updater) => updateData(prev => ({ ...prev, documents: updater(prev.documents) })),
         setProfiles: (updater) => updateData(prev => ({ ...prev, profiles: updater(prev.profiles) })),

@@ -1,4 +1,3 @@
-
 import * as React from 'react';
 // Fix: Use `import type` for Session and User as they are used as types, not values. This resolves module resolution errors in some environments.
 import type { Session as AuthSession, User } from '@supabase/supabase-js';
@@ -208,29 +207,13 @@ const FullScreenLoader: React.FC<{ text?: string }> = ({ text = 'جاري الت
 );
 
 const App: React.FC<AppProps> = ({ onRefresh }) => {
-    // 1. Optimistic Session Initialization from LocalStorage
-    const [session, setSession] = React.useState<AuthSession | null>(() => {
-        if (typeof window !== 'undefined') {
-            try {
-                const lastUserRaw = localStorage.getItem(LAST_USER_CACHE_KEY);
-                if (lastUserRaw) {
-                    const user = JSON.parse(lastUserRaw) as User;
-                    return {
-                        access_token: "optimistic_access_token",
-                        refresh_token: "optimistic_refresh_token",
-                        expires_in: 86400,
-                        token_type: "bearer",
-                        user: user
-                    } as AuthSession;
-                }
-            } catch (e) {
-                console.error("Failed to parse cached user session:", e);
-            }
-        }
-        return null;
-    });
+    // 1. Initial Session State
+    // REMOVED: Optimistic session initialization with mock tokens. 
+    // It's safer to wait for Supabase to confirm the real session state on boot.
+    const [session, setSession] = React.useState<AuthSession | null>(null);
 
-    const [isAuthLoading, setIsAuthLoading] = React.useState(!session);
+    // Initial loading is true until we check session
+    const [isAuthLoading, setIsAuthLoading] = React.useState(true);
     
     const [profile, setProfile] = React.useState<Profile | null>(null);
     const [showConfigModal, setShowConfigModal] = React.useState(false);
@@ -262,7 +245,11 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     // Triggers a manual sync automatically if user is logged in but profile is missing locally.
     React.useEffect(() => {
         const hasSessionButNoProfile = session && !profile && data.profiles.length === 0;
-        const canSync = isOnline && !data.isDataLoading && data.syncStatus !== 'syncing' && !isAuthLoading;
+        const canSync = isOnline && 
+                        !data.isDataLoading && 
+                        data.syncStatus !== 'syncing' && 
+                        data.syncStatus !== 'error' && 
+                        !isAuthLoading;
         
         if (hasSessionButNoProfile && canSync) {
             console.log("Profile missing locally, triggering initial sync...");
@@ -284,12 +271,21 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                 localStorage.setItem(LAST_USER_CACHE_KEY, JSON.stringify(newSession.user));
                 localStorage.removeItem('lawyerAppLoggedOut');
             } else {
+                // Not signed in and not signed out (e.g. initial check or failed refresh)
                 setIsAuthLoading(false);
             }
         });
         
         const checkSession = async () => {
              if (!isOnline) {
+                 // Try to load user from cache for offline mode
+                 const lastUserRaw = localStorage.getItem(LAST_USER_CACHE_KEY);
+                 if (lastUserRaw) {
+                     try {
+                         const user = JSON.parse(lastUserRaw);
+                         setSession({ user } as AuthSession);
+                     } catch(e) {}
+                 }
                  setIsAuthLoading(false);
                  return;
              }
@@ -298,24 +294,29 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                 const { data: { session: serverSession }, error } = await supabase!.auth.getSession();
                 
                 if (error) {
-                    const errorMessage = error.message.toLowerCase();
+                    const errorMessage = String(error.message || '').toLowerCase();
+                    // CRITICAL FIX: Explicitly handle invalid/expired refresh tokens.
+                    // This prevents "Refresh Token Not Found" infinite errors.
                     if (errorMessage.includes("refresh token") || errorMessage.includes("not found")) {
-                        localStorage.removeItem(LAST_USER_CACHE_KEY);
-                        localStorage.removeItem(LAST_USER_CREDENTIALS_CACHE_KEY);
+                        console.warn("Auth session corrupted or expired. Clearing local auth storage.");
+                        
+                        // Clear all Supabase related keys
                         Object.keys(localStorage).forEach(key => {
                             if (key.startsWith('sb-')) localStorage.removeItem(key);
                         });
+                        localStorage.removeItem(LAST_USER_CACHE_KEY);
+                        localStorage.removeItem(LAST_USER_CREDENTIALS_CACHE_KEY);
                         
                         await supabase!.auth.signOut().catch(() => {}); 
                         setSession(null);
-                        onRefresh(); 
+                        // No full refresh needed, just let state update.
                     }
                 } else if (serverSession) {
                     setSession(serverSession);
                     localStorage.setItem(LAST_USER_CACHE_KEY, JSON.stringify(serverSession.user));
                 }
              } catch (err) {
-                 console.warn("Session check error:", err);
+                 console.warn("Session check unexpected error:", err);
              } finally {
                  setIsAuthLoading(false);
              }
@@ -324,7 +325,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
         checkSession();
 
         return () => subscription.unsubscribe();
-    }, [supabase, onRefresh, isOnline]);
+    }, [supabase, isOnline]);
     
 
     React.useEffect(() => {
@@ -374,11 +375,12 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     
     const handleLogout = async () => {
         try {
-            localStorage.removeItem(LAST_USER_CACHE_KEY);
-            localStorage.removeItem(LAST_USER_CREDENTIALS_CACHE_KEY);
+            // Aggressively clear local storage
             Object.keys(localStorage).forEach(key => {
                 if (key.startsWith('sb-')) localStorage.removeItem(key);
             });
+            localStorage.removeItem(LAST_USER_CACHE_KEY);
+            localStorage.removeItem(LAST_USER_CREDENTIALS_CACHE_KEY);
             
             setSession(null);
             setProfile(null);
@@ -543,7 +545,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
         setIsShareAssigneeModalOpen(false);
     };
 
-    if (isAuthLoading && !session) {
+    if (isAuthLoading) {
         return <FullScreenLoader text="جاري التحقق من الهوية..." />;
     }
     

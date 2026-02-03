@@ -19,41 +19,57 @@ export type FlatData = {
 };
 
 /**
- * Robust wrapper for Supabase queries with retries for transient network errors.
- * IMPORTANT: It now takes a function that returns a promise, so it can re-execute the request.
+ * Robust wrapper for Supabase queries with retries and proper timeout management.
  */
-async function safeQuery<T>(queryFn: () => Promise<{ data: T | null; error: any }>, retries = 3): Promise<T | null> {
+export async function safeQuery<T>(queryFn: () => Promise<{ data: T | null; error: any }>, retries = 3): Promise<T | null> {
     let lastError: any;
+    const REQUEST_TIMEOUT = 30000; // 30 seconds
+
     for (let i = 0; i <= retries; i++) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+
         try {
-            const { data, error } = await queryFn();
+            // Note: Supabase JS client doesn't fully support controller.signal in all methods yet,
+            // so we use a promise race as a fallback for strict timeout enforcement.
+            const result = await Promise.race([
+                queryFn(),
+                new Promise<never>((_, reject) => 
+                    setTimeout(() => reject(new Error('TIMEOUT_EXCEEDED')), REQUEST_TIMEOUT)
+                )
+            ]);
+
+            clearTimeout(timeoutId);
+
+            const { data, error } = result as { data: T | null; error: any };
+            
             if (error) {
                 const msg = String(error.message || '').toLowerCase();
-                // Retry on common transient network issues or rate limits
                 const isTransient = msg.includes('failed to fetch') || 
                                    msg.includes('network') || 
                                    msg.includes('abort') || 
                                    msg.includes('load failed') ||
                                    error.code === '429' ||
-                                   error.status === 502 ||
-                                   error.status === 503 ||
-                                   error.status === 504;
+                                   [502, 503, 504].includes(error.status);
                 
                 if (isTransient && i < retries) {
-                    const delay = 1000 * Math.pow(2, i); // Exponential backoff: 1s, 2s, 4s
-                    await new Promise(r => setTimeout(r, delay));
+                    await new Promise(r => setTimeout(r, 1000 * Math.pow(2, i)));
                     continue;
                 }
                 throw error;
             }
             return data;
         } catch (err: any) {
+            clearTimeout(timeoutId);
             lastError = err;
             const msg = String(err?.message || '').toLowerCase();
-            const isAbort = msg.includes('abort') || err?.name === 'AbortError';
-            const isNetwork = msg.includes('failed to fetch') || msg.includes('network') || msg.includes('load failed');
+            const isTransient = msg.includes('failed to fetch') || 
+                                   msg.includes('network') || 
+                                   msg.includes('timeout') ||
+                                   err?.name === 'AbortError' ||
+                                   err?.message === 'TIMEOUT_EXCEEDED';
             
-            if ((isAbort || isNetwork) && i < retries) {
+            if (isTransient && i < retries) {
                 await new Promise(r => setTimeout(r, 1000 * Math.pow(2, i)));
                 continue;
             }
@@ -69,35 +85,24 @@ export const checkSupabaseSchema = async () => {
         return { success: false, error: 'unconfigured', message: 'عميل Supabase غير مهيأ.' };
     }
 
-    const tableChecks: { [key: string]: string } = {
-        'profiles': 'id', 'clients': 'id', 'cases': 'id',
-        'stages': 'id', 'sessions': 'id', 'admin_tasks': 'id',
-        'appointments': 'id', 'accounting_entries': 'id', 'assistants': 'name',
-        'invoices': 'id', 'invoice_items': 'id', 'case_documents': 'id',
-        'site_finances': 'id', 'sync_deletions': 'id',
+    const criticalTables: { [key: string]: string } = {
+        'profiles': 'id', 
+        'clients': 'id', 
+        'assistants': 'name'
     };
     
     try {
-        // We check tables sequentially to be gentler on the connection
-        for (const [table, query] of Object.entries(tableChecks)) {
-            const { error } = await supabase.from(table).select(query, { head: true }).limit(1);
-            if (error) {
-                const message = String(error.message || '').toLowerCase();
-                const code = String(error.code || '');
-                if (code === '42P01' || message.includes('does not exist')) {
-                    return { success: false, error: 'uninitialized', message: `الجدول ${table} غير موجود في قاعدة البيانات.` };
-                }
-                // Rethrow network errors to be caught by outer catch
-                if (message.includes('failed to fetch') || message.includes('abort')) throw error;
-            }
+        for (const [table, query] of Object.entries(criticalTables)) {
+            await safeQuery(() => supabase.from(table).select(query, { head: true }).limit(1));
         }
         return { success: true, error: null, message: '' };
     } catch (err: any) {
-        const msg = String(err?.message || '').toLowerCase();
-        if (msg.includes('failed to fetch') || msg.includes('abort')) {
-            return { success: false, error: 'network', message: 'فشل الاتصال بالخادم. يرجى التأكد من الإنترنت.' };
+        const message = String(err.message || '').toLowerCase();
+        const code = String(err.code || '');
+        if (code === '42P01' || message.includes('does not exist')) {
+            return { success: false, error: 'uninitialized', message: 'جداول قاعدة البيانات غير موجودة. يرجى التثبيت.' };
         }
-        return { success: false, error: 'unknown', message: err.message };
+        return { success: false, error: 'network', message: 'فشل الاتصال: يرجى التحقق من جودة الإنترنت.' };
     }
 };
 
@@ -108,40 +113,24 @@ export const fetchDataFromSupabase = async (): Promise<Partial<FlatData>> => {
     const fetchTable = (table: string, select = '*') => 
         safeQuery<any[]>(() => supabase.from(table).select(select) as any);
 
-    const [
+    const profiles = await fetchTable('profiles') || [];
+    const assistants = await fetchTable('assistants', 'name') || [];
+    const clients = await fetchTable('clients') || [];
+    const cases = await fetchTable('cases') || [];
+    const stages = await fetchTable('stages') || [];
+    const sessions = await fetchTable('sessions') || [];
+    const invoices = await fetchTable('invoices') || [];
+    const invoice_items = await fetchTable('invoice_items') || [];
+    const accounting_entries = await fetchTable('accounting_entries') || [];
+    const admin_tasks = await fetchTable('admin_tasks') || [];
+    const appointments = await fetchTable('appointments') || [];
+    const case_documents = await fetchTable('case_documents') || [];
+    const site_finances = await fetchTable('site_finances') || [];
+
+    return {
         clients, admin_tasks, appointments, accounting_entries,
         assistants, invoices, cases, stages, sessions, invoice_items,
         case_documents, profiles, site_finances
-    ] = await Promise.all([
-        fetchTable('clients'),
-        fetchTable('admin_tasks'),
-        fetchTable('appointments'),
-        fetchTable('accounting_entries'),
-        fetchTable('assistants', 'name'),
-        fetchTable('invoices'),
-        fetchTable('cases'),
-        fetchTable('stages'),
-        fetchTable('sessions'),
-        fetchTable('invoice_items'),
-        fetchTable('case_documents'),
-        fetchTable('profiles'),
-        fetchTable('site_finances'),
-    ]);
-
-    return {
-        clients: clients || [],
-        cases: cases || [],
-        stages: stages || [],
-        sessions: sessions || [],
-        admin_tasks: admin_tasks || [],
-        appointments: appointments || [],
-        accounting_entries: accounting_entries || [],
-        assistants: assistants || [],
-        invoices: invoices || [],
-        invoice_items: invoice_items || [],
-        case_documents: case_documents || [],
-        profiles: profiles || [],
-        site_finances: site_finances || [],
     };
 };
 
@@ -156,7 +145,6 @@ export const fetchDeletionsFromSupabase = async (): Promise<SyncDeletion[]> => {
         );
         return data || [];
     } catch (err) {
-        console.warn("Fetch deletions failed:", err);
         return []; 
     }
 };
@@ -177,12 +165,9 @@ export const deleteDataFromSupabase = async (deletions: Partial<FlatData>, user:
             const pk = table === 'assistants' ? 'name' : 'id';
             const ids = items.map((i: any) => i[pk]);
             
-            // Log deletions for sync consistency
             const logs = ids.map((id: string) => ({ table_name: table, record_id: id, user_id: user.id }));
             await safeQuery(() => supabase.from('sync_deletions').insert(logs));
-
-            const { error } = await supabase.from(table).delete().in(pk, ids);
-            if (error) throw new Error(`فشل الحذف من ${table}: ${error.message}`);
+            await safeQuery(() => supabase.from(table).delete().in(pk, ids));
         }
     }
 };
@@ -204,21 +189,20 @@ export const upsertDataToSupabase = async (data: Partial<FlatData>, user: User) 
             case 'accounting_entries': return items.map(({ clientId, caseId, clientName, ...r }) => ({ ...r, user_id: uid, client_id: clientId, case_id: caseId, client_name: clientName }));
             case 'invoices': return items.map(({ clientId, clientName, caseId, caseSubject, issueDate, dueDate, taxRate, ...r }) => ({ ...r, user_id: uid, client_id: clientId, client_name: clientName, case_id: caseId, case_subject: caseSubject, issue_date: issueDate, due_date: dueDate, tax_rate: taxRate }));
             case 'case_documents': return items.map(({ caseId, userId, addedAt, storagePath, localState, ...r }) => ({ ...r, user_id: uid, case_id: caseId, added_at: addedAt, storage_path: storagePath }));
+            // CRITICAL FIX: Profiles table does not have a user_id column (it uses 'id' as PK linked to auth.users)
+            case 'profiles': return items;
+            case 'site_finances': return items.map(i => ({ user_id: uid, ...i }));
             default: return items.map(i => ({ ...i, user_id: uid }));
         }
     };
 
     const upsertTable = async (table: string, records: any[] | undefined, options: { onConflict?: string } = {}) => {
         if (!records?.length) return [];
-        const { data: res, error } = await supabase.from(table).upsert(records, options).select();
-        if (error) {
-            console.error(`Error in ${table}:`, error);
-            throw new Error(`فشل تحديث جدول ${table}: ${error.message}`);
-        }
+        const res = await safeQuery(() => supabase.from(table).upsert(records, options).select() as any);
         return res || [];
     };
 
-    const results: Partial<Record<keyof FlatData, any[]>> = {};
+    const results: any = {};
     const tables: { key: keyof FlatData, table: string, options?: any }[] = [
         { key: 'profiles', table: 'profiles' },
         { key: 'assistants', table: 'assistants', options: { onConflict: 'user_id,name' } },
@@ -235,7 +219,6 @@ export const upsertDataToSupabase = async (data: Partial<FlatData>, user: User) 
         { key: 'site_finances', table: 'site_finances' },
     ];
 
-    // Upsert sequentially to handle FK dependencies gracefully
     for (const { key, table, options } of tables) {
         results[key] = await upsertTable(table, mapItem(key, data[key]), options);
     }
