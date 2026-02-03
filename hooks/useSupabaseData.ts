@@ -73,6 +73,20 @@ const validateDocuments = (doc: any, userId: string): CaseDocument | undefined =
     };
 };
 
+const getFriendlyErrorMsg = (e: any): string => {
+    if (!e) return 'Unknown error';
+    if (typeof e === 'string') return e;
+    if (e instanceof Error) return e.message;
+    if (e.message) return e.message;
+    if (e.error_description) return e.error_description;
+    try {
+        const json = JSON.stringify(e);
+        return json === '{}' ? String(e) : json;
+    } catch {
+        return String(e);
+    }
+};
+
 const validateAndFixData = (loadedData: any, user: User | null): AppData => {
     const userId = user?.id || '';
     if (!loadedData || typeof loadedData !== 'object') return getInitialData();
@@ -355,8 +369,8 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         localStorage.setItem(settingsKey, JSON.stringify(newSettings));
     };
 
-    const downloadMissingFiles = React.useCallback(async (documents: CaseDocument[]) => {
-        const pendingDocs = documents.filter(d => d.localState === 'pending_download');
+    const downloadMissingFiles = React.useCallback(async (documentsToProcess: CaseDocument[]) => {
+        const pendingDocs = documentsToProcess.filter(d => d.localState === 'pending_download');
         if (pendingDocs.length === 0) return;
 
         downloadQueueRef.current = downloadQueueRef.current.then(async () => {
@@ -382,7 +396,6 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     await db.put(DOCS_METADATA_STORE_NAME, downloadingDoc, doc.id);
                     updateData(prev => ({...prev, documents: prev.documents.map(d => d.id === doc.id ? downloadingDoc : d)}), { markDirty: false });
                     
-                    // CRITICAL FIX: Use safeQuery for storage download to benefit from retries and timeout handling
                     const blob = await safeQuery<Blob>(() => supabase.storage.from('documents').download(doc.storagePath) as any);
                     
                     if (!blob) throw new Error("Downloaded blob is empty after multiple attempts");
@@ -397,16 +410,22 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     await new Promise(r => setTimeout(r, 200));
 
                 } catch (e: any) {
-                    const errorMsg = e instanceof Error ? e.message : (typeof e === 'object' ? (e.message || JSON.stringify(e)) : String(e));
-                    
-                    console.error(`Failed to auto-download doc ${doc.id}:`, errorMsg === '{}' ? 'Unknown network error' : errorMsg);
+                    const errorMsg = getFriendlyErrorMsg(e);
+                    console.error(`Failed to auto-download doc ${doc.id}:`, errorMsg);
 
-                    const isNetworkError = errorMsg.includes('Failed to fetch') || errorMsg.toLowerCase().includes('network') || errorMsg.includes('TIMEOUT');
-                    if (isNetworkError) {
+                    const errorStrLower = errorMsg.toLowerCase();
+                    const isNetworkRelated = errorStrLower.includes('failed to fetch') || 
+                                          errorStrLower.includes('network') || 
+                                          errorStrLower.includes('timeout') ||
+                                          errorStrLower.includes('abort');
+
+                    if (isNetworkRelated) {
+                        // Leave it as pending_download so it can be retried automatically later
                         const pendingDoc = { ...doc, localState: 'pending_download' as const };
                         await db.put(DOCS_METADATA_STORE_NAME, pendingDoc, doc.id);
                         updateData(prev => ({...prev, documents: prev.documents.map(d => d.id === doc.id ? pendingDoc : d)}), { markDirty: false });
                     } else {
+                        // Permanent or unknown error
                         const errorDoc = { ...doc, localState: 'error' as const };
                         await db.put(DOCS_METADATA_STORE_NAME, errorDoc, doc.id);
                         updateData(prev => ({...prev, documents: prev.documents.map(d => d.id === doc.id ? errorDoc : d)}), { markDirty: false });
@@ -718,7 +737,6 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 try {
                     updateData(prev => ({...prev, documents: prev.documents.map(d => d.id === docId ? {...d, localState: 'downloading' } : d)}), { markDirty: false });
                     
-                    // CRITICAL FIX: Use safeQuery for manual download as well
                     const blob = await safeQuery<Blob>(() => supabase.storage.from('documents').download(doc.storagePath) as any);
                     
                     if (!blob) throw new Error("Empty blob");
@@ -728,8 +746,8 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     updateData(prev => ({...prev, documents: prev.documents.map(d => d.id === docId ? {...d, localState: 'synced'} : d)}), { markDirty: false });
                     return downloadedFile;
                 } catch (e: any) {
-                    const errorMsg = e instanceof Error ? e.message : (typeof e === 'object' ? (e.message || JSON.stringify(e)) : String(e));
-                    console.error(`Failed to download doc ${doc.id}:`, errorMsg === '{}' ? 'Unknown network error' : errorMsg);
+                    const errorMsg = getFriendlyErrorMsg(e);
+                    console.error(`Failed to download doc ${doc.id}:`, errorMsg);
                     await db.put(DOCS_METADATA_STORE_NAME, { ...doc, localState: 'error' }, doc.id);
                     updateData(prev => ({...prev, documents: prev.documents.map(d => d.id === docId ? {...d, localState: 'error'} : d)}), { markDirty: false });
                 }

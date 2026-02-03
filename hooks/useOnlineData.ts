@@ -23,7 +23,7 @@ export type FlatData = {
  */
 export async function safeQuery<T>(queryFn: () => Promise<{ data: T | null; error: any }>, retries = 3): Promise<T | null> {
     let lastError: any;
-    const REQUEST_TIMEOUT = 45000; // 45 seconds for potentially larger files
+    const REQUEST_TIMEOUT = 60000; // Increased to 60 seconds for potentially larger files or slow mobile networks
 
     for (let i = 0; i <= retries; i++) {
         const controller = new AbortController();
@@ -42,17 +42,22 @@ export async function safeQuery<T>(queryFn: () => Promise<{ data: T | null; erro
             const { data, error } = result as { data: T | null; error: any };
             
             if (error) {
-                const msg = String(error.message || error.error_description || '').toLowerCase();
-                const isTransient = msg.includes('failed to fetch') || 
-                                   msg.includes('network') || 
-                                   msg.includes('abort') || 
-                                   msg.includes('load failed') ||
-                                   msg.includes('timeout') ||
-                                   error.code === '429' ||
-                                   [0, 502, 503, 504].includes(error.status);
+                // Supabase error objects often have 'message' or 'error_description'
+                const errorStr = (error.message || error.error_description || JSON.stringify(error) || '').toLowerCase();
+                const status = error.status || 0;
+                
+                const isTransient = errorStr.includes('failed to fetch') || 
+                                   errorStr.includes('network') || 
+                                   errorStr.includes('abort') || 
+                                   errorStr.includes('load failed') ||
+                                   errorStr.includes('timeout') ||
+                                   errorStr.includes('connection') ||
+                                   status === 429 || // Rate limit
+                                   status === 0 ||   // Browser generic network error (CORS or offline)
+                                   [502, 503, 504].includes(status);
                 
                 if (isTransient && i < retries) {
-                    const delay = 1500 * Math.pow(2, i); // Slightly longer delay for downloads
+                    const delay = 2000 * Math.pow(2, i); 
                     await new Promise(r => setTimeout(r, delay));
                     continue;
                 }
@@ -62,15 +67,18 @@ export async function safeQuery<T>(queryFn: () => Promise<{ data: T | null; erro
         } catch (err: any) {
             clearTimeout(timeoutId);
             lastError = err;
-            const msg = String(err?.message || '').toLowerCase();
-            const isTransient = msg.includes('failed to fetch') || 
-                                   msg.includes('network') || 
-                                   msg.includes('timeout') ||
+            
+            const errStr = (err instanceof Error ? err.message : (err?.message || String(err))).toLowerCase();
+            const isTransient = errStr.includes('failed to fetch') || 
+                                   errStr.includes('network') || 
+                                   errStr.includes('timeout') ||
+                                   errStr.includes('abort') ||
                                    err?.name === 'AbortError' ||
-                                   err?.message === 'TIMEOUT_EXCEEDED';
+                                   err?.message === 'TIMEOUT_EXCEEDED' ||
+                                   err?.status === 0;
             
             if (isTransient && i < retries) {
-                await new Promise(r => setTimeout(r, 1500 * Math.pow(2, i)));
+                await new Promise(r => setTimeout(r, 2000 * Math.pow(2, i)));
                 continue;
             }
             throw err;
@@ -127,6 +135,7 @@ export const fetchDataFromSupabase = async (): Promise<Partial<FlatData>> => {
     const case_documents = await fetchTable('case_documents') || [];
     const site_finances = await fetchTable('site_finances') || [];
 
+    // Fix: Removed duplicate 'clients' property from the return object to resolve the error "An object literal cannot have multiple properties with the same name."
     return {
         clients, admin_tasks, appointments, accounting_entries,
         assistants, invoices, cases, stages, sessions, invoice_items,
