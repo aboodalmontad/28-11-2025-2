@@ -23,15 +23,13 @@ export type FlatData = {
  */
 export async function safeQuery<T>(queryFn: () => Promise<{ data: T | null; error: any }>, retries = 3): Promise<T | null> {
     let lastError: any;
-    const REQUEST_TIMEOUT = 30000; // 30 seconds
+    const REQUEST_TIMEOUT = 45000; // 45 seconds for potentially larger files
 
     for (let i = 0; i <= retries; i++) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
         try {
-            // Note: Supabase JS client doesn't fully support controller.signal in all methods yet,
-            // so we use a promise race as a fallback for strict timeout enforcement.
             const result = await Promise.race([
                 queryFn(),
                 new Promise<never>((_, reject) => 
@@ -44,16 +42,18 @@ export async function safeQuery<T>(queryFn: () => Promise<{ data: T | null; erro
             const { data, error } = result as { data: T | null; error: any };
             
             if (error) {
-                const msg = String(error.message || '').toLowerCase();
+                const msg = String(error.message || error.error_description || '').toLowerCase();
                 const isTransient = msg.includes('failed to fetch') || 
                                    msg.includes('network') || 
                                    msg.includes('abort') || 
                                    msg.includes('load failed') ||
+                                   msg.includes('timeout') ||
                                    error.code === '429' ||
-                                   [502, 503, 504].includes(error.status);
+                                   [0, 502, 503, 504].includes(error.status);
                 
                 if (isTransient && i < retries) {
-                    await new Promise(r => setTimeout(r, 1000 * Math.pow(2, i)));
+                    const delay = 1500 * Math.pow(2, i); // Slightly longer delay for downloads
+                    await new Promise(r => setTimeout(r, delay));
                     continue;
                 }
                 throw error;
@@ -70,7 +70,7 @@ export async function safeQuery<T>(queryFn: () => Promise<{ data: T | null; erro
                                    err?.message === 'TIMEOUT_EXCEEDED';
             
             if (isTransient && i < retries) {
-                await new Promise(r => setTimeout(r, 1000 * Math.pow(2, i)));
+                await new Promise(r => setTimeout(r, 1500 * Math.pow(2, i)));
                 continue;
             }
             throw err;

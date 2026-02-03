@@ -382,15 +382,10 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     await db.put(DOCS_METADATA_STORE_NAME, downloadingDoc, doc.id);
                     updateData(prev => ({...prev, documents: prev.documents.map(d => d.id === doc.id ? downloadingDoc : d)}), { markDirty: false });
                     
-                    const { data: blob, error } = await supabase.storage.from('documents').download(doc.storagePath);
+                    // CRITICAL FIX: Use safeQuery for storage download to benefit from retries and timeout handling
+                    const blob = await safeQuery<Blob>(() => supabase.storage.from('documents').download(doc.storagePath) as any);
                     
-                    if (error) {
-                        if ((error as any).status === 404 || (error as any).statusCode === 404) {
-                            throw new Error(`FILE_NOT_FOUND: ${doc.name}`);
-                        }
-                        throw error;
-                    }
-                    if (!blob) throw new Error("Downloaded blob is empty");
+                    if (!blob) throw new Error("Downloaded blob is empty after multiple attempts");
 
                     const file = new File([blob], doc.name, { type: doc.type });
                     await db.put(DOCS_FILES_STORE_NAME, file, doc.id);
@@ -398,13 +393,15 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     await db.put(DOCS_METADATA_STORE_NAME, completedDoc, doc.id);
                     updateData(prev => ({...prev, documents: prev.documents.map(d => d.id === doc.id ? completedDoc : d)}), { markDirty: false });
 
-                } catch (e: any) {
-                    let errorMsg = e.message || (typeof e === 'object' ? JSON.stringify(e) : String(e));
-                    if (errorMsg === '{}') errorMsg = 'Unknown network error';
-                    
-                    console.error(`Failed to auto-download doc ${doc.id}:`, errorMsg);
+                    // Add a tiny artificial delay to batch requests to prevent rate limiting
+                    await new Promise(r => setTimeout(r, 200));
 
-                    const isNetworkError = errorMsg.includes('Failed to fetch') || errorMsg.toLowerCase().includes('network');
+                } catch (e: any) {
+                    const errorMsg = e instanceof Error ? e.message : (typeof e === 'object' ? (e.message || JSON.stringify(e)) : String(e));
+                    
+                    console.error(`Failed to auto-download doc ${doc.id}:`, errorMsg === '{}' ? 'Unknown network error' : errorMsg);
+
+                    const isNetworkError = errorMsg.includes('Failed to fetch') || errorMsg.toLowerCase().includes('network') || errorMsg.includes('TIMEOUT');
                     if (isNetworkError) {
                         const pendingDoc = { ...doc, localState: 'pending_download' as const };
                         await db.put(DOCS_METADATA_STORE_NAME, pendingDoc, doc.id);
@@ -717,16 +714,13 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
             if (!doc) return null;
             const localFile = await db.get(DOCS_FILES_STORE_NAME, docId);
             if (localFile) return localFile;
-            if (doc.localState === 'pending_download' && isOnline && supabase) {
+            if ((doc.localState === 'pending_download' || doc.localState === 'error') && isOnline && supabase) {
                 try {
                     updateData(prev => ({...prev, documents: prev.documents.map(d => d.id === docId ? {...d, localState: 'downloading' } : d)}), { markDirty: false });
-                    const { data: blob, error } = await supabase.storage.from('documents').download(doc.storagePath);
-                    if (error) {
-                        if ((error as any).status === 404 || (error as any).statusCode === 404) {
-                             throw new Error(`FILE_NOT_FOUND: ${doc.name}`);
-                        }
-                        throw error;
-                    }
+                    
+                    // CRITICAL FIX: Use safeQuery for manual download as well
+                    const blob = await safeQuery<Blob>(() => supabase.storage.from('documents').download(doc.storagePath) as any);
+                    
                     if (!blob) throw new Error("Empty blob");
                     const downloadedFile = new File([blob], doc.name, { type: doc.type });
                     await db.put(DOCS_FILES_STORE_NAME, downloadedFile, doc.id);
@@ -734,9 +728,8 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     updateData(prev => ({...prev, documents: prev.documents.map(d => d.id === docId ? {...d, localState: 'synced'} : d)}), { markDirty: false });
                     return downloadedFile;
                 } catch (e: any) {
-                    let errorMsg = e.message || (typeof e === 'object' ? JSON.stringify(e) : String(e));
-                    if (errorMsg === '{}') errorMsg = 'Unknown network error';
-                    console.error(`Failed to download doc ${doc.id}:`, errorMsg);
+                    const errorMsg = e instanceof Error ? e.message : (typeof e === 'object' ? (e.message || JSON.stringify(e)) : String(e));
+                    console.error(`Failed to download doc ${doc.id}:`, errorMsg === '{}' ? 'Unknown network error' : errorMsg);
                     await db.put(DOCS_METADATA_STORE_NAME, { ...doc, localState: 'error' }, doc.id);
                     updateData(prev => ({...prev, documents: prev.documents.map(d => d.id === docId ? {...d, localState: 'error'} : d)}), { markDirty: false });
                 }
