@@ -1,3 +1,4 @@
+
 import * as React from 'react';
 // Fix: Use `import type` for Session and User as they are used as types, not values. This resolves module resolution errors in some environments.
 import type { Session as AuthSession, User } from '@supabase/supabase-js';
@@ -70,10 +71,10 @@ const Navbar: React.FC<{
                     <div className="flex flex-col items-start sm:flex-row sm:items-baseline gap-0 sm:gap-2">
                         <div className="flex items-center gap-2">
                              <h1 className="text-xl font-bold text-gray-800">مكتب المحامي</h1>
-                             <div className={`w-2 h-2 rounded-full transition-all duration-500 ${isOnline ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]'}`} title={isOnline ? 'متصل بالإنترنت' : 'غير متصل بالإنترنت'}></div>
+                             <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]'}`} title={isOnline ? 'متصل بالإنترنت' : 'غير متصل بالإنترنت'}></div>
                         </div>
                         <div className="flex items-center gap-1 text-xs text-gray-500">
-                            <span>الإصدار: 1-1-2026</span>
+                            <span>الإصدار: 29-12-2025</span>
                             {profile && (
                                 <>
                                     <span className="mx-1 text-gray-300">|</span>
@@ -207,13 +208,29 @@ const FullScreenLoader: React.FC<{ text?: string }> = ({ text = 'جاري الت
 );
 
 const App: React.FC<AppProps> = ({ onRefresh }) => {
-    // 1. Initial Session State
-    // REMOVED: Optimistic session initialization with mock tokens. 
-    // It's safer to wait for Supabase to confirm the real session state on boot.
-    const [session, setSession] = React.useState<AuthSession | null>(null);
+    // 1. Optimistic Session Initialization from LocalStorage
+    const [session, setSession] = React.useState<AuthSession | null>(() => {
+        if (typeof window !== 'undefined') {
+            try {
+                const lastUserRaw = localStorage.getItem(LAST_USER_CACHE_KEY);
+                if (lastUserRaw) {
+                    const user = JSON.parse(lastUserRaw) as User;
+                    return {
+                        access_token: "optimistic_access_token",
+                        refresh_token: "optimistic_refresh_token",
+                        expires_in: 86400,
+                        token_type: "bearer",
+                        user: user
+                    } as AuthSession;
+                }
+            } catch (e) {
+                console.error("Failed to parse cached user session:", e);
+            }
+        }
+        return null;
+    });
 
-    // Initial loading is true until we check session
-    const [isAuthLoading, setIsAuthLoading] = React.useState(true);
+    const [isAuthLoading, setIsAuthLoading] = React.useState(!session);
     
     const [profile, setProfile] = React.useState<Profile | null>(null);
     const [showConfigModal, setShowConfigModal] = React.useState(false);
@@ -245,11 +262,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     // Triggers a manual sync automatically if user is logged in but profile is missing locally.
     React.useEffect(() => {
         const hasSessionButNoProfile = session && !profile && data.profiles.length === 0;
-        const canSync = isOnline && 
-                        !data.isDataLoading && 
-                        data.syncStatus !== 'syncing' && 
-                        data.syncStatus !== 'error' && 
-                        !isAuthLoading;
+        const canSync = isOnline && !data.isDataLoading && data.syncStatus !== 'syncing' && !isAuthLoading;
         
         if (hasSessionButNoProfile && canSync) {
             console.log("Profile missing locally, triggering initial sync...");
@@ -271,21 +284,12 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                 localStorage.setItem(LAST_USER_CACHE_KEY, JSON.stringify(newSession.user));
                 localStorage.removeItem('lawyerAppLoggedOut');
             } else {
-                // Not signed in and not signed out (e.g. initial check or failed refresh)
                 setIsAuthLoading(false);
             }
         });
         
         const checkSession = async () => {
              if (!isOnline) {
-                 // Try to load user from cache for offline mode
-                 const lastUserRaw = localStorage.getItem(LAST_USER_CACHE_KEY);
-                 if (lastUserRaw) {
-                     try {
-                         const user = JSON.parse(lastUserRaw);
-                         setSession({ user } as AuthSession);
-                     } catch(e) {}
-                 }
                  setIsAuthLoading(false);
                  return;
              }
@@ -294,29 +298,24 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                 const { data: { session: serverSession }, error } = await supabase!.auth.getSession();
                 
                 if (error) {
-                    const errorMessage = String(error.message || '').toLowerCase();
-                    // CRITICAL FIX: Explicitly handle invalid/expired refresh tokens.
-                    // This prevents "Refresh Token Not Found" infinite errors.
+                    const errorMessage = error.message.toLowerCase();
                     if (errorMessage.includes("refresh token") || errorMessage.includes("not found")) {
-                        console.warn("Auth session corrupted or expired. Clearing local auth storage.");
-                        
-                        // Clear all Supabase related keys
+                        localStorage.removeItem(LAST_USER_CACHE_KEY);
+                        localStorage.removeItem(LAST_USER_CREDENTIALS_CACHE_KEY);
                         Object.keys(localStorage).forEach(key => {
                             if (key.startsWith('sb-')) localStorage.removeItem(key);
                         });
-                        localStorage.removeItem(LAST_USER_CACHE_KEY);
-                        localStorage.removeItem(LAST_USER_CREDENTIALS_CACHE_KEY);
                         
                         await supabase!.auth.signOut().catch(() => {}); 
                         setSession(null);
-                        // No full refresh needed, just let state update.
+                        onRefresh(); 
                     }
                 } else if (serverSession) {
                     setSession(serverSession);
                     localStorage.setItem(LAST_USER_CACHE_KEY, JSON.stringify(serverSession.user));
                 }
              } catch (err) {
-                 console.warn("Session check unexpected error:", err);
+                 console.warn("Session check error:", err);
              } finally {
                  setIsAuthLoading(false);
              }
@@ -325,7 +324,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
         checkSession();
 
         return () => subscription.unsubscribe();
-    }, [supabase, isOnline]);
+    }, [supabase, onRefresh, isOnline]);
     
 
     React.useEffect(() => {
@@ -375,12 +374,11 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     
     const handleLogout = async () => {
         try {
-            // Aggressively clear local storage
+            localStorage.removeItem(LAST_USER_CACHE_KEY);
+            localStorage.removeItem(LAST_USER_CREDENTIALS_CACHE_KEY);
             Object.keys(localStorage).forEach(key => {
                 if (key.startsWith('sb-')) localStorage.removeItem(key);
             });
-            localStorage.removeItem(LAST_USER_CACHE_KEY);
-            localStorage.removeItem(LAST_USER_CREDENTIALS_CACHE_KEY);
             
             setSession(null);
             setProfile(null);
@@ -545,7 +543,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
         setIsShareAssigneeModalOpen(false);
     };
 
-    if (isAuthLoading) {
+    if (isAuthLoading && !session) {
         return <FullScreenLoader text="جاري التحقق من الهوية..." />;
     }
     

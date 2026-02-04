@@ -1,7 +1,10 @@
+
 import { getSupabaseClient } from '../supabaseClient';
 import { Client, AdminTask, Appointment, AccountingEntry, Invoice, InvoiceItem, CaseDocument, Profile, SiteFinancialEntry, SyncDeletion } from '../types';
+// Fix: Use `import type` for User as it is used as a type, not a value. This resolves module resolution errors in some environments.
 import type { User } from '@supabase/supabase-js';
 
+// This file defines the shape of data when flattened for sync operations.
 export type FlatData = {
     clients: Omit<Client, 'cases'>[];
     cases: any[];
@@ -18,142 +21,158 @@ export type FlatData = {
     site_finances: SiteFinancialEntry[];
 };
 
+
 /**
- * Robust wrapper for Supabase queries with retries and proper timeout management.
+ * Checks if all required tables exist in the Supabase database schema.
  */
-export async function safeQuery<T>(queryFn: () => Promise<{ data: T | null; error: any }>, retries = 3): Promise<T | null> {
-    let lastError: any;
-    const REQUEST_TIMEOUT = 60000; // Increased to 60 seconds for potentially larger files or slow mobile networks
-
-    for (let i = 0; i <= retries; i++) {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
-
-        try {
-            const result = await Promise.race([
-                queryFn(),
-                new Promise<never>((_, reject) => 
-                    setTimeout(() => reject(new Error('TIMEOUT_EXCEEDED')), REQUEST_TIMEOUT)
-                )
-            ]);
-
-            clearTimeout(timeoutId);
-
-            const { data, error } = result as { data: T | null; error: any };
-            
-            if (error) {
-                // Supabase error objects often have 'message' or 'error_description'
-                const errorStr = (error.message || error.error_description || JSON.stringify(error) || '').toLowerCase();
-                const status = error.status || 0;
-                
-                const isTransient = errorStr.includes('failed to fetch') || 
-                                   errorStr.includes('network') || 
-                                   errorStr.includes('abort') || 
-                                   errorStr.includes('load failed') ||
-                                   errorStr.includes('timeout') ||
-                                   errorStr.includes('connection') ||
-                                   status === 429 || // Rate limit
-                                   status === 0 ||   // Browser generic network error (CORS or offline)
-                                   [502, 503, 504].includes(status);
-                
-                if (isTransient && i < retries) {
-                    const delay = 2000 * Math.pow(2, i); 
-                    await new Promise(r => setTimeout(r, delay));
-                    continue;
-                }
-                throw error;
-            }
-            return data;
-        } catch (err: any) {
-            clearTimeout(timeoutId);
-            lastError = err;
-            
-            const errStr = (err instanceof Error ? err.message : (err?.message || String(err))).toLowerCase();
-            const isTransient = errStr.includes('failed to fetch') || 
-                                   errStr.includes('network') || 
-                                   errStr.includes('timeout') ||
-                                   errStr.includes('abort') ||
-                                   err?.name === 'AbortError' ||
-                                   err?.message === 'TIMEOUT_EXCEEDED' ||
-                                   err?.status === 0;
-            
-            if (isTransient && i < retries) {
-                await new Promise(r => setTimeout(r, 2000 * Math.pow(2, i)));
-                continue;
-            }
-            throw err;
-        }
-    }
-    throw lastError;
-}
-
 export const checkSupabaseSchema = async () => {
     const supabase = getSupabaseClient();
     if (!supabase) {
-        return { success: false, error: 'unconfigured', message: 'عميل Supabase غير مهيأ.' };
+        return { success: false, error: 'unconfigured', message: 'Supabase client is not configured.' };
     }
 
-    const criticalTables: { [key: string]: string } = {
-        'profiles': 'id', 
-        'clients': 'id', 
-        'assistants': 'name'
+    const tableChecks: { [key: string]: string } = {
+        'profiles': 'id', 'clients': 'id', 'cases': 'id',
+        'stages': 'id', 'sessions': 'id', 'admin_tasks': 'id',
+        'appointments': 'id', 'accounting_entries': 'id', 'assistants': 'name',
+        'invoices': 'id', 'invoice_items': 'id', 'case_documents': 'id',
+        'site_finances': 'id',
+        'sync_deletions': 'id', // Checked for resurrection fix
     };
     
+    const tableCheckPromises = Object.entries(tableChecks).map(([table, query]) =>
+        supabase.from(table).select(query, { head: true }).then(res => ({ ...res, table }))
+    );
+
     try {
-        for (const [table, query] of Object.entries(criticalTables)) {
-            await safeQuery(() => supabase.from(table).select(query, { head: true }).limit(1));
+        const results = await Promise.all(tableCheckPromises);
+        for (const result of results) {
+            if (result.error) {
+                const message = String(result.error.message || '').toLowerCase();
+                const code = String(result.error.code || '');
+                
+                if (code === '42P01' || message.includes('does not exist') || message.includes('could not find the table') || message.includes('schema cache') || message.includes('relation') ) {
+                    return { success: false, error: 'uninitialized', message: `Database uninitialized. Missing table or relation: ${result.table}.` };
+                } else {
+                    throw result.error;
+                }
+            }
         }
         return { success: true, error: null, message: '' };
     } catch (err: any) {
-        const message = String(err.message || '').toLowerCase();
-        const code = String(err.code || '');
-        if (code === '42P01' || message.includes('does not exist')) {
-            return { success: false, error: 'uninitialized', message: 'جداول قاعدة البيانات غير موجودة. يرجى التثبيت.' };
+        const message = String(err?.message || '').toLowerCase();
+        const code = String(err?.code || '');
+
+        if (message.includes('failed to fetch')) {
+            return { success: false, error: 'network', message: 'Failed to connect to the server. Check internet connection and CORS settings.' };
         }
-        return { success: false, error: 'network', message: 'فشل الاتصال: يرجى التحقق من جودة الإنترنت.' };
+        
+        if (message.includes('does not exist') || code === '42P01' || message.includes('could not find the table') || message.includes('schema cache')) {
+            return { success: false, error: 'uninitialized', message: 'Database is not fully initialized.' };
+        }
+
+        return { success: false, error: 'unknown', message: `Database schema check failed: ${err.message}` };
     }
 };
 
+
+/**
+ * Fetches the entire dataset for the current user from Supabase.
+ */
 export const fetchDataFromSupabase = async (): Promise<Partial<FlatData>> => {
     const supabase = getSupabaseClient();
     if (!supabase) throw new Error('Supabase client not available.');
 
-    const fetchTable = (table: string, select = '*') => 
-        safeQuery<any[]>(() => supabase.from(table).select(select) as any);
+    const [
+        clientsRes, adminTasksRes, appointmentsRes, accountingEntriesRes,
+        assistantsRes, invoicesRes, casesRes, stagesRes, sessionsRes, invoiceItemsRes,
+        caseDocumentsRes, profilesRes, siteFinancesRes
+    ] = await Promise.all([
+        supabase.from('clients').select('*'),
+        supabase.from('admin_tasks').select('*'),
+        supabase.from('appointments').select('*'),
+        supabase.from('accounting_entries').select('*'),
+        supabase.from('assistants').select('name'),
+        supabase.from('invoices').select('*'),
+        supabase.from('cases').select('*'),
+        supabase.from('stages').select('*'),
+        supabase.from('sessions').select('*'),
+        supabase.from('invoice_items').select('*'),
+        supabase.from('case_documents').select('*'),
+        supabase.from('profiles').select('*'),
+        supabase.from('site_finances').select('*'),
+    ]);
 
-    const profiles = await fetchTable('profiles') || [];
-    const assistants = await fetchTable('assistants', 'name') || [];
-    const clients = await fetchTable('clients') || [];
-    const cases = await fetchTable('cases') || [];
-    const stages = await fetchTable('stages') || [];
-    const sessions = await fetchTable('sessions') || [];
-    const invoices = await fetchTable('invoices') || [];
-    const invoice_items = await fetchTable('invoice_items') || [];
-    const accounting_entries = await fetchTable('accounting_entries') || [];
-    const admin_tasks = await fetchTable('admin_tasks') || [];
-    const appointments = await fetchTable('appointments') || [];
-    const case_documents = await fetchTable('case_documents') || [];
-    const site_finances = await fetchTable('site_finances') || [];
+    const results = [
+        { res: clientsRes, name: 'clients' },
+        { res: adminTasksRes, name: 'admin_tasks' },
+        { res: appointmentsRes, name: 'appointments' },
+        { res: accountingEntriesRes, name: 'accounting_entries' },
+        { res: assistantsRes, name: 'assistants' },
+        { res: invoicesRes, name: 'invoices' },
+        { res: casesRes, name: 'cases' },
+        { res: stagesRes, name: 'stages' },
+        { res: sessionsRes, name: 'sessions' },
+        { res: invoiceItemsRes, name: 'invoice_items' },
+        { res: caseDocumentsRes, name: 'case_documents' },
+        { res: profilesRes, name: 'profiles' },
+        { res: siteFinancesRes, name: 'site_finances' },
+    ];
 
-    // Fix: Removed duplicate 'clients' property from the return object to resolve the error "An object literal cannot have multiple properties with the same name."
+    for (const { res, name } of results) {
+        if (res.error) {
+            throw new Error(`Failed to fetch ${name}: ${res.error.message}`);
+        }
+    }
+
     return {
-        clients, admin_tasks, appointments, accounting_entries,
-        assistants, invoices, cases, stages, sessions, invoice_items,
-        case_documents, profiles, site_finances
+        clients: clientsRes.data || [],
+        cases: casesRes.data || [],
+        stages: stagesRes.data || [],
+        sessions: sessionsRes.data || [],
+        admin_tasks: adminTasksRes.data || [],
+        appointments: appointmentsRes.data || [],
+        accounting_entries: accountingEntriesRes.data || [],
+        assistants: assistantsRes.data || [],
+        invoices: invoicesRes.data || [],
+        invoice_items: invoiceItemsRes.data || [],
+        case_documents: caseDocumentsRes.data || [],
+        profiles: profilesRes.data || [],
+        site_finances: siteFinancesRes.data || [],
     };
 };
 
 export const fetchDeletionsFromSupabase = async (): Promise<SyncDeletion[]> => {
     const supabase = getSupabaseClient();
     if (!supabase) return [];
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    
+    // Fetch deletions from the last 30 days to keep payload small but effective
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     try {
-        const data = await safeQuery<SyncDeletion[]>(() => 
-            supabase!.from('sync_deletions').select('*').gte('deleted_at', thirtyDaysAgo) as any
-        );
+        const { data, error } = await supabase
+            .from('sync_deletions')
+            .select('*')
+            .gte('deleted_at', thirtyDaysAgo.toISOString());
+
+        if (error) {
+            // Robust error stringification to avoid [object Object]
+            const errorMsg = error.message || JSON.stringify(error) || 'Unknown Supabase error';
+            throw new Error(errorMsg);
+        }
         return data || [];
-    } catch (err) {
+    } catch (err: any) {
+        let msg = 'Unknown error fetching deletions';
+        if (err instanceof Error) {
+            msg = err.message;
+        } else if (typeof err === 'object' && err !== null) {
+            msg = (err as any).message || JSON.stringify(err);
+        } else {
+            msg = String(err);
+        }
+        console.warn("Fetch deletions failed (non-critical, continuing sync):", msg);
+        // Return empty array to allow sync to proceed even if deletions check fails
         return []; 
     }
 };
@@ -166,17 +185,39 @@ export const deleteDataFromSupabase = async (deletions: Partial<FlatData>, user:
         'case_documents', 'invoice_items', 'sessions', 'stages', 'cases', 'invoices', 
         'admin_tasks', 'appointments', 'accounting_entries', 'assistants', 'clients',
         'site_finances',
+        'profiles',
     ];
 
     for (const table of deletionOrder) {
-        const items = (deletions as any)[table];
-        if (items?.length) {
-            const pk = table === 'assistants' ? 'name' : 'id';
-            const ids = items.map((i: any) => i[pk]);
+        const itemsToDelete = (deletions as any)[table];
+        if (itemsToDelete && itemsToDelete.length > 0) {
+            const primaryKeyColumn = table === 'assistants' ? 'name' : 'id';
+            const ids = itemsToDelete.map((i: any) => i[primaryKeyColumn]);
             
-            const logs = ids.map((id: string) => ({ table_name: table, record_id: id, user_id: user.id }));
-            await safeQuery(() => supabase.from('sync_deletions').insert(logs));
-            await safeQuery(() => supabase.from(table).delete().in(pk, ids));
+            // 1. Log the deletion for sync resurrection prevention
+            if (table !== 'profiles') {
+                const deletionsLog = ids.map((id: string) => ({
+                    table_name: table,
+                    record_id: id,
+                    user_id: user.id
+                }));
+                
+                const { error: logError } = await supabase.from('sync_deletions').insert(deletionsLog).select();
+                
+                if (logError) {
+                    console.warn("Could not log deletion (safe to ignore if DB not updated):", logError.message || JSON.stringify(logError));
+                }
+            }
+
+            // 2. Perform the hard delete
+            const { error } = await supabase.from(table).delete().in(primaryKeyColumn, ids);
+            if (error) {
+                console.error(`Error deleting from ${table}:`, error);
+                const msg = error.message || JSON.stringify(error);
+                const newError = new Error(msg);
+                (newError as any).table = table;
+                throw newError;
+            }
         }
     }
 };
@@ -184,73 +225,105 @@ export const deleteDataFromSupabase = async (deletions: Partial<FlatData>, user:
 export const upsertDataToSupabase = async (data: Partial<FlatData>, user: User) => {
     const supabase = getSupabaseClient();
     if (!supabase) throw new Error('Supabase client not available.');
-    const uid = user.id;
 
-    const mapItem = (table: keyof FlatData, items: any[] | undefined) => {
-        if (!items) return undefined;
-        switch (table) {
-            case 'clients': return items.map(({ contactInfo, ...r }) => ({ ...r, user_id: uid, contact_info: contactInfo }));
-            case 'cases': return items.map(({ clientName, opponentName, feeAgreement, ...r }) => ({ ...r, user_id: uid, client_name: clientName, opponent_name: opponentName, fee_agreement: feeAgreement }));
-            case 'stages': return items.map(({ caseNumber, firstSessionDate, decisionDate, decisionNumber, decisionSummary, decisionNotes, ...r }) => ({ ...r, user_id: uid, case_number: caseNumber, first_session_date: firstSessionDate, decision_date: decisionDate, decision_number: decisionNumber, decision_summary: decisionSummary, decision_notes: decisionNotes }));
-            case 'sessions': return items.map((s: any) => ({ ...s, user_id: uid, case_number: s.caseNumber, client_name: s.clientName, opponent_name: s.opponentName, postponement_reason: s.postponementReason, next_postponement_reason: s.nextPostponementReason, next_session_date: s.nextSessionDate }));
-            case 'admin_tasks': return items.map(({ dueDate, orderIndex, ...r }) => ({ ...r, user_id: uid, due_date: dueDate, order_index: orderIndex }));
-            case 'appointments': return items.map(({ reminderTimeInMinutes, ...r }) => ({ ...r, user_id: uid, reminder_time_in_minutes: reminderTimeInMinutes }));
-            case 'accounting_entries': return items.map(({ clientId, caseId, clientName, ...r }) => ({ ...r, user_id: uid, client_id: clientId, case_id: caseId, client_name: clientName }));
-            case 'invoices': return items.map(({ clientId, clientName, caseId, caseSubject, issueDate, dueDate, taxRate, ...r }) => ({ ...r, user_id: uid, client_id: clientId, client_name: clientName, case_id: caseId, case_subject: caseSubject, issue_date: issueDate, due_date: dueDate, tax_rate: taxRate }));
-            case 'case_documents': return items.map(({ caseId, userId, addedAt, storagePath, localState, ...r }) => ({ ...r, user_id: uid, case_id: caseId, added_at: addedAt, storage_path: storagePath }));
-            // CRITICAL FIX: Profiles table does not have a user_id column (it uses 'id' as PK linked to auth.users)
-            case 'profiles': return items;
-            case 'site_finances': return items.map(i => ({ user_id: uid, ...i }));
-            default: return items.map(i => ({ ...i, user_id: uid }));
-        }
+    // IMPORTANT: 'user' passed here might be a constructed object with 'effectiveUserId' as 'id'.
+    // We use this ID to assign ownership of new records.
+    const userId = user.id;
+
+    // Map application data (camelCase) to database schema (snake_case)
+    const dataToUpsert = {
+        clients: data.clients?.map(({ contactInfo, ...rest }) => ({ ...rest, user_id: userId, contact_info: contactInfo })),
+        cases: data.cases?.map(({ clientName, opponentName, feeAgreement, ...rest }) => ({ ...rest, user_id: userId, client_name: clientName, opponent_name: opponentName, fee_agreement: feeAgreement })),
+        stages: data.stages?.map(({ caseNumber, firstSessionDate, decisionDate, decisionNumber, decisionSummary, decisionNotes, ...rest }) => ({ ...rest, user_id: userId, case_number: caseNumber, first_session_date: firstSessionDate, decision_date: decisionDate, decision_number: decisionNumber, decision_summary: decisionSummary, decision_notes: decisionNotes })),
+        sessions: data.sessions?.map((s: any) => ({
+            id: s.id,
+            user_id: userId,
+            stage_id: s.stage_id,
+            court: s.court,
+            case_number: s.caseNumber,
+            date: s.date,
+            client_name: s.clientName,
+            opponent_name: s.opponentName,
+            postponement_reason: s.postponementReason,
+            next_postponement_reason: s.nextPostponementReason,
+            is_postponed: s.isPostponed,
+            next_session_date: s.nextSessionDate,
+            assignee: s.assignee,
+            updated_at: s.updated_at
+        })),
+        admin_tasks: data.admin_tasks?.map(({ dueDate, orderIndex, ...rest }) => ({ ...rest, user_id: userId, due_date: dueDate, order_index: orderIndex })),
+        appointments: data.appointments?.map(({ reminderTimeInMinutes, ...rest }) => ({ ...rest, user_id: userId, reminder_time_in_minutes: reminderTimeInMinutes })),
+        accounting_entries: data.accounting_entries?.map(({ clientId, caseId, clientName, ...rest }) => ({ ...rest, user_id: userId, client_id: clientId, case_id: caseId, client_name: clientName })),
+        assistants: data.assistants?.map(item => ({ ...item, user_id: userId })),
+        invoices: data.invoices?.map(({ clientId, clientName, caseId, caseSubject, issueDate, dueDate, taxRate, ...rest }) => ({ ...rest, user_id: userId, client_id: clientId, client_name: clientName, case_id: caseId, case_subject: caseSubject, issue_date: issueDate, due_date: dueDate, tax_rate: taxRate })),
+        invoice_items: data.invoice_items?.map(({ ...item }) => ({ ...item, user_id: userId })),
+        case_documents: data.case_documents?.map(({ caseId, userId: localUserId, addedAt, storagePath, localState, ...rest }) => ({ ...rest, user_id: userId, case_id: caseId, added_at: addedAt, storage_path: storagePath })),
+        profiles: data.profiles?.map(({ full_name, mobile_number, is_approved, is_active, subscription_start_date, subscription_end_date, lawyer_id, permissions, ...rest }) => ({ ...rest, full_name, mobile_number, is_approved, is_active, subscription_start_date, subscription_end_date, lawyer_id, permissions })),
+        site_finances: data.site_finances?.map(({ user_id, payment_date, ...rest }) => ({ ...rest, user_id, payment_date })),
     };
-
+    
     const upsertTable = async (table: string, records: any[] | undefined, options: { onConflict?: string } = {}) => {
-        if (!records?.length) return [];
-        const res = await safeQuery(() => supabase.from(table).upsert(records, options).select() as any);
-        return res || [];
+        if (!records || records.length === 0) return [];
+        const { data: responseData, error } = await supabase.from(table).upsert(records, options).select();
+        if (error) {
+            console.error(`Error upserting to ${table}:`, error);
+            // Fix: properly extract error message to prevent [object Object]
+            const errorDetails = error.message || JSON.stringify(error);
+            const msg = `Error upserting to ${table}: ${errorDetails}`;
+            const newError = new Error(msg);
+            (newError as any).table = table;
+            throw newError;
+        }
+        return responseData || [];
     };
+    
+    const results: Partial<Record<keyof FlatData, any[]>> = {};
 
-    const results: any = {};
-    const tables: { key: keyof FlatData, table: string, options?: any }[] = [
-        { key: 'profiles', table: 'profiles' },
-        { key: 'assistants', table: 'assistants', options: { onConflict: 'user_id,name' } },
-        { key: 'clients', table: 'clients' },
-        { key: 'cases', table: 'cases' },
-        { key: 'stages', table: 'stages' },
-        { key: 'sessions', table: 'sessions' },
-        { key: 'invoices', table: 'invoices' },
-        { key: 'invoice_items', table: 'invoice_items' },
-        { key: 'case_documents', table: 'case_documents' },
-        { key: 'admin_tasks', table: 'admin_tasks' },
-        { key: 'appointments', table: 'appointments' },
-        { key: 'accounting_entries', table: 'accounting_entries' },
-        { key: 'site_finances', table: 'site_finances' },
-    ];
-
-    for (const { key, table, options } of tables) {
-        results[key] = await upsertTable(table, mapItem(key, data[key]), options);
-    }
+    results.profiles = await upsertTable('profiles', dataToUpsert.profiles);
+    results.assistants = await upsertTable('assistants', dataToUpsert.assistants, { onConflict: 'user_id,name' });
+    
+    // Core Hierarchy: Clients -> Cases -> Stages -> Sessions
+    results.clients = await upsertTable('clients', dataToUpsert.clients);
+    results.cases = await upsertTable('cases', dataToUpsert.cases);
+    results.stages = await upsertTable('stages', dataToUpsert.stages);
+    results.sessions = await upsertTable('sessions', dataToUpsert.sessions);
+    
+    // Dependencies on Core
+    results.invoices = await upsertTable('invoices', dataToUpsert.invoices);
+    results.invoice_items = await upsertTable('invoice_items', dataToUpsert.invoice_items);
+    results.case_documents = await upsertTable('case_documents', dataToUpsert.case_documents);
+    
+    // Miscellaneous (Accounting often links to Clients/Cases, so it should come after)
+    const [adminTasks, appointments, accountingEntries, site_finances] = await Promise.all([
+        upsertTable('admin_tasks', dataToUpsert.admin_tasks),
+        upsertTable('appointments', dataToUpsert.appointments),
+        upsertTable('accounting_entries', dataToUpsert.accounting_entries),
+        upsertTable('site_finances', dataToUpsert.site_finances),
+    ]);
+    results.admin_tasks = adminTasks;
+    results.appointments = appointments;
+    results.accounting_entries = accountingEntries;
+    results.site_finances = site_finances;
     
     return results;
 };
 
+// Helper to transform remote snake_case data to local camelCase format
 export const transformRemoteToLocal = (remote: any): Partial<FlatData> => {
     if (!remote) return {};
-    const map = (arr: any[] | undefined | null, fn: (item: any) => any): any[] => (arr ? arr.map(fn) : []);
     return {
-        clients: map(remote.clients, ({ contact_info, ...r }: any) => ({ ...r, contactInfo: contact_info })),
-        cases: map(remote.cases, ({ client_name, opponent_name, fee_agreement, ...r }: any) => ({ ...r, clientName: client_name, opponentName: opponent_name, feeAgreement: fee_agreement })),
-        stages: map(remote.stages, ({ case_number, first_session_date, decision_date, decision_number, decision_summary, decision_notes, ...r }: any) => ({ ...r, caseNumber: case_number, firstSessionDate: first_session_date, decisionDate: decision_date, decisionNumber: decision_number, decisionSummary: decision_summary, decisionNotes: decision_notes })),
-        sessions: map(remote.sessions, ({ case_number, client_name, opponent_name, postponement_reason, next_postponement_reason, is_postponed, next_session_date, ...r }: any) => ({ ...r, caseNumber: case_number, clientName: client_name, opponentName: opponent_name, postponementReason: postponement_reason, nextPostponementReason: next_postponement_reason, is_postponed: is_postponed, nextSessionDate: next_session_date })),
-        admin_tasks: map(remote.admin_tasks, ({ due_date, order_index, ...r }: any) => ({ ...r, dueDate: due_date, orderIndex: order_index })),
-        appointments: map(remote.appointments, ({ reminder_time_in_minutes, ...r }: any) => ({ ...r, reminderTimeInMinutes: reminder_time_in_minutes })),
-        accounting_entries: map(remote.accounting_entries, ({ client_id, case_id, client_name, ...r }: any) => ({ ...r, clientId: client_id, caseId: case_id, clientName: client_name })),
-        assistants: (remote.assistants || []) as any,
-        invoices: map(remote.invoices, ({ client_id, client_name, case_id, case_subject, issue_date, due_date, tax_rate, ...r }: any) => ({ ...r, clientId: client_id, clientName: client_name, caseId: case_id, caseSubject: case_subject, issueDate: issue_date, dueDate: due_date, taxRate: tax_rate })),
-        invoice_items: (remote.invoice_items || []) as any,
-        case_documents: map(remote.case_documents, ({ user_id, case_id, added_at, storage_path, ...r }: any) => ({...r, userId: user_id, caseId: case_id, addedAt: added_at, storagePath: storage_path })),
-        profiles: map(remote.profiles, ({ full_name, mobile_number, is_approved, is_active, subscription_start_date, subscription_end_date, lawyer_id, permissions, ...r }: any) => ({ ...r, full_name, mobile_number, is_approved, is_active, subscription_start_date, subscription_end_date, lawyer_id, permissions })),
-        site_finances: (remote.site_finances || []) as any,
+        clients: remote.clients?.map(({ contact_info, ...r }: any) => ({ ...r, contactInfo: contact_info })),
+        cases: remote.cases?.map(({ client_name, opponent_name, fee_agreement, ...r }: any) => ({ ...r, clientName: client_name, opponentName: opponent_name, feeAgreement: fee_agreement })),
+        stages: remote.stages?.map(({ case_number, first_session_date, decision_date, decision_number, decision_summary, decision_notes, ...r }: any) => ({ ...r, caseNumber: case_number, firstSessionDate: first_session_date, decisionDate: decision_date, decisionNumber: decision_number, decisionSummary: decision_summary, decisionNotes: decision_notes })),
+        sessions: remote.sessions?.map(({ case_number, client_name, opponent_name, postponement_reason, next_postponement_reason, is_postponed, next_session_date, ...r }: any) => ({ ...r, caseNumber: case_number, clientName: client_name, opponentName: opponent_name, postponementReason: postponement_reason, nextPostponementReason: next_postponement_reason, isPostponed: is_postponed, nextSessionDate: next_session_date })),
+        admin_tasks: remote.admin_tasks?.map(({ due_date, order_index, ...r }: any) => ({ ...r, dueDate: due_date, orderIndex: order_index })),
+        appointments: remote.appointments?.map(({ reminder_time_in_minutes, ...r }: any) => ({ ...r, reminderTimeInMinutes: reminder_time_in_minutes })),
+        accounting_entries: remote.accounting_entries?.map(({ client_id, case_id, client_name, ...r }: any) => ({ ...r, clientId: client_id, caseId: case_id, clientName: client_name })),
+        assistants: remote.assistants?.map((a: any) => ({ name: a.name })),
+        invoices: remote.invoices?.map(({ client_id, client_name, case_id, case_subject, issue_date, due_date, tax_rate, ...r }: any) => ({ ...r, clientId: client_id, clientName: client_name, caseId: case_id, caseSubject: case_subject, issueDate: issue_date, dueDate: due_date, taxRate: tax_rate })),
+        invoice_items: remote.invoice_items,
+        case_documents: remote.case_documents?.map(({ user_id, case_id, added_at, storage_path, ...r }: any) => ({...r, userId: user_id, caseId: case_id, addedAt: added_at, storagePath: storage_path })),
+        profiles: remote.profiles?.map(({ full_name, mobile_number, is_approved, is_active, subscription_start_date, subscription_end_date, lawyer_id, permissions, ...r }: any) => ({ ...r, full_name, mobile_number, is_approved, is_active, subscription_start_date, subscription_end_date, lawyer_id, permissions })),
+        site_finances: remote.site_finances,
     };
 };

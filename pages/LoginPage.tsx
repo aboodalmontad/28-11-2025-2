@@ -147,7 +147,7 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
 
             // Step 2: Prepare specific message for the USER (to be forwarded by manager)
             const managerWaNumber = "963958932922";
-            const messageTextForUser = `مرحباً ${res.full_name}، لقد تم طلب تغيير كلمة المرور لتطبيق مكتب المحامي. رمز التحقق الخاص بك هو: *${res.code}*. وبإمكانك تجاهل هذه الرسالة إن كنت لم تطلب تغيير كلمة المرور.`;
+            const messageTextForUser = `مرحباً ${res.full_name}، لقد تلقينا طلباً لتغيير كلمة المرور الخاصة بك لتطبيق مكتب المحامي. كود التحقق الخاص بك هو: *${res.code}*. إذا لم تكن أنت من طلب ذلك، يرجى تجاهل هذه الرسالة.`;
             const managerContextPrefix = `طلب تغيير كلمة مرور للمستخدم ${res.full_name} (${normalizedMobile}).\n\nالرجاء إعادة توجيه الرسالة أدناه للمستخدم:\n\n`;
             
             const url = `https://wa.me/${managerWaNumber}?text=${encodeURIComponent(managerContextPrefix + messageTextForUser)}`;
@@ -408,7 +408,7 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                 </div>
                 
                 <div className="mt-8 text-center">
-                    <p className="text-xs text-gray-400 mb-1">الإصدار: 1-1-2026</p>
+                    <p className="text-xs text-gray-400 mb-1">الإصدار: 29-12-2025</p>
                     <p className="text-xs text-gray-400">جميع حقوق الملكية محفوظة لشركة الحلول التقنية © {new Date().getFullYear()}</p>
                 </div>
             </div>
