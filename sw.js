@@ -1,6 +1,5 @@
-
 // This version number is incremented to trigger the 'install' event and update the cache.
-const CACHE_NAME = 'lawyer-app-cache-v27-12-2025-full-offline-v1';
+const CACHE_NAME = 'lawyer-app-cache-v29-12-2025-fix-v1';
 
 // The list of URLs to cache explicitly (App Shell)
 const urlsToCache = [
@@ -23,9 +22,7 @@ const urlsToCache = [
   'https://esm.sh/react@^19.1.1/jsx-runtime',
   'https://esm.sh/recharts@^2.12.7',
   'https://esm.sh/idb@^8.0.0',
-  'https://esm.sh/docx-preview@^0.1.20',
-  'https://esm.sh/pdfjs-dist@^4.4.178',
-  'https://esm.sh/pdfjs-dist@4.4.178/build/pdf.worker.mjs',
+  'https://esm.sh/docx-preview@0.1.48'
 ];
 
 self.addEventListener('install', event => {
@@ -68,7 +65,12 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('fetch', event => {
-  if (event.request.method !== 'GET' || event.request.url.includes('supabase.co')) {
+  // Bypass non-GET, Supabase API calls, and data: URLs
+  if (
+    event.request.method !== 'GET' || 
+    event.request.url.includes('supabase.co') ||
+    event.request.url.startsWith('data:')
+  ) {
     return;
   }
 
