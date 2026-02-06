@@ -1,6 +1,6 @@
 
 // This version number is incremented to trigger the 'install' event and update the cache.
-const CACHE_NAME = 'lawyer-app-cache-v30-11-2025';
+const CACHE_NAME = 'lawyer-app-cache-v30-11-2025-lightning';
 
 // The list of URLs to cache has been expanded to include all critical,
 // external dependencies. This ensures the app is fully functional offline
@@ -79,35 +79,27 @@ self.addEventListener('fetch', event => {
 
   const url = new URL(event.request.url);
 
-  // Use a Network First strategy for the app's core files.
-  // This ensures users get the latest version if they are online.
+  // Strategy: Stale-While-Revalidate for the main bundle and shell.
+  // This serves content from cache INSTANTLY, then updates cache in background.
   if (event.request.mode === 'navigate' || url.pathname === '/index.js' || url.pathname === '/manifest.json') {
     event.respondWith(
-      fetch(event.request)
-        .then(response => {
-          // If the fetch is successful, cache it for offline use.
-          return caches.open(CACHE_NAME).then(cache => {
-            cache.put(event.request, response.clone());
-            return response;
+      caches.open(CACHE_NAME).then(cache => {
+        return cache.match(event.request).then(cachedResponse => {
+          // Fetch from network to update cache in the background
+          const networkFetch = fetch(event.request).then(networkResponse => {
+            cache.put(event.request, networkResponse.clone());
+            return networkResponse;
+          }).catch(() => {
+             // Network failure, just ignore for now as we have cache
           });
-        })
-        .catch(() => {
-          // If the network fails, serve the cached version as a fallback.
-          return caches.match(event.request).then(cachedResponse => {
-            if (cachedResponse) {
-              return cachedResponse;
-            }
-            // For navigation, if the specific page isn't cached, fall back to the root.
-            if (event.request.mode === 'navigate') {
-              return caches.match('./');
-            }
-            // If a core asset isn't in the cache and network fails, there's nothing to serve.
-            return new Response(`Resource not available offline: ${url.pathname}`, {
-              status: 404,
-              headers: { 'Content-Type': 'text/plain' },
-            });
-          });
-        })
+
+          // Return cached response immediately if available, otherwise wait for network
+          return cachedResponse || networkFetch;
+        });
+      }).catch(() => {
+         // If generic error, fallback to network
+         return fetch(event.request);
+      })
     );
     return;
   }

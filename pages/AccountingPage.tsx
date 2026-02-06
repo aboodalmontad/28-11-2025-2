@@ -18,24 +18,23 @@ const EntriesTab: React.FC = () => {
     const [entryToDelete, setEntryToDelete] = React.useState<AccountingEntry | null>(null);
 
     const financialSummary = React.useMemo(() => {
-        const entries = accountingEntries || [];
-        const totalIncome = entries.filter(e => e.type === 'income').reduce((sum, e) => sum + e.amount, 0);
-        const totalExpenses = entries.filter(e => e.type === 'expense').reduce((sum, e) => sum + e.amount, 0);
+        const totalIncome = accountingEntries.filter(e => e.type === 'income').reduce((sum, e) => sum + e.amount, 0);
+        const totalExpenses = accountingEntries.filter(e => e.type === 'expense').reduce((sum, e) => sum + e.amount, 0);
         return { totalIncome, totalExpenses, balance: totalIncome - totalExpenses };
     }, [accountingEntries]);
 
     const filteredAndSortedEntries = React.useMemo(() => {
-        const entries = accountingEntries || [];
-        const filtered = entries.filter(entry => {
+        const filtered = accountingEntries.filter(entry => {
             if (!searchQuery) return true;
             const lowercasedQuery = searchQuery.toLowerCase();
             return (
-                (entry.description || '').toLowerCase().includes(lowercasedQuery) ||
-                (entry.clientName || '').toLowerCase().includes(lowercasedQuery) ||
-                (entry.amount || 0).toString().includes(searchQuery)
+                entry.description.toLowerCase().includes(lowercasedQuery) ||
+                entry.clientName.toLowerCase().includes(lowercasedQuery) ||
+                entry.amount.toString().includes(searchQuery)
             );
         });
-        return filtered.sort((a, b) => b.date.getTime() - a.date.getTime());
+        // FIX: Ensure date is treated as a Date object for getTime()
+        return filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }, [accountingEntries, searchQuery]);
 
     const handleOpenModal = (entry?: AccountingEntry) => {
@@ -52,7 +51,7 @@ const EntriesTab: React.FC = () => {
 
     const handleClientChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const clientId = e.target.value;
-        const client = (clients || []).find(c => c.id === clientId);
+        const client = clients.find(c => c.id === clientId);
         setFormData(prev => ({ ...prev, clientId, clientName: client?.name || '', caseId: '' }));
     };
 
@@ -70,9 +69,9 @@ const EntriesTab: React.FC = () => {
         };
 
         if (modal.data) {
-            setAccountingEntries(prev => (prev || []).map(item => item.id === modal.data!.id ? { ...item, ...entryData } : item));
+            setAccountingEntries(prev => prev.map(item => item.id === modal.data!.id ? { ...item, ...entryData } : item));
         } else {
-            setAccountingEntries(prev => [...(prev || []), { ...entryData, id: `acc-${Date.now()}` }]);
+            setAccountingEntries(prev => [...prev, { ...entryData, id: `acc-${Date.now()}` }]);
         }
         handleCloseModal();
     };
@@ -138,7 +137,7 @@ const EntriesTab: React.FC = () => {
                                     <td className="px-4 py-3">{entry.description}</td>
                                     <td className="px-4 py-3">{entry.clientName || '-'}</td>
                                     <td className={`px-4 py-3 font-bold ${entry.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>
-                                        {(entry.amount || 0).toLocaleString()}
+                                        {entry.amount.toLocaleString()}
                                     </td>
                                     <td className="px-4 py-3 flex gap-2">
                                         <button onClick={() => handleOpenModal(entry)} className="p-1 text-gray-500 hover:text-blue-600"><PencilIcon className="w-4 h-4" /></button>
@@ -163,7 +162,7 @@ const EntriesTab: React.FC = () => {
                             </div>
                             <div><label className="block text-sm font-medium">المبلغ</label><input type="number" name="amount" value={formData.amount} onChange={handleFormChange} className="w-full p-2 border rounded" required /></div>
                             <div><label className="block text-sm font-medium">البيان</label><input type="text" name="description" value={formData.description || ''} onChange={handleFormChange} className="w-full p-2 border rounded" required /></div>
-                            <div><label className="block text-sm font-medium">الموكل (اختياري)</label><select name="clientId" value={formData.clientId || ''} onChange={handleClientChange} className="w-full p-2 border rounded"><option value="">-- عام --</option>{(clients || []).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+                            <div><label className="block text-sm font-medium">الموكل (اختياري)</label><select name="clientId" value={formData.clientId || ''} onChange={handleClientChange} className="w-full p-2 border rounded"><option value="">-- عام --</option>{clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
                             <div className="flex justify-end gap-4 mt-6"><button type="button" onClick={handleCloseModal} className="px-4 py-2 bg-gray-200 rounded">إلغاء</button><button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded">حفظ</button></div>
                         </form>
                     </div>
@@ -172,7 +171,7 @@ const EntriesTab: React.FC = () => {
             
             {isDeleteModalOpen && entryToDelete && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setIsDeleteModalOpen(false)}>
-                    <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+                    <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
                         <div className="text-center">
                             <ExclamationTriangleIcon className="w-12 h-12 text-red-500 mx-auto mb-4" />
                             <h3 className="text-lg font-bold mb-2">تأكيد الحذف</h3>
@@ -189,7 +188,7 @@ const EntriesTab: React.FC = () => {
     );
 };
 
-// --- TAB: INVOICES ---
+// ... (Rest of the component remains the same)
 const InvoicesTab: React.FC<{ initialInvoiceData?: { clientId: string, caseId?: string }, clearInitialInvoiceData: () => void }> = ({ initialInvoiceData, clearInitialInvoiceData }) => {
     const { invoices, setInvoices, clients, deleteInvoice, permissions } = useData();
     const [modal, setModal] = React.useState<{ isOpen: boolean; data?: Invoice }>({ isOpen: false });
@@ -199,8 +198,8 @@ const InvoicesTab: React.FC<{ initialInvoiceData?: { clientId: string, caseId?: 
 
     React.useEffect(() => {
         if (initialInvoiceData) {
-            const client = (clients || []).find(c => c.id === initialInvoiceData.clientId);
-            const caseItem = client?.cases?.find(c => c.id === initialInvoiceData.caseId);
+            const client = clients.find(c => c.id === initialInvoiceData.clientId);
+            const caseItem = client?.cases.find(c => c.id === initialInvoiceData.caseId);
             const newInvoice: Partial<Invoice> = {
                 clientId: initialInvoiceData.clientId,
                 clientName: client?.name || '',
@@ -220,9 +219,9 @@ const InvoicesTab: React.FC<{ initialInvoiceData?: { clientId: string, caseId?: 
 
     const handleSaveInvoice = (invoice: Invoice) => {
         if (modal.data && modal.data.id) {
-            setInvoices(prev => (prev || []).map(inv => inv.id === invoice.id ? invoice : inv));
+            setInvoices(prev => prev.map(inv => inv.id === invoice.id ? invoice : inv));
         } else {
-            setInvoices(prev => [...(prev || []), invoice]);
+            setInvoices(prev => [...prev, invoice]);
         }
         setModal({ isOpen: false });
     };
@@ -238,8 +237,6 @@ const InvoicesTab: React.FC<{ initialInvoiceData?: { clientId: string, caseId?: 
         setIsPrintModalOpen(true);
     };
 
-    const safeInvoices = invoices || [];
-
     return (
         <div className="space-y-6">
             <div className="flex justify-between items-center bg-white p-4 rounded-lg shadow">
@@ -252,7 +249,7 @@ const InvoicesTab: React.FC<{ initialInvoiceData?: { clientId: string, caseId?: 
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {safeInvoices.length > 0 ? safeInvoices.map(inv => (
+                {invoices.length > 0 ? invoices.map(inv => (
                     <div key={inv.id} className="bg-white border rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow">
                         <div className="flex justify-between items-start mb-2">
                             <h3 className="font-bold text-lg">{inv.clientName}</h3>
@@ -266,7 +263,7 @@ const InvoicesTab: React.FC<{ initialInvoiceData?: { clientId: string, caseId?: 
                         <p className="text-sm text-gray-600 mb-2">تاريخ: {formatDate(inv.issueDate)}</p>
                         <div className="border-t pt-2 mt-2 flex justify-between items-center">
                             <span className="font-bold text-lg text-blue-900">
-                                {((inv.items || []).reduce((s, i) => s + i.amount, 0) + ((inv.items || []).reduce((s, i) => s + i.amount, 0) * (inv.taxRate || 0) / 100) - (inv.discount || 0)).toLocaleString()} ل.س
+                                {(inv.items.reduce((s, i) => s + i.amount, 0) + (inv.items.reduce((s, i) => s + i.amount, 0) * inv.taxRate / 100) - inv.discount).toLocaleString()} ل.س
                             </span>
                             <div className="flex gap-1">
                                 <button onClick={() => handlePrintInvoice(inv)} className="p-2 text-gray-500 hover:text-green-600" title="طباعة"><PrintIcon className="w-4 h-4" /></button>
@@ -307,7 +304,7 @@ const InvoicesTab: React.FC<{ initialInvoiceData?: { clientId: string, caseId?: 
     );
 };
 
-// --- INVOICE MODAL ---
+// ... (Keep the rest as is)
 const InvoiceModal: React.FC<{ isOpen: boolean; onClose: () => void; initialData?: Partial<Invoice>; onSave: (inv: Invoice) => void; clients: Client[] }> = ({ isOpen, onClose, initialData, onSave, clients }) => {
     const [formData, setFormData] = React.useState<Partial<Invoice>>({
         items: [{ id: `item-${Date.now()}`, description: '', amount: 0 }],
@@ -320,29 +317,27 @@ const InvoiceModal: React.FC<{ isOpen: boolean; onClose: () => void; initialData
 
     React.useEffect(() => {
         if (initialData) {
-            setFormData({ ...initialData, issueDate: initialData.issueDate || new Date(), dueDate: initialData.dueDate || new Date(), items: initialData.items || [{ id: `item-${Date.now()}`, description: '', amount: 0 }] });
+            setFormData({ ...initialData, issueDate: initialData.issueDate || new Date(), dueDate: initialData.dueDate || new Date() });
         }
     }, [initialData]);
 
     const handleClientChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const clientId = e.target.value;
-        const client = (clients || []).find(c => c.id === clientId);
+        const client = clients.find(c => c.id === clientId);
         setFormData(prev => ({ ...prev, clientId, clientName: client?.name || '', caseId: undefined, caseSubject: undefined }));
     };
 
     const handleCaseChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const caseId = e.target.value;
-        const client = (clients || []).find(c => c.id === formData.clientId);
-        const caseItem = client?.cases?.find(c => c.id === caseId);
+        const client = clients.find(c => c.id === formData.clientId);
+        const caseItem = client?.cases.find(c => c.id === caseId);
         setFormData(prev => ({ ...prev, caseId, caseSubject: caseItem?.subject }));
     };
 
     const handleItemChange = (index: number, field: keyof InvoiceItem, value: any) => {
         const newItems = [...(formData.items || [])];
-        if (newItems[index]) {
-            newItems[index] = { ...newItems[index], [field]: value };
-            setFormData(prev => ({ ...prev, items: newItems }));
-        }
+        newItems[index] = { ...newItems[index], [field]: value };
+        setFormData(prev => ({ ...prev, items: newItems }));
     };
 
     const addItem = () => setFormData(prev => ({ ...prev, items: [...(prev.items || []), { id: `item-${Date.now()}`, description: '', amount: 0 }] }));
@@ -358,7 +353,7 @@ const InvoiceModal: React.FC<{ isOpen: boolean; onClose: () => void; initialData
         onSave(invoice);
     };
 
-    const subtotal = (formData.items || []).reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    const subtotal = (formData.items || []).reduce((sum, item) => sum + Number(item.amount), 0);
     const total = subtotal + (subtotal * (formData.taxRate || 0) / 100) - (formData.discount || 0);
 
     if (!isOpen) return null;
@@ -373,14 +368,14 @@ const InvoiceModal: React.FC<{ isOpen: boolean; onClose: () => void; initialData
                             <label className="block text-sm font-medium">الموكل</label>
                             <select value={formData.clientId || ''} onChange={handleClientChange} className="w-full p-2 border rounded" required>
                                 <option value="">اختر موكل...</option>
-                                {(clients || []).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                             </select>
                         </div>
                         <div>
                             <label className="block text-sm font-medium">القضية (اختياري)</label>
                             <select value={formData.caseId || ''} onChange={handleCaseChange} className="w-full p-2 border rounded" disabled={!formData.clientId}>
                                 <option value="">-- عام --</option>
-                                {(clients || []).find(c => c.id === formData.clientId)?.cases?.map(cs => <option key={cs.id} value={cs.id}>{cs.subject}</option>)}
+                                {clients.find(c => c.id === formData.clientId)?.cases.map(cs => <option key={cs.id} value={cs.id}>{cs.subject}</option>)}
                             </select>
                         </div>
                         <div><label className="block text-sm font-medium">تاريخ الإصدار</label><input type="date" value={toInputDateString(formData.issueDate)} onChange={e => setFormData({...formData, issueDate: new Date(e.target.value)})} className="w-full p-2 border rounded" required /></div>
@@ -392,7 +387,7 @@ const InvoiceModal: React.FC<{ isOpen: boolean; onClose: () => void; initialData
                             <h3 className="font-semibold">بنود الفاتورة</h3>
                             <button type="button" onClick={addItem} className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1"><PlusIcon className="w-4 h-4"/> إضافة بند</button>
                         </div>
-                        {(formData.items || []).map((item, index) => (
+                        {formData.items?.map((item, index) => (
                             <div key={item.id} className="flex gap-2 mb-2 items-center">
                                 <input type="text" placeholder="البيان" value={item.description} onChange={e => handleItemChange(index, 'description', e.target.value)} className="flex-grow p-2 border rounded text-sm" required />
                                 <input type="number" placeholder="المبلغ" value={item.amount} onChange={e => handleItemChange(index, 'amount', Number(e.target.value))} className="w-24 p-2 border rounded text-sm" required />
@@ -402,9 +397,9 @@ const InvoiceModal: React.FC<{ isOpen: boolean; onClose: () => void; initialData
                     </div>
 
                     <div className="grid grid-cols-3 gap-4 border-t pt-4">
-                        <div><label className="block text-xs font-medium">ضريبة (%)</label><input type="number" value={formData.taxRate || 0} onChange={e => setFormData({...formData, taxRate: Number(e.target.value)})} className="w-full p-2 border rounded text-sm" /></div>
-                        <div><label className="block text-xs font-medium">خصم (مبلغ)</label><input type="number" value={formData.discount || 0} onChange={e => setFormData({...formData, discount: Number(e.target.value)})} className="w-full p-2 border rounded text-sm" /></div>
-                        <div><label className="block text-xs font-medium">الحالة</label><select value={formData.status || 'draft'} onChange={e => setFormData({...formData, status: e.target.value as any})} className="w-full p-2 border rounded text-sm"><option value="draft">مسودة</option><option value="sent">مرسلة</option><option value="paid">مدفوعة</option><option value="overdue">متأخرة</option></select></div>
+                        <div><label className="block text-xs font-medium">ضريبة (%)</label><input type="number" value={formData.taxRate} onChange={e => setFormData({...formData, taxRate: Number(e.target.value)})} className="w-full p-2 border rounded text-sm" /></div>
+                        <div><label className="block text-xs font-medium">خصم (مبلغ)</label><input type="number" value={formData.discount} onChange={e => setFormData({...formData, discount: Number(e.target.value)})} className="w-full p-2 border rounded text-sm" /></div>
+                        <div><label className="block text-xs font-medium">الحالة</label><select value={formData.status} onChange={e => setFormData({...formData, status: e.target.value as any})} className="w-full p-2 border rounded text-sm"><option value="draft">مسودة</option><option value="sent">مرسلة</option><option value="paid">مدفوعة</option><option value="overdue">متأخرة</option></select></div>
                     </div>
                     
                     <div className="flex justify-between items-center font-bold text-lg bg-gray-50 p-2 rounded">
@@ -425,9 +420,8 @@ const InvoiceModal: React.FC<{ isOpen: boolean; onClose: () => void; initialData
 const ReportsTab: React.FC = () => {
     const { accountingEntries } = useData();
     const reportsData = React.useMemo(() => {
-        const entries = accountingEntries || [];
-        const income = entries.filter(e => e.type === 'income').reduce((sum, e) => sum + e.amount, 0);
-        const expense = entries.filter(e => e.type === 'expense').reduce((sum, e) => sum + e.amount, 0);
+        const income = accountingEntries.filter(e => e.type === 'income').reduce((sum, e) => sum + e.amount, 0);
+        const expense = accountingEntries.filter(e => e.type === 'expense').reduce((sum, e) => sum + e.amount, 0);
         return [
             { name: 'الإيرادات', value: income, color: '#10B981' },
             { name: 'المصروفات', value: expense, color: '#EF4444' }

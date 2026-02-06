@@ -1,5 +1,4 @@
 
-
 export const getDaysInMonth = (year: number, month: number): Date[] => {
     const date = new Date(year, month, 1);
     const days: Date[] = [];
@@ -14,56 +13,63 @@ export const getFirstDayOfMonth = (year: number, month: number): number => {
     return new Date(year, month, 1).getDay();
 };
 
-export const isSameDay = (date1: Date, date2: Date): boolean => {
-    return date1.getFullYear() === date2.getFullYear() &&
-           date1.getMonth() === date2.getMonth() &&
-           date1.getDate() === date2.getDate();
+const ensureDate = (date: Date | string | number | undefined | null): Date => {
+    if (!date) return new Date();
+    if (date instanceof Date) return date;
+    const d = new Date(date);
+    return isNaN(d.getTime()) ? new Date() : d;
 };
 
-export const isToday = (date: Date): boolean => {
+export const isSameDay = (date1: Date | string | number, date2: Date | string | number): boolean => {
+    const d1 = ensureDate(date1);
+    const d2 = ensureDate(date2);
+    return d1.getFullYear() === d2.getFullYear() &&
+           d1.getMonth() === d2.getMonth() &&
+           d1.getDate() === d2.getDate();
+};
+
+export const isToday = (date: Date | string | number): boolean => {
     return isSameDay(date, new Date());
 }
 
-export const isBeforeToday = (date: Date): boolean => {
+export const isBeforeToday = (date: Date | string | number): boolean => {
+    const d = ensureDate(date);
     const today = new Date();
     today.setHours(0, 0, 0, 0); // Set to start of today
-    return date < today;
+    return d < today;
 }
 
-export const formatDate = (date: Date): string => {
+export const formatDate = (date: Date | string | number): string => {
+    const d = ensureDate(date);
     return new Intl.DateTimeFormat('ar-SY', {
         year: 'numeric',
         month: 'long',
         day: 'numeric'
-    }).format(date);
+    }).format(d);
 };
 
 /**
  * A robust helper function to format a Date object or string into a 'YYYY-MM-DD' string for input fields.
  * It handles null, undefined, empty, and invalid date strings gracefully.
- * @param date The date to format.
- * @returns A formatted 'YYYY-MM-DD' string or an empty string if the date is invalid.
  */
 export const toInputDateString = (date: Date | string | null | undefined): string => {
-    if (!date) return ''; // Handles null, undefined, ''
+    if (!date) return ''; 
     const d = new Date(date);
-    if (isNaN(d.getTime())) { // Handles invalid dates
+    if (isNaN(d.getTime())) {
         return '';
     }
-    // Using toISOString and slicing is a reliable way to get YYYY-MM-DD format,
-    // as it correctly handles timezones by converting to UTC first.
-    return d.toISOString().split('T')[0];
+    // Correctly handle local time for YYYY-MM-DD format
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
 };
 
 /**
  * A robust helper function to parse a 'YYYY-MM-DD' string from an input field into a Date object.
- * It correctly handles timezones by creating the date at midnight in the user's local timezone.
- * @param dateString The date string to parse.
- * @returns A Date object or null if the string is invalid.
  */
 export const parseInputDateString = (dateString: string | null | undefined): Date | null => {
     if (!dateString) return null;
-    // The 'T00:00:00' part ensures the date is parsed in the local timezone, not UTC.
     const d = new Date(`${dateString}T00:00:00`);
     if (isNaN(d.getTime())) {
         console.warn(`Invalid date string provided to parseInputDateString: ${dateString}`);
@@ -105,36 +111,24 @@ const floatingHolidays: { [year: number]: { month: number; day: number; name: st
     ],
 };
 
-/**
- * Checks if a given date is a weekend (Friday or Saturday).
- * @param date The date to check.
- * @returns True if the date is a Friday or Saturday.
- */
 export const isWeekend = (date: Date): boolean => {
     const day = date.getDay();
     return day === 5 || day === 6; // 5 = Friday, 6 = Saturday
 };
 
-/**
- * Checks if a given date is a Syrian public holiday.
- * @param date The date to check.
- * @returns The name of the holiday if it is one, otherwise null.
- */
 export const getPublicHoliday = (date: Date): string | null => {
     const year = date.getFullYear();
     const month = date.getMonth();
     const day = date.getDate();
 
-    // Check fixed holidays
     const fixedHoliday = fixedHolidays.find(h => h.month === month && h.day === day);
     if (fixedHoliday) {
         return fixedHoliday.name;
     }
 
-    // Check floating holidays for the given year
     const yearFloatingHolidays = floatingHolidays[year] || [];
     for (const holiday of yearFloatingHolidays) {
-        if (holiday.length) { // For multi-day holidays like Eid
+        if (holiday.length) {
             const startDate = new Date(year, holiday.month, holiday.day);
             const endDate = new Date(startDate);
             endDate.setDate(startDate.getDate() + holiday.length - 1);
@@ -142,7 +136,7 @@ export const getPublicHoliday = (date: Date): string | null => {
             if (date >= startDate && date <= endDate) {
                 return holiday.name;
             }
-        } else { // For single-day holidays
+        } else {
              if (holiday.month === month && holiday.day === day) {
                 return holiday.name;
             }
