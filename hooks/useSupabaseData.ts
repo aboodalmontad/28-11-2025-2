@@ -15,6 +15,8 @@ const defaultAssistants = ['أحمد', 'فاطمة', 'سارة', 'بدون تخ�
 const DB_NAME = 'LawyerAppData';
 const DB_VERSION = 12; 
 const DATA_STORE_NAME = 'appData';
+const DOCS_FILES_STORE_NAME = 'caseDocumentFiles';
+const DOCS_METADATA_STORE_NAME = 'caseDocumentMetadata';
 const CACHED_OWNER_ID_KEY = 'lawyerAppCachedOwnerId'; 
 
 interface UserSettings {
@@ -45,16 +47,233 @@ const getInitialData = (): AppData => ({
 
 async function getDb(): Promise<IDBPDatabase> {
   return openDB(DB_NAME, DB_VERSION, {
-    upgrade(db) {
-        if (!db.objectStoreNames.contains(DATA_STORE_NAME)) db.createObjectStore(DATA_STORE_NAME);
+    upgrade(db, oldVersion, newVersion, tx) {
+        if (!db.objectStoreNames.contains(DATA_STORE_NAME)) {
+            db.createObjectStore(DATA_STORE_NAME);
+        }
+        if (!db.objectStoreNames.contains(DOCS_METADATA_STORE_NAME)) {
+            db.createObjectStore(DOCS_METADATA_STORE_NAME);
+        }
+        if (!db.objectStoreNames.contains(DOCS_FILES_STORE_NAME)) {
+            db.createObjectStore(DOCS_FILES_STORE_NAME);
+        }
     },
   });
 }
 
+const validateAssistantsList = (list: any): string[] => {
+    if (!Array.isArray(list)) return [...defaultAssistants];
+    const uniqueAssistants = new Set(list.filter(item => typeof item === 'string' && item.trim() !== ''));
+    uniqueAssistants.add('بدون تخصيص');
+    return Array.from(uniqueAssistants);
+};
+
+const safeArray = <T, U>(arr: any, mapFn: (doc: any, index: number) => U | undefined): U[] => {
+    if (!Array.isArray(arr)) return [];
+    return arr.reduce((acc: U[], doc: any, index: number) => {
+        if (!doc) return acc;
+        try {
+            const result = mapFn(doc, index);
+            if (result !== undefined) acc.push(result);
+        } catch (e) { console.error('Error processing item:', e); }
+        return acc;
+    }, []);
+};
+
+const reviveDate = (date: any): Date => {
+    if (!date) return new Date();
+    const d = new Date(date);
+    return isNaN(d.getTime()) ? new Date() : d;
+};
+
+const validateDocuments = (doc: any, userId: string): CaseDocument | undefined => {
+    if (!doc || typeof doc !== 'object' || !doc.id || !doc.name) return undefined;
+    return {
+        id: String(doc.id),
+        caseId: String(doc.caseId),
+        userId: String(doc.userId || userId),
+        name: String(doc.name),
+        type: String(doc.type || 'application/octet-stream'),
+        size: Number(doc.size || 0),
+        addedAt: reviveDate(doc.addedAt),
+        storagePath: String(doc.storagePath || ''),
+        localState: doc.localState || 'pending_download', 
+        updated_at: reviveDate(doc.updated_at),
+    };
+};
+
 const validateAndFixData = (loadedData: any, user: User | null): AppData => {
-    // ... (Keep existing validation logic to ensure data integrity)
+    const userId = user?.id || '';
     if (!loadedData || typeof loadedData !== 'object') return getInitialData();
-    return loadedData as AppData; // Simplified for brevity in this XML block
+    const isValidObject = (item: any): item is Record<string, any> => item && typeof item === 'object' && !Array.isArray(item);
+    
+    return {
+        clients: safeArray(loadedData.clients, (client) => {
+             if (!isValidObject(client) || !client.id || !client.name) return undefined;
+             const clientUserId = client.user_id;
+             return {
+                 id: String(client.id),
+                 name: String(client.name),
+                 contactInfo: String(client.contactInfo || ''),
+                 updated_at: reviveDate(client.updated_at),
+                 user_id: clientUserId,
+                 cases: safeArray(client.cases, (caseItem) => {
+                     if (!isValidObject(caseItem) || !caseItem.id) return undefined;
+                     return {
+                         id: String(caseItem.id),
+                         subject: String(caseItem.subject || ''),
+                         clientName: String(caseItem.clientName || client.name),
+                         opponentName: String(caseItem.opponentName || ''),
+                         feeAgreement: String(caseItem.feeAgreement || ''),
+                         status: ['active', 'closed', 'on_hold'].includes(caseItem.status) ? caseItem.status : 'active',
+                         updated_at: reviveDate(caseItem.updated_at),
+                         user_id: clientUserId,
+                         stages: safeArray(caseItem.stages, (stage) => {
+                             if (!isValidObject(stage) || !stage.id) return undefined;
+                             return {
+                                 id: String(stage.id),
+                                 court: String(stage.court || ''),
+                                 caseNumber: String(stage.caseNumber || ''),
+                                 firstSessionDate: stage.firstSessionDate ? reviveDate(stage.firstSessionDate) : undefined,
+                                 decisionDate: stage.decisionDate ? reviveDate(stage.decisionDate) : undefined,
+                                 decisionNumber: String(stage.decisionNumber || ''),
+                                 decisionSummary: String(stage.decisionSummary || ''),
+                                 decisionNotes: String(stage.decisionNotes || ''),
+                                 updated_at: reviveDate(stage.updated_at),
+                                 user_id: clientUserId,
+                                 sessions: safeArray(stage.sessions, (session) => {
+                                     if (!isValidObject(session) || !session.id) return undefined;
+                                     return {
+                                         id: String(session.id),
+                                         court: String(session.court || stage.court),
+                                         caseNumber: String(session.caseNumber || stage.caseNumber),
+                                         date: reviveDate(session.date),
+                                         clientName: String(session.clientName || caseItem.clientName),
+                                         opponentName: String(session.opponentName || caseItem.opponentName),
+                                         postponementReason: session.postponementReason,
+                                         nextPostponementReason: session.nextPostponementReason,
+                                         isPostponed: !!session.isPostponed,
+                                         nextSessionDate: session.nextSessionDate ? reviveDate(session.nextSessionDate) : undefined,
+                                         assignee: session.assignee,
+                                         stageId: session.stageId,
+                                         stageDecisionDate: session.stageDecisionDate,
+                                         updated_at: reviveDate(session.updated_at),
+                                         user_id: clientUserId,
+                                     };
+                                 }),
+                             };
+                         }),
+                     };
+                 }),
+             };
+        }),
+        adminTasks: safeArray(loadedData.adminTasks, (task, index) => {
+            if (!isValidObject(task) || !task.id) return undefined;
+            return {
+                id: String(task.id),
+                task: String(task.task || ''),
+                dueDate: reviveDate(task.dueDate),
+                completed: !!task.completed,
+                importance: ['normal', 'important', 'urgent'].includes(task.importance) ? task.importance : 'normal',
+                assignee: task.assignee,
+                location: task.location,
+                updated_at: reviveDate(task.updated_at),
+                orderIndex: typeof task.orderIndex === 'number' ? task.orderIndex : index,
+            };
+        }),
+        appointments: safeArray(loadedData.appointments, (apt) => {
+            if (!isValidObject(apt) || !apt.id) return undefined;
+            return {
+                id: String(apt.id),
+                title: String(apt.title || ''),
+                time: String(apt.time || '00:00'),
+                date: reviveDate(apt.date),
+                importance: ['normal', 'important', 'urgent'].includes(apt.importance) ? apt.importance : 'normal',
+                completed: !!apt.completed,
+                notified: !!apt.notified,
+                reminderTimeInMinutes: Number(apt.reminderTimeInMinutes || 15),
+                assignee: apt.assignee,
+                updated_at: reviveDate(apt.updated_at),
+            };
+        }),
+        accountingEntries: safeArray(loadedData.accountingEntries, (entry) => {
+            if (!isValidObject(entry) || !entry.id) return undefined;
+            return {
+                id: String(entry.id),
+                type: ['income', 'expense'].includes(entry.type) ? entry.type : 'income',
+                amount: Number(entry.amount || 0),
+                date: reviveDate(entry.date),
+                description: String(entry.description || ''),
+                clientId: String(entry.clientId || ''),
+                caseId: String(entry.caseId || ''),
+                clientName: String(entry.clientName || ''),
+                updated_at: reviveDate(entry.updated_at),
+            };
+        }),
+        invoices: safeArray(loadedData.invoices, (invoice) => {
+            if (!isValidObject(invoice) || !invoice.id) return undefined;
+            return {
+                id: String(invoice.id),
+                clientId: String(invoice.clientId || ''),
+                clientName: String(invoice.clientName || ''),
+                caseId: invoice.caseId,
+                caseSubject: invoice.caseSubject,
+                issueDate: reviveDate(invoice.issueDate),
+                dueDate: reviveDate(invoice.dueDate),
+                items: safeArray(invoice.items, (item) => {
+                    if (!isValidObject(item) || !item.id) return undefined;
+                    return {
+                        id: String(item.id),
+                        description: String(item.description || ''),
+                        amount: Number(item.amount || 0),
+                        updated_at: reviveDate(item.updated_at),
+                    };
+                }),
+                taxRate: Number(invoice.taxRate || 0),
+                discount: Number(invoice.discount || 0),
+                status: ['draft', 'sent', 'paid', 'overdue'].includes(invoice.status) ? invoice.status : 'draft',
+                notes: invoice.notes,
+                updated_at: reviveDate(invoice.updated_at),
+            };
+        }),
+        assistants: validateAssistantsList(loadedData.assistants),
+        documents: safeArray(loadedData.documents, (doc) => validateDocuments(doc, userId)),
+        profiles: safeArray(loadedData.profiles, (p) => {
+            if (!isValidObject(p) || !p.id) return undefined;
+            return {
+                id: String(p.id),
+                full_name: String(p.full_name || ''),
+                mobile_number: String(p.mobile_number || ''),
+                is_approved: !!p.is_approved,
+                is_active: p.is_active !== false,
+                mobile_verified: !!p.mobile_verified,
+                otp_code: p.otp_code,
+                otp_expires_at: p.otp_expires_at,
+                subscription_start_date: p.subscription_start_date || null,
+                subscription_end_date: p.subscription_end_date || null,
+                role: ['user', 'admin'].includes(p.role) ? p.role : 'user',
+                lawyer_id: p.lawyer_id || null, 
+                permissions: p.permissions || undefined, 
+                created_at: p.created_at,
+                updated_at: reviveDate(p.updated_at),
+            };
+        }),
+        siteFinances: safeArray(loadedData.siteFinances, (sf) => {
+            if (!isValidObject(sf) || !sf.id) return undefined;
+            return {
+                id: Number(sf.id),
+                user_id: sf.user_id || null,
+                type: ['income', 'expense'].includes(sf.type) ? sf.type : 'income',
+                payment_date: String(sf.payment_date || ''),
+                amount: Number(sf.amount || 0),
+                description: sf.description || null,
+                payment_method: sf.payment_method || null,
+                category: sf.category,
+                profile_full_name: sf.profile_full_name,
+                updated_at: reviveDate(sf.updated_at),
+            };
+        }),
+    };
 };
 
 export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
@@ -64,125 +283,418 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     const [syncStatus, setSyncStatus] = React.useState<SyncStatus>('loading');
     const [lastSyncError, setLastSyncError] = React.useState<string | null>(null);
     const [isDataLoading, setIsDataLoading] = React.useState(true);
+    const [triggeredAlerts, setTriggeredAlerts] = React.useState<Appointment[]>([]);
+    const [showUnpostponedSessionsModal, setShowUnpostponedSessionsModal] = React.useState(false);
+    const [realtimeAlerts, setRealtimeAlerts] = React.useState<RealtimeAlert[]>([]);
+    const [userApprovalAlerts, setUserApprovalAlerts] = React.useState<RealtimeAlert[]>([]);
+    const [userSettings, setUserSettings] = React.useState<any>(() => {
+        if (typeof window !== 'undefined') {
+            try {
+                const saved = localStorage.getItem('lawyerAppSettings');
+                return saved ? { ...defaultSettings, ...JSON.parse(saved) } : defaultSettings;
+            } catch (e) {
+                return defaultSettings;
+            }
+        }
+        return defaultSettings;
+    });
+    const isOnline = useOnlineStatus();
+    
+    const userRef = React.useRef(user);
+    userRef.current = user;
+
     const [effectiveUserId, setEffectiveUserId] = React.useState<string | null>(() => {
-        if (typeof window !== 'undefined') return localStorage.getItem(CACHED_OWNER_ID_KEY);
-        return null;
+        if (typeof window !== 'undefined') {
+            return localStorage.getItem(CACHED_OWNER_ID_KEY) || (user?.id || null);
+        }
+        return user?.id || null;
     });
 
-    const isOnline = useOnlineStatus();
-    const supabase = getSupabaseClient();
-
-    // 1. آلية جلب ملف التعريف فوراً لتحديد مالك البيانات الصحيح
     React.useEffect(() => {
-        if (!user || !isOnline || !supabase) return;
-
-        const resolveOwnerId = async () => {
-            try {
-                // محاولة جلب ملف التعريف من السحابة فوراً
-                const { data: profile, error } = await supabase
-                    .from('profiles')
-                    .select('id, lawyer_id')
-                    .eq('id', user.id)
-                    .single();
-
-                if (error) throw error;
-
-                // إذا كان المستخدم مساعداً، مالك البيانات هو المحامي (lawyer_id)
-                // إذا كان محامياً، مالك البيانات هو معرّفه الخاص
-                const resolvedId = profile.lawyer_id || profile.id;
-                
-                if (resolvedId !== effectiveUserId) {
-                    setEffectiveUserId(resolvedId);
-                    localStorage.setItem(CACHED_OWNER_ID_KEY, resolvedId);
-                    // إعادة تشغيل المزامنة فور تغيير المعرّف لضمان جلب البيانات الصحيحة
-                    manualSync();
-                }
-            } catch (e) {
-                console.error("Failed to resolve data owner:", e);
-            }
-        };
-
-        resolveOwnerId();
-    }, [user, isOnline]);
-
-    // 2. تحميل البيانات من IndexedDB بناءً على المعرف الفعال
-    React.useEffect(() => {
-        if (isAuthLoading) return;
+        if (!user) {
+            setEffectiveUserId(null);
+            return;
+        }
+        const currentUserProfile = data.profiles.find(p => p.id === user.id);
+        let newOwnerId = user.id;
         
-        const loadLocalData = async () => {
-            const ownerId = effectiveUserId || user?.id;
-            if (!ownerId) {
-                setIsDataLoading(false);
-                return;
+        if (currentUserProfile && currentUserProfile.lawyer_id) {
+            newOwnerId = currentUserProfile.lawyer_id;
+        }
+        
+        if (newOwnerId !== effectiveUserId) {
+            setEffectiveUserId(newOwnerId);
+            localStorage.setItem(CACHED_OWNER_ID_KEY, newOwnerId);
+        }
+    }, [user, data.profiles, effectiveUserId]);
+
+    const currentUserPermissions: Permissions = React.useMemo(() => {
+        if (!user) return defaultPermissions;
+        const currentUserProfile = data.profiles.find(p => p.id === user.id);
+        if (currentUserProfile && currentUserProfile.lawyer_id) {
+            return { ...defaultPermissions, ...currentUserProfile.permissions };
+        }
+        return {
+            can_view_agenda: true, can_view_clients: true, can_add_client: true, can_edit_client: true, can_delete_client: true,
+            can_view_cases: true, can_add_case: true, can_edit_case: true, can_delete_case: true,
+            can_view_sessions: true, can_add_session: true, can_edit_session: true, can_delete_session: true, can_postpone_session: true, can_decide_session: true,
+            can_view_documents: true, can_add_document: true, can_delete_document: true,
+            can_view_finance: true, can_add_financial_entry: true, can_delete_financial_entry: true, can_manage_invoices: true,
+            can_view_admin_tasks: true, can_add_admin_task: true, can_edit_admin_task: true, can_delete_admin_task: true,
+            can_view_reports: true,
+        };
+    }, [user, data.profiles]);
+
+    const addRealtimeAlert = React.useCallback((message: string, type: 'sync' | 'userApproval' = 'sync') => {
+        const newAlert: RealtimeAlert = { id: Date.now(), message, type };
+        if (type === 'userApproval') {
+            setUserApprovalAlerts(prev => [...prev, newAlert]);
+        } else {
+            setRealtimeAlerts(prev => [...prev, newAlert]);
+        }
+    }, []);
+
+    const updateSettings = React.useCallback((updater: (prev: any) => any) => {
+        setUserSettings((prev: any) => {
+            const next = updater(prev);
+            if (typeof window !== 'undefined') {
+                localStorage.setItem('lawyerAppSettings', JSON.stringify(next));
             }
+            return next;
+        });
+    }, []);
+
+    const updateData = React.useCallback((updater: React.SetStateAction<AppData>) => {
+        if (!effectiveUserId) return;
+        setData(currentData => {
+            const newData = typeof updater === 'function' ? (updater as (prevState: AppData) => AppData)(currentData) : updater;
+            getDb().then(db => {
+                db.put(DATA_STORE_NAME, newData, effectiveUserId);
+            });
+            setDirty(true);
+            return newData;
+        });
+    }, [effectiveUserId]); 
+
+    const setFullData = React.useCallback(async (newData: any) => {
+        const validated = validateAndFixData(newData, userRef.current);
+        updateData(validated);
+    }, [updateData]);
+
+    React.useEffect(() => {
+        if (!user && isAuthLoading) return;
+        if (!user) {
+            setIsDataLoading(false);
+            return;
+        }
+
+        setIsDataLoading(true);
+        let cancelled = false;
+
+        const loadData = async () => {
+            let ownerId = localStorage.getItem(CACHED_OWNER_ID_KEY) || user.id;
 
             try {
                 const db = await getDb();
-                const storedData = await db.get(DATA_STORE_NAME, ownerId);
-                if (storedData) {
-                    setData(validateAndFixData(storedData, user));
-                }
-                setIsDataLoading(false);
+                const [storedData, storedDeletedIds, localDocsMetadata] = await Promise.all([
+                    db.get(DATA_STORE_NAME, ownerId),
+                    db.get(DATA_STORE_NAME, `deletedIds_${ownerId}`),
+                    db.getAll(DOCS_METADATA_STORE_NAME)
+                ]);
+
+                if (cancelled) return;
+
+                const validatedData = validateAndFixData(storedData, user);
+                const localDocsMetadataMap = new Map((localDocsMetadata as any[]).map((meta: any) => [meta.id, meta]));
+                const finalDocs = validatedData.documents.map(doc => {
+                    const localMeta: any = localDocsMetadataMap.get(doc.id);
+                    return { ...doc, localState: localMeta?.localState || doc.localState || 'pending_download' };
+                }).filter(doc => !!doc) as CaseDocument[];
                 
-                // إذا كنا متصلين، نبدأ المزامنة فوراً
-                if (isOnline) manualSync();
-            } catch (e) {
-                console.error("Local load failed:", e);
+                const finalData = { ...validatedData, documents: finalDocs };
+                
+                setData(finalData);
+                setDeletedIds(storedDeletedIds || getInitialDeletedIds());
+                setIsDataLoading(false); 
+
+                if (isOnline) {
+                    const supabase = getSupabaseClient();
+                    if (supabase) {
+                        supabase.from('profiles').select('lawyer_id').eq('id', user.id).single()
+                        .then(({ data: profile }) => {
+                            if (cancelled) return;
+                            if (profile && profile.lawyer_id && profile.lawyer_id !== ownerId) {
+                                localStorage.setItem(CACHED_OWNER_ID_KEY, profile.lawyer_id);
+                                setEffectiveUserId(profile.lawyer_id);
+                            }
+                            manualSync().catch(console.error);
+                        })
+                        .catch(err => console.warn("Background profile check failed:", err));
+                    }
+                } else {
+                    setSyncStatus('synced');
+                }
+
+            } catch (error) {
+                console.error('Failed to load data:', error);
+                setSyncStatus('error');
+                setLastSyncError('فشل تحميل البيانات المحلية.');
                 setIsDataLoading(false);
             }
         };
+        
+        loadData();
+        return () => { cancelled = true; };
+    }, [user, isAuthLoading]); 
 
-        loadLocalData();
-    }, [user, isAuthLoading, effectiveUserId]);
+    const handleSyncStatusChange = React.useCallback((status: SyncStatus, error: string | null) => {
+        setSyncStatus(status);
+        setLastSyncError(error);
+    }, []);
 
     const handleDataSynced = React.useCallback(async (mergedData: AppData) => {
-        const ownerId = effectiveUserId || user?.id;
-        if (!ownerId) return;
-
+        if (!effectiveUserId) return;
         try {
+            const validatedMergedData = validateAndFixData(mergedData, userRef.current);
             const db = await getDb();
-            await db.put(DATA_STORE_NAME, mergedData, ownerId);
-            setData(mergedData);
+            const localDocsMetadata = await db.getAll(DOCS_METADATA_STORE_NAME);
+            
+            const finalDocs = safeArray(validatedMergedData.documents, (doc: any) => {
+                if (!doc || typeof doc !== 'object' || !doc.id) return undefined;
+                const localMeta = (localDocsMetadata as any[]).find((meta: any) => meta.id === doc.id);
+                const mergedDoc = {
+                    ...doc,
+                    localState: localMeta?.localState || doc.localState || 'pending_download'
+                };
+                return validateDocuments(mergedDoc, userRef.current?.id || '');
+            });
+
+            const finalData = { ...validatedMergedData, documents: finalDocs };
+
+            await db.put(DATA_STORE_NAME, finalData, effectiveUserId);
+            setData(finalData);
             setDirty(false);
         } catch (e) {
-            console.error("Failed to save synced data locally:", e);
+            console.error("Critical error in handleDataSynced:", e);
+            handleSyncStatusChange('error', 'فشل تحديث البيانات المحلية بعد المزامنة.');
         }
-    }, [user, effectiveUserId]);
+    }, [userRef, effectiveUserId, handleSyncStatusChange]);
+    
+    const handleDeletionsSynced = React.useCallback(async (syncedDeletions: Partial<DeletedIds>) => {
+        if (!effectiveUserId) return;
+        const newDeletedIds = { ...deletedIds };
+        let changed = false;
+        for (const key of Object.keys(syncedDeletions) as Array<keyof DeletedIds>) {
+            const synced = new Set((syncedDeletions[key] || []) as any[]);
+            if (synced.size > 0) {
+                newDeletedIds[key] = newDeletedIds[key].filter(id => !synced.has(id as any));
+                changed = true;
+            }
+        }
+        if (changed) {
+            setDeletedIds(newDeletedIds);
+            const db = await getDb();
+            await db.put(DATA_STORE_NAME, newDeletedIds, `deletedIds_${effectiveUserId}`);
+        }
+    }, [deletedIds, effectiveUserId]);
 
     const { manualSync, fetchAndRefresh } = useSync({
-        user: user ? { ...user, id: effectiveUserId || user.id } as User : null,
+        user: userRef.current ? { ...userRef.current, id: effectiveUserId || userRef.current.id } as User : null,
         localData: data, 
         deletedIds,
         onDataSynced: handleDataSynced,
-        onDeletionsSynced: () => {}, 
-        onSyncStatusChange: (status, err) => { setSyncStatus(status); setLastSyncError(err); },
+        onDeletionsSynced: handleDeletionsSynced,
+        onSyncStatusChange: handleSyncStatusChange,
         isOnline, isAuthLoading, syncStatus
     });
 
-    // ... (rest of the hook logic remains substantially the same)
+    React.useEffect(() => {
+        if (isOnline && isDirty && userSettings.isAutoSyncEnabled && syncStatus !== 'syncing') {
+            const handler = setTimeout(() => { manualSync(); }, 3000);
+            return () => clearTimeout(handler);
+        }
+    }, [isOnline, isDirty, userSettings.isAutoSyncEnabled, syncStatus, manualSync]);
+
+    React.useEffect(() => {
+        if (!user || !isOnline) return;
+        const supabase = getSupabaseClient();
+        if (!supabase) return;
+        const dataChannel = supabase.channel('table-changes');
+        const tablesToWatch = ['clients', 'cases', 'stages', 'sessions', 'admin_tasks', 'appointments', 'accounting_entries', 'invoices', 'invoice_items', 'case_documents', 'sync_deletions'];
+        tablesToWatch.forEach(table => {
+            dataChannel.on('postgres_changes', { event: '*', schema: 'public', table: table }, (payload) => {
+                    addRealtimeAlert('تم اكتشاف تغييرات من جهاز آخر. جاري التحديث...', 'sync');
+                    fetchAndRefresh();
+            });
+        });
+        dataChannel.subscribe();
+        return () => { supabase.removeChannel(dataChannel); };
+    }, [user, isOnline, addRealtimeAlert, fetchAndRefresh]);
+
+    const createDeleteFunction = <T extends keyof DeletedIds>(entity: T) => async (id: DeletedIds[T][number]) => {
+        if (!effectiveUserId) return;
+        const db = await getDb();
+        const newDeletedIds = { ...deletedIds, [entity]: [...deletedIds[entity], id] };
+        setDeletedIds(newDeletedIds);
+        await db.put(DATA_STORE_NAME, newDeletedIds, `deletedIds_${effectiveUserId}`);
+        setDirty(true);
+    };
+
     return {
         ...data,
-        setClients: (updater: any) => { 
-            setData(prev => {
-                const newData = { ...prev, clients: updater(prev.clients) };
-                if (effectiveUserId) getDb().then(db => db.put(DATA_STORE_NAME, newData, effectiveUserId));
-                setDirty(true);
-                return newData;
-            });
-        },
-        // ... (Define other setters similarly to ensure IDB is updated with effectiveUserId)
-        setAdminTasks: (updater: any) => setData(prev => ({...prev, adminTasks: updater(prev.adminTasks)})),
-        setAppointments: (updater: any) => setData(prev => ({...prev, appointments: updater(prev.appointments)})),
-        setAccountingEntries: (updater: any) => setData(prev => ({...prev, accountingEntries: updater(prev.accountingEntries)})),
-        setInvoices: (updater: any) => setData(prev => ({...prev, invoices: updater(prev.invoices)})),
-        setProfiles: (updater: any) => setData(prev => ({...prev, profiles: updater(prev.profiles)})),
-        // Fix: Removed duplicate manualSync property from this shorthand list. It is explicitly added at the end of the object.
-        syncStatus, lastSyncError, isDirty, isDataLoading, effectiveUserId,
-        allSessions: React.useMemo(() => (data.clients || []).flatMap(c => (c.cases || []).flatMap(cs => (cs.stages || []).flatMap(st => (st.sessions || []).map(s => ({...s, stageId: st.id}))))), [data.clients]),
-        unpostponedSessions: [], // Simplified for this block
-        permissions: defaultPermissions, // Simplified
-        addRealtimeAlert: () => {},
+        setClients: (updater) => updateData(prev => ({ ...prev, clients: updater(prev.clients) })),
+        setAdminTasks: (updater) => updateData(prev => ({ ...prev, adminTasks: updater(prev.adminTasks) })),
+        setAppointments: (updater) => updateData(prev => ({ ...prev, appointments: updater(prev.appointments) })),
+        setAccountingEntries: (updater) => updateData(prev => ({ ...prev, accountingEntries: updater(prev.accountingEntries) })),
+        setInvoices: (updater) => updateData(prev => ({ ...prev, invoices: updater(prev.invoices) })),
+        setAssistants: (updater) => updateData(prev => ({ ...prev, assistants: updater(prev.assistants) })),
+        setDocuments: (updater) => updateData(prev => ({ ...prev, documents: updater(prev.documents) })),
+        setProfiles: (updater) => updateData(prev => ({ ...prev, profiles: updater(prev.profiles) })),
+        setSiteFinances: (updater) => updateData(prev => ({ ...prev, siteFinances: updater(prev.siteFinances) })),
+        setFullData,
+        allSessions: React.useMemo(() => (data.clients || []).flatMap(c => (c.cases || []).flatMap(cs => (cs.stages || []).flatMap(st => (st.sessions || []).map(s => ({...s, stageId: st.id, stageDecisionDate: st.decisionDate}))))), [data.clients]),
+        unpostponedSessions: React.useMemo(() => {
+            return (data.clients || []).flatMap(c => (c.cases || []).flatMap(cs => (cs.stages || []).flatMap(st => (st.sessions || []).filter(s => !s.isPostponed && isBeforeToday(s.date) && !st.decisionDate).map(s => ({...s, stageId: st.id, stageDecisionDate: st.decisionDate})))));
+        }, [data.clients]),
+        syncStatus, manualSync, lastSyncError, isDirty, userId: user?.id, isDataLoading,
+        effectiveUserId,
+        permissions: currentUserPermissions,
+        isAutoSyncEnabled: userSettings.isAutoSyncEnabled, setAutoSyncEnabled: (v: boolean) => updateSettings(p => ({...p, isAutoSyncEnabled: v})),
+        isAutoBackupEnabled: userSettings.isAutoBackupEnabled, setAutoBackupEnabled: (v: boolean) => updateSettings(p => ({...p, isAutoBackupEnabled: v})),
+        adminTasksLayout: userSettings.adminTasksLayout, setAdminTasksLayout: (v: any) => updateSettings(p => ({...p, adminTasksLayout: v})),
+        locationOrder: userSettings.locationOrder, setLocationOrder: (v: any) => updateSettings(p => ({...p, locationOrder: v})),
+        exportData: React.useCallback(() => {
+             try {
+                const dataToExport = { ...data, profiles: undefined, siteFinances: undefined };
+                const jsonString = JSON.stringify(dataToExport, null, 2);
+                const blob = new Blob([jsonString], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url;
+                a.download = `lawyer_app_backup_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+                document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+                return true;
+            } catch (e) { console.error(e); return false; }
+        }, [data]),
+        triggeredAlerts, dismissAlert: (id: string) => setTriggeredAlerts(p => p.filter(a => a.id !== id)),
+        realtimeAlerts, dismissRealtimeAlert: (id: number) => setRealtimeAlerts(p => p.filter(a => a.id !== id)),
+        addRealtimeAlert,
+        userApprovalAlerts, dismissUserApprovalAlert: (id: number) => setUserApprovalAlerts(p => p.filter(a => a.id !== id)),
+        showUnpostponedSessionsModal, setShowUnpostponedSessionsModal,
         fetchAndRefresh,
-        manualSync: manualSync
+        deleteClient: (id: string) => { updateData(p => ({ ...p, clients: p.clients.filter(c => c.id !== id) })); createDeleteFunction('clients')(id); },
+        deleteCase: async (caseId: string, clientId: string) => {
+             const docsToDelete = data.documents.filter(doc => doc.caseId === caseId);
+             const docIdsToDelete = docsToDelete.map(doc => doc.id);
+             const docPathsToDelete = docsToDelete.map(doc => doc.storagePath).filter(Boolean);
+             updateData(p => {
+                const updatedClients = p.clients.map(c => c.id === clientId ? { ...c, cases: c.cases.filter(cs => cs.id !== caseId) } : c);
+                return { ...p, clients: updatedClients, documents: p.documents.filter(doc => doc.caseId !== caseId) };
+             });
+             if (effectiveUserId) {
+                 const db = await getDb();
+                 const newDeletedIds = { ...deletedIds, cases: [...deletedIds.cases, caseId], documents: [...deletedIds.documents, ...docIdsToDelete], documentPaths: [...deletedIds.documentPaths, ...docPathsToDelete] };
+                 setDeletedIds(newDeletedIds);
+                 await db.put(DATA_STORE_NAME, newDeletedIds, `deletedIds_${effectiveUserId}`);
+                 setDirty(true);
+             }
+        },
+        deleteStage: (sid: string, cid: string, clid: string) => { updateData(p => ({ ...p, clients: p.clients.map(c => c.id === clid ? { ...c, cases: c.cases.map(cs => cs.id === cid ? { ...cs, stages: cs.stages.filter(st => st.id !== sid) } : cs) } : c) })); createDeleteFunction('stages')(sid); },
+        deleteSession: (sessId: string, stId: string, cid: string, clid: string) => { updateData(p => ({ ...p, clients: p.clients.map(c => c.id === clid ? { ...c, cases: c.cases.map(cs => cs.id === cid ? { ...cs, stages: cs.stages.map(st => st.id === stId ? { ...st, sessions: st.sessions.filter(s => s.id !== sessId) } : st) } : cs) } : c) })); createDeleteFunction('sessions')(sessId); },
+        deleteAdminTask: (id: string) => { updateData(p => ({...p, adminTasks: p.adminTasks.filter(t => t.id !== id)})); createDeleteFunction('adminTasks')(id); },
+        deleteAppointment: (id: string) => { updateData(p => ({...p, appointments: p.appointments.filter(a => a.id !== id)})); createDeleteFunction('appointments')(id); },
+        deleteAccountingEntry: (id: string) => { updateData(p => ({...p, accountingEntries: p.accountingEntries.filter(e => e.id !== id)})); createDeleteFunction('accountingEntries')(id); },
+        deleteInvoice: (id: string) => { updateData(p => ({...p, invoices: p.invoices.filter(i => i.id !== id)})); createDeleteFunction('invoices')(id); },
+        deleteAssistant: (name: string) => { updateData(p => ({...p, assistants: p.assistants.filter(a => a !== name)})); createDeleteFunction('assistants')(name); },
+        deleteDocument: async (doc: CaseDocument) => {
+            const db = await getDb();
+            await db.delete(DOCS_FILES_STORE_NAME, doc.id);
+            await db.delete(DOCS_METADATA_STORE_NAME, doc.id);
+            updateData(p => ({ ...p, documents: p.documents.filter(d => d.id !== doc.id) }));
+            if(effectiveUserId) {
+                const newDeletedIds = { ...deletedIds, documents: [...deletedIds.documents, doc.id], documentPaths: [...deletedIds.documentPaths, doc.storagePath] };
+                setDeletedIds(newDeletedIds);
+                await db.put(DATA_STORE_NAME, newDeletedIds, `deletedIds_${effectiveUserId}`);
+            }
+        },
+        addDocuments: async (caseId: string, files: FileList | File[]) => {
+             const db = await getDb();
+             const newDocs: CaseDocument[] = [];
+             const fileList = Array.isArray(files) ? files : Array.from(files);
+
+             for (const file of fileList) {
+                 const docId = `doc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                 const lastDot = file.name.lastIndexOf('.');
+                 const extension = lastDot !== -1 ? file.name.substring(lastDot) : '';
+                 const safeStoragePath = `${effectiveUserId || user!.id}/${caseId}/${docId}${extension}`;
+                 const doc: CaseDocument = {
+                     id: docId, 
+                     caseId, 
+                     userId: effectiveUserId || user!.id, 
+                     name: file.name, 
+                     type: file.type || 'application/octet-stream', 
+                     size: file.size, 
+                     addedAt: new Date(), 
+                     storagePath: safeStoragePath, 
+                     localState: 'pending_upload', 
+                     updated_at: new Date(),
+                 };
+                 
+                 await db.put(DOCS_FILES_STORE_NAME, file, doc.id);
+                 await db.put(DOCS_METADATA_STORE_NAME, doc, doc.id);
+                 newDocs.push(doc);
+             }
+             updateData(p => ({...p, documents: [...(p.documents || []), ...newDocs]}));
+        },
+        getDocumentFile: async (docId: string): Promise<File | null> => {
+            const db = await getDb();
+            const supabase = getSupabaseClient();
+            const doc = data.documents.find(d => d.id === docId);
+            if (!doc) return null;
+            const localFile = await db.get(DOCS_FILES_STORE_NAME, docId);
+            if (localFile) return localFile;
+            if (doc.localState === 'pending_download' && isOnline && supabase) {
+                try {
+                    updateData(p => ({...p, documents: (p.documents || []).map(d => d.id === docId ? {...d, localState: 'downloading' } : d)}));
+                    const { data: blob, error } = await supabase.storage.from('documents').download(doc.storagePath);
+                    if (error || !blob) throw error || new Error("Empty blob");
+                    const downloadedFile = new File([blob], doc.name, { type: doc.type });
+                    await db.put(DOCS_FILES_STORE_NAME, downloadedFile, doc.id);
+                    await db.put(DOCS_METADATA_STORE_NAME, { ...doc, localState: 'synced' }, doc.id);
+                    updateData(p => ({...p, documents: (p.documents || []).map(d => d.id === docId ? {...d, localState: 'synced'} : d)}));
+                    return downloadedFile;
+                } catch (e) {
+                    await db.put(DOCS_METADATA_STORE_NAME, { ...doc, localState: 'error' }, doc.id);
+                    updateData(p => ({...p, documents: (p.documents || []).map(d => d.id === docId ? {...d, localState: 'error'} : d)}));
+                }
+            }
+            return null;
+        },
+        postponeSession: (sessionId: string, newDate: Date, newReason: string) => {
+             updateData(prev => {
+                 const newClients = (prev.clients || []).map(client => {
+                    let clientModified = false;
+                    const newCases = (client.cases || []).map(caseItem => {
+                        let caseModified = false;
+                        const newStages = (caseItem.stages || []).map(stage => {
+                            const sessionIndex = (stage.sessions || []).findIndex(s => s.id === sessionId);
+                            if (sessionIndex !== -1) {
+                                const oldSession = stage.sessions[sessionIndex];
+                                const newSession: Session = { id: `session-${Date.now()}`, court: oldSession.court, caseNumber: oldSession.caseNumber, date: newDate, clientName: oldSession.clientName, opponentName: oldSession.opponentName, postponementReason: newReason, isPostponed: false, assignee: oldSession.assignee, updated_at: new Date(), user_id: oldSession.user_id };
+                                const updatedOldSession: Session = { ...oldSession, isPostponed: true, nextSessionDate: newDate, nextPostponementReason: newReason, updated_at: new Date() };
+                                const newSessions = [...stage.sessions]; newSessions[sessionIndex] = updatedOldSession; newSessions.push(newSession);
+                                caseModified = true; clientModified = true;
+                                return { ...stage, sessions: newSessions, updated_at: new Date() };
+                            }
+                            return stage;
+                        });
+                        if (caseModified) return { ...caseItem, stages: newStages, updated_at: new Date() };
+                        return caseItem;
+                    });
+                    if (clientModified) return { ...client, cases: newCases, updated_at: new Date() };
+                    return client;
+                });
+                return newClients.some((c, i) => c !== prev.clients[i]) ? { ...prev, clients: newClients } : prev;
+             });
+        }
     };
 };

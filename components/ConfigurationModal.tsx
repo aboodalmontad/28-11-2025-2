@@ -18,11 +18,12 @@ const CopyButton: React.FC<{ textToCopy: string }> = ({ textToCopy }) => {
     );
 };
 
-const unifiedScript = `-- =================================================================
--- سكربت الإصلاح النهائي: استرجاع البيانات المفقودة وضبط الصلاحيات
+const unifiedScript = `
+-- =================================================================
+-- سكربت الإصلاح النهائي (V3): معالجة الأخطاء وضمان ظهور البيانات
 -- =================================================================
 
--- 1. تهيئة جدول Profiles والتأكد من الصلاحيات
+-- 1. التأكد من هيكلية جدول Profiles الأساسية
 CREATE TABLE IF NOT EXISTS public.profiles (
     id uuid NOT NULL PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     full_name text,
@@ -31,93 +32,99 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     is_approved boolean DEFAULT false,
     is_active boolean DEFAULT true,
     role text DEFAULT 'user',
-    permissions jsonb,
-    subscription_start_date timestamptz,
-    subscription_end_date timestamptz,
-    mobile_verified boolean DEFAULT false,
-    otp_code text,
-    otp_expires_at timestamptz,
     created_at timestamptz DEFAULT now(),
     updated_at timestamptz DEFAULT now()
 );
 
--- 2. تحديث دالة تحديد مالك البيانات لضمان الوصول للبيانات القديمة
--- هذه الدالة هي المفتاح لظهور بيانات المحامي لمساعديه وبالعكس
+-- 2. تحديث دالة تحديد مالك البيانات
 CREATE OR REPLACE FUNCTION public.get_data_owner_id()
 RETURNS uuid AS $$
 DECLARE
-    v_lawyer_id uuid;
+    found_lawyer_id uuid;
 BEGIN
-    -- جلب معرّف المحامي المرتبط بالحساب الحالي
-    SELECT lawyer_id INTO v_lawyer_id FROM public.profiles WHERE id = auth.uid();
-    
-    -- إذا كان المستخدم محامياً (lawyer_id is null) فإنه يملك بياناته الخاصة
-    -- إذا كان مساعداً، فإن المالك هو المحامي المرتبط به
-    RETURN COALESCE(v_lawyer_id, auth.uid());
+    SELECT lawyer_id INTO found_lawyer_id FROM public.profiles WHERE id = auth.uid();
+    RETURN COALESCE(found_lawyer_id, auth.uid());
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 3. تفعيل Row Level Security (RLS) على كافة الجداول
+-- 3. تصفير سياسات الوصول (RLS) القديمة لتجنب التعارض
+DO $$
+DECLARE r RECORD;
+BEGIN
+    FOR r IN (SELECT 'DROP POLICY IF EXISTS "' || policyname || '" ON public.' || tablename || ';' as statement FROM pg_policies WHERE schemaname = 'public') LOOP
+        EXECUTE r.statement;
+    END LOOP;
+END$$;
+
+-- 4. تفعيل RLS على كل الجداول
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.clients ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cases ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.stages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admin_tasks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.appointments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.accounting_entries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.invoices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.invoice_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.case_documents ENABLE ROW LEVEL SECURITY;
+
+-- 5. بناء سياسات الوصول الجديدة (إصلاح خطأ عمود role)
+-- سياسة الملفات الشخصية
+CREATE POLICY "Profiles Access" ON public.profiles FOR ALL USING (
+    id = auth.uid() 
+    OR lawyer_id = auth.uid() 
+    OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+);
+
+-- دالة مساعدة للتحقق من صلاحية المدير (لتجنب تكرار الكود)
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS boolean AS $$
+BEGIN
+    RETURN EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin');
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- السياسة الموحدة للبيانات (إصلاح الخطأ: عمود role غير موجود في هذه الجداول)
+-- نستخدم دالة is_admin() للتحقق من ملف تعريف المستخدم بدلاً من الجدول نفسه
 DO $$
 DECLARE
     t text;
 BEGIN
-    FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+    FOR t IN VALUES ('clients'), ('cases'), ('stages'), ('sessions'), ('admin_tasks'), ('appointments'), ('accounting_entries'), ('invoices'), ('invoice_items'), ('case_documents')
     LOOP
-        EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY;', t);
+        EXECUTE format('CREATE POLICY "Unified Data Access" ON public.%I FOR ALL USING (user_id = public.get_data_owner_id() OR public.is_admin());', t);
     END LOOP;
 END$$;
 
--- 4. إعادة بناء سياسات الوصول لضمان "رؤية كاملة" لمالك البيانات
-DO $$
-DECLARE
-    pol RECORD;
-BEGIN
-    FOR pol IN (SELECT policyname, tablename FROM pg_policies WHERE schemaname = 'public')
-    LOOP
-        EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I;', pol.policyname, pol.tablename);
-    END LOOP;
-END$$;
-
--- سياسة الوصول الموحدة: تسمح للمالك (المحامي) وللمساعدين المرتبطين به بالوصول
--- هذه السياسة تعالج مشكلة عدم ظهور البيانات القديمة
-CREATE POLICY "Unified Access Policy" ON public.clients FOR ALL USING (user_id = public.get_data_owner_id());
-CREATE POLICY "Unified Access Policy" ON public.cases FOR ALL USING (user_id = public.get_data_owner_id());
-CREATE POLICY "Unified Access Policy" ON public.stages FOR ALL USING (user_id = public.get_data_owner_id());
-CREATE POLICY "Unified Access Policy" ON public.sessions FOR ALL USING (user_id = public.get_data_owner_id());
-CREATE POLICY "Unified Access Policy" ON public.admin_tasks FOR ALL USING (user_id = public.get_data_owner_id());
-CREATE POLICY "Unified Access Policy" ON public.appointments FOR ALL USING (user_id = public.get_data_owner_id());
-CREATE POLICY "Unified Access Policy" ON public.accounting_entries FOR ALL USING (user_id = public.get_data_owner_id());
-CREATE POLICY "Unified Access Policy" ON public.invoices FOR ALL USING (user_id = public.get_data_owner_id());
-CREATE POLICY "Unified Access Policy" ON public.invoice_items FOR ALL USING (user_id = public.get_data_owner_id());
-CREATE POLICY "Unified Access Policy" ON public.case_documents FOR ALL USING (user_id = public.get_data_owner_id());
-CREATE POLICY "Unified Access Policy" ON public.assistants FOR ALL USING (user_id = public.get_data_owner_id());
-
--- سياسة خاصة بملفات التعريف: المحامي يرى مساعديه والمساعد يرى محاميه
-CREATE POLICY "Profile Visibility" ON public.profiles FOR ALL USING (
-    id = auth.uid() OR 
-    lawyer_id = auth.uid() OR 
-    id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR
-    role = 'admin'
+-- 6. معالجة سجل المحذوفات
+CREATE TABLE IF NOT EXISTS public.sync_deletions (
+    id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    table_name text NOT NULL,
+    record_id text NOT NULL,
+    user_id uuid NOT NULL,
+    deleted_at timestamptz DEFAULT now()
 );
+ALTER TABLE public.sync_deletions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Deletions Access" ON public.sync_deletions FOR ALL USING (user_id = public.get_data_owner_id() OR public.is_admin());
 
--- 5. إصلاح البيانات اليتيمة (إن وجدت)
--- تنبيه: الكود أدناه يربط البيانات التي لا تملك user_id بالمستخدم الحالي (المحامي)
-UPDATE public.clients SET user_id = auth.uid() WHERE user_id IS NULL AND auth.uid() IS NOT NULL;
-UPDATE public.cases SET user_id = auth.uid() WHERE user_id IS NULL AND auth.uid() IS NOT NULL;
--- (كرر لبقية الجداول إذا لزم الأمر)
-
--- 6. تفعيل المزامنة الفورية (Realtime)
+-- 7. تفعيل Realtime (استخدام SET بدلاً من ADD لتجنب أخطاء "بالفعل عضو")
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
         CREATE PUBLICATION supabase_realtime;
     END IF;
 END $$;
-ALTER PUBLICATION supabase_realtime ADD TABLE 
-    public.clients, public.cases, public.stages, public.sessions, 
-    public.admin_tasks, public.appointments, public.accounting_entries, 
-    public.invoices, public.invoice_items, public.case_documents, public.profiles;
+
+ALTER PUBLICATION supabase_realtime SET TABLE 
+    public.profiles, public.clients, public.cases, public.stages, 
+    public.sessions, public.admin_tasks, public.appointments, 
+    public.accounting_entries, public.invoices, public.invoice_items, 
+    public.case_documents;
+
+-- 8. إصلاحات بيانات نهائية
+UPDATE public.profiles SET role = 'admin' WHERE id IN (SELECT id FROM auth.users WHERE email LIKE 'admin%');
+UPDATE public.profiles SET is_approved = true, is_active = true WHERE role = 'admin';
 `;
 
 interface ConfigurationModalProps {
@@ -130,24 +137,20 @@ const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ onRetry }) => {
             <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
                 <div className="flex items-center gap-3 mb-4 text-red-600">
                     <ServerIcon className="w-8 h-8" />
-                    <h2 className="text-2xl font-bold">إصلاح قاعدة البيانات (تحميل البيانات التاريخية)</h2>
+                    <h2 className="text-2xl font-bold">إصلاح قاعدة البيانات (النسخة المحدثة)</h2>
                 </div>
                 
                 <div className="overflow-y-auto flex-grow pr-2">
                     <div className="bg-red-50 border-s-4 border-red-500 p-4 mb-4 rounded">
-                        <div className="flex">
-                            <div className="ms-3">
-                                <p className="text-sm text-red-700 font-bold">
-                                    تحذير: سيقوم هذا السكربت بإعادة ضبط سياسات الوصول لضمان ظهور كافة البيانات السابقة المرتبطة بحسابك.
-                                </p>
-                            </div>
-                        </div>
+                        <p className="text-sm text-red-700 font-bold">
+                            تنبيه: تم تحديث السكربت لحل مشكلة "column role does not exist" ومشكلة "relation already member of publication".
+                        </p>
                     </div>
 
                     <ol className="list-decimal list-inside space-y-4 text-sm text-gray-600 mb-6">
                         <li className="bg-gray-50 p-3 rounded-lg border border-gray-200">
                             <div className="flex justify-between items-center mb-2">
-                                <strong className="text-gray-900">1. انسخ كود الإصلاح المحدث:</strong>
+                                <strong className="text-gray-900">1. انسخ الكود المحدث بالكامل:</strong>
                                 <CopyButton textToCopy={unifiedScript} />
                             </div>
                             <div className="relative">
@@ -156,9 +159,9 @@ const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ onRetry }) => {
                                 </pre>
                             </div>
                         </li>
-                        <li>2. افتح <a href="https://supabase.com/dashboard" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-bold">SQL Editor</a> في مشروعك.</li>
-                        <li>3. الصق الكود وقم بتنفيذه (Run).</li>
-                        <li>4. بعد الانتهاء، اضغط على زر <strong>تحديث البيانات الآن</strong> بالأسفل.</li>
+                        <li>2. اذهب إلى <a href="https://supabase.com/dashboard" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-bold">SQL Editor في Supabase</a>.</li>
+                        <li>3. الصق الكود واضغط <strong>Run</strong>.</li>
+                        <li>4. بعد التنفيذ، اضغط "تحديث البيانات الآن" بالأسفل.</li>
                     </ol>
                 </div>
 
