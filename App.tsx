@@ -196,7 +196,6 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                         localStorage.setItem(LAST_USER_CACHE_KEY, JSON.stringify(serverSession.user));
                     } else if (cachedSession) {
                         // If cached session exists but server says no session, and we are online, we should probably logout
-                        // unless it's a transient network error. For now, let's keep it for responsiveness.
                     }
                 } catch (e) {
                     console.error("Auth verification failed:", e);
@@ -275,7 +274,19 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
         return <ConfigurationModal onRetry={() => { data.manualSync(); setShowConfigModal(false); }} />;
     }
 
-    // Main App View
+    // --- ROLE BASED ROUTING ---
+    // If the logged-in user is an ADMIN, show the Admin Dashboard instead of the office layout.
+    if (profile?.role === 'admin') {
+        return (
+            <DataProvider value={data}>
+                <React.Suspense fallback={<div className="flex items-center justify-center h-screen"><ArrowPathIcon className="w-12 h-12 animate-spin text-blue-600"/></div>}>
+                    <AdminDashboard onLogout={handleLogout} onOpenConfig={() => setShowConfigModal(true)} />
+                </React.Suspense>
+            </DataProvider>
+        );
+    }
+
+    // Main Office View (for lawyers and assistants)
     return (
         <DataProvider value={data}>
             <div className="flex flex-col h-screen bg-gray-50 overflow-hidden">
@@ -293,7 +304,6 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                     permissions={data.permissions}
                 />
                 
-                {/* Background loading/syncing overlay if critical data is still being fetched from IDB */}
                 {data.isDataLoading && (
                     <div className="bg-blue-600 text-white text-center py-1 text-xs font-bold animate-pulse">
                         جاري تحميل البيانات المحلية...
