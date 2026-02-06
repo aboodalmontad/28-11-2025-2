@@ -1,3 +1,4 @@
+
 import * as React from 'react';
 import ClientsTreeView from '../components/ClientsTreeView';
 import ClientsListView from '../components/ClientsListView';
@@ -29,7 +30,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ showContextMenu, onOpenAdminT
         deleteStage, 
         deleteSession,
         postponeSession,
-        permissions // Destructure permissions
+        permissions 
     } = useData();
     const [modal, setModal] = React.useState<{ type: 'client' | 'case' | 'stage' | 'session' | null, context?: any, isEditing: boolean }>({ type: null, isEditing: false });
     const [formData, setFormData] = React.useState<any>({});
@@ -44,26 +45,20 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ showContextMenu, onOpenAdminT
     const [clientToDelete, setClientToDelete] = React.useState<Client | null>(null);
     const [isDeleteStageModalOpen, setIsDeleteStageModalOpen] = React.useState(false);
     const [stageToDelete, setStageToDelete] = React.useState<{ stageId: string; caseId: string; clientId: string; stageInfo: string } | null>(null);
-    
-    // State for contact picker support
     const [isContactPickerSupported, setIsContactPickerSupported] = React.useState(false);
 
     React.useEffect(() => {
-        // Check if Contact Picker API is supported
         setIsContactPickerSupported('contacts' in navigator && 'ContactsManager' in window);
     }, []);
 
-    // State for printing logic
     const [isPrintChoiceModalOpen, setIsPrintChoiceModalOpen] = React.useState(false);
     const [clientForPrintChoice, setClientForPrintChoice] = React.useState<Client | null>(null);
     const [isPrintModalOpen, setIsPrintModalOpen] = React.useState(false);
     const [printData, setPrintData] = React.useState<{ client: Client; caseData?: Case; entries: AccountingEntry[]; totals: any } | null>(null);
     const printClientReportRef = React.useRef<HTMLDivElement>(null);
 
-    // State for Decide Session Modal
     const [decideModal, setDecideModal] = React.useState<{ isOpen: boolean; session?: Session, stage?: Stage }>({ isOpen: false });
     const [decideFormData, setDecideFormData] = React.useState({ decisionNumber: '', decisionSummary: '', decisionNotes: '' });
-
 
     const filteredClients = React.useMemo(() => {
         const safeClients = clients || [];
@@ -71,8 +66,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ showContextMenu, onOpenAdminT
         const lowercasedQuery = debouncedSearchQuery.toLowerCase();
 
         return safeClients.map(client => {
-            const clientCases = client.cases || [];
-            const matchingCases = clientCases.filter(c => 
+            const cases = client.cases || [];
+            const matchingCases = cases.filter(c => 
                 (c.subject || '').toLowerCase().includes(lowercasedQuery) ||
                 (c.opponentName || '').toLowerCase().includes(lowercasedQuery) ||
                 (c.stages || []).some(s => 
@@ -97,7 +92,6 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ showContextMenu, onOpenAdminT
             return null;
         }).filter((client): client is Client => client !== null);
     }, [clients, debouncedSearchQuery]);
-
 
     const handleOpenModal = (type: 'client' | 'case' | 'stage' | 'session', isEditing = false, context: any = {}) => {
         setModal({ type, context, isEditing });
@@ -128,17 +122,15 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ showContextMenu, onOpenAdminT
     const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value, type } = e.target;
         const isCheckbox = type === 'checkbox';
-        // @ts-ignore
-        const val = isCheckbox ? e.target.checked : value;
-        setFormData(prev => ({ ...prev, [name]: val }));
+        const val = isCheckbox ? (e.target as HTMLInputElement).checked : value;
+        setFormData((prev: any) => ({ ...prev, [name]: val }));
     };
     
     const handleImportContact = async () => {
         try {
             const props = ['name', 'tel'];
             const opts = { multiple: false };
-            // @ts-ignore - Typescript might not know about contacts API
-            const contacts = await navigator.contacts.select(props, opts);
+            const contacts = await (navigator as any).contacts.select(props, opts);
 
             if (contacts.length > 0) {
                 const contact = contacts[0];
@@ -203,13 +195,9 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ showContextMenu, onOpenAdminT
             const foundClient = (clients || []).find(c => (c.name || '').trim().toLowerCase() === normalizedClientName);
 
             if (foundClient) {
-                if (!isEditing) {
+                if (!isEditing || (isEditing && context?.item?.id !== foundClient.id)) {
                     alert(`تنبيه: الموكل "${clientName}" موجود بالفعل.`);
                     return;
-                }
-                if (isEditing && context?.item?.id !== foundClient.id) {
-                     alert(`تنبيه: الموكل "${clientName}" موجود بالفعل.`);
-                     return;
                 }
             }
             
@@ -643,7 +631,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ showContextMenu, onOpenAdminT
                                 <>
                                 <div>
                                     <div className="flex justify-between items-center">
-                                        <label className="block text-sm font-medium text-gray-700">اسم الموكل</label>
+                                        <label className="block text-sm font-medium">اسم الموكل</label>
                                         {isContactPickerSupported && (
                                             <button 
                                                 type="button" 
@@ -657,35 +645,35 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ showContextMenu, onOpenAdminT
                                     </div>
                                     <input type="text" name="name" value={formData.name || ''} onChange={handleFormChange} className="w-full p-2 border rounded mt-1" required />
                                 </div>
-                                <div><label className="block text-sm font-medium text-gray-700">معلومات الاتصال</label><input type="text" name="contactInfo" value={formData.contactInfo || ''} onChange={handleFormChange} className="w-full p-2 border rounded" /></div>
+                                <div><label className="block text-sm font-medium">معلومات الاتصال</label><input type="text" name="contactInfo" value={formData.contactInfo || ''} onChange={handleFormChange} className="w-full p-2 border rounded" /></div>
                                 </>
                             )}
                             {modal.type === 'case' && (
                                 <>
-                                <div><label className="block text-sm font-medium text-gray-700">موضوع القضية</label><input type="text" name="subject" value={formData.subject || ''} onChange={handleFormChange} className="w-full p-2 border rounded" required /></div>
-                                <div><label className="block text-sm font-medium text-gray-700">اسم الخصم</label><input type="text" name="opponentName" value={formData.opponentName || ''} onChange={handleFormChange} className="w-full p-2 border rounded" /></div>
-                                <div><label className="block text-sm font-medium text-gray-700">اتفاقية الأتعاب</label><textarea name="feeAgreement" value={formData.feeAgreement || ''} onChange={handleFormChange} className="w-full p-2 border rounded" rows={3}></textarea></div>
-                                <div><label className="block text-sm font-medium text-gray-700">حالة القضية</label><select name="status" value={formData.status || 'active'} onChange={handleFormChange} className="w-full p-2 border rounded"><option value="active">نشطة</option><option value="closed">مغلقة</option><option value="on_hold">معلقة</option></select></div>
-                                {!modal.isEditing && <div className="p-4 bg-gray-50 border rounded-lg space-y-4"><h3 className="font-semibold text-gray-700">إضافة المرحلة الأولى (اختياري)</h3><div><label className="block text-xs font-medium text-gray-700">المحكمة</label><input type="text" name="court" value={formData.court || ''} onChange={handleFormChange} className="w-full p-2 border rounded" /></div><div className="grid grid-cols-2 gap-4"><div><label className="block text-xs font-medium text-gray-700">رقم الأساس</label><input type="text" name="caseNumber" value={formData.caseNumber || ''} onChange={handleFormChange} className="w-full p-2 border rounded" /></div><div><label className="block text-xs font-medium text-gray-700">تاريخ أول جلسة</label><input type="date" name="firstSessionDate" value={formData.firstSessionDate || ''} onChange={handleFormChange} className="w-full p-2 border rounded" /></div></div><div><label className="block text-xs font-medium text-gray-700">سبب التأجيل (إن وجد)</label><input type="text" name="firstSessionReason" value={formData.firstSessionReason || ''} onChange={handleFormChange} className="w-full p-2 border rounded" /></div></div>}
+                                <div><label className="block text-sm font-medium">موضوع القضية</label><input type="text" name="subject" value={formData.subject || ''} onChange={handleFormChange} className="w-full p-2 border rounded" required /></div>
+                                <div><label className="block text-sm font-medium">اسم الخصم</label><input type="text" name="opponentName" value={formData.opponentName || ''} onChange={handleFormChange} className="w-full p-2 border rounded" /></div>
+                                <div><label className="block text-sm font-medium">اتفاقية الأتعاب</label><textarea name="feeAgreement" value={formData.feeAgreement || ''} onChange={handleFormChange} className="w-full p-2 border rounded" rows={3}></textarea></div>
+                                <div><label className="block text-sm font-medium">حالة القضية</label><select name="status" value={formData.status || 'active'} onChange={handleFormChange} className="w-full p-2 border rounded"><option value="active">نشطة</option><option value="closed">مغلقة</option><option value="on_hold">معلقة</option></select></div>
+                                {!modal.isEditing && <div className="p-4 bg-gray-50 border rounded-lg space-y-4"><h3 className="font-semibold text-gray-700">إضافة المرحلة الأولى (اختياري)</h3><div><label className="block text-xs font-medium">المحكمة</label><input type="text" name="court" value={formData.court || ''} onChange={handleFormChange} className="w-full p-2 border rounded" /></div><div className="grid grid-cols-2 gap-4"><div><label className="block text-xs font-medium">رقم الأساس</label><input type="text" name="caseNumber" value={formData.caseNumber || ''} onChange={handleFormChange} className="w-full p-2 border rounded" /></div><div><label className="block text-xs font-medium">تاريخ أول جلسة</label><input type="date" name="firstSessionDate" value={formData.firstSessionDate || ''} onChange={handleFormChange} className="w-full p-2 border rounded" /></div></div><div><label className="block text-xs font-medium">سبب التأجيل (إن وجد)</label><input type="text" name="firstSessionReason" value={formData.firstSessionReason || ''} onChange={handleFormChange} className="w-full p-2 border rounded" /></div></div>}
                                 </>
                             )}
                             {modal.type === 'stage' && (
                                 <>
-                                <div><label className="block text-sm font-medium text-gray-700">المحكمة</label><input type="text" name="court" value={formData.court || ''} onChange={handleFormChange} className="w-full p-2 border rounded" required/></div>
-                                <div><label className="block text-sm font-medium text-gray-700">رقم الأساس</label><input type="text" name="caseNumber" value={formData.caseNumber || ''} onChange={handleFormChange} className="w-full p-2 border rounded" /></div>
-                                {!modal.isEditing && <div><label className="block text-sm font-medium text-gray-700">تاريخ أول جلسة (اختياري)</label><input type="date" name="firstSessionDate" value={formData.firstSessionDate || ''} onChange={handleFormChange} className="w-full p-2 border rounded" /></div>}
-                                {!modal.isEditing && <div><label className="block text-sm font-medium text-gray-700">سبب التأجيل الأول (إن وجد)</label><input type="text" name="firstSessionReason" value={formData.firstSessionReason || ''} onChange={handleFormChange} className="w-full p-2 border rounded" /></div>}
-                                {modal.isEditing && <div className="p-4 bg-gray-50 border rounded-lg space-y-4"><h3 className="font-semibold text-gray-700">قرار الحسم (إن وجد)</h3><div className="grid grid-cols-2 gap-4"><div><label className="block text-xs font-medium text-gray-700">تاريخ الحسم</label><input type="date" name="decisionDate" value={formData.decisionDate || ''} onChange={handleFormChange} className="w-full p-2 border rounded" /></div><div><label className="block text-xs font-medium text-gray-700">رقم القرار</label><input type="text" name="decisionNumber" value={formData.decisionNumber || ''} onChange={handleFormChange} className="w-full p-2 border rounded" /></div></div><div><label className="block text-xs font-medium text-gray-700">ملخص القرار</label><textarea name="decisionSummary" value={formData.decisionSummary || ''} onChange={handleFormChange} className="w-full p-2 border rounded" rows={2}></textarea></div><div><label className="block text-xs font-medium text-gray-700">ملاحظات</label><textarea name="decisionNotes" value={formData.decisionNotes || ''} onChange={handleFormChange} className="w-full p-2 border rounded" rows={2}></textarea></div></div>}
+                                <div><label className="block text-sm font-medium">المحكمة</label><input type="text" name="court" value={formData.court || ''} onChange={handleFormChange} className="w-full p-2 border rounded" required/></div>
+                                <div><label className="block text-sm font-medium">رقم الأساس</label><input type="text" name="caseNumber" value={formData.caseNumber || ''} onChange={handleFormChange} className="w-full p-2 border rounded" /></div>
+                                {!modal.isEditing && <div><label className="block text-sm font-medium">تاريخ أول جلسة (اختياري)</label><input type="date" name="firstSessionDate" value={formData.firstSessionDate || ''} onChange={handleFormChange} className="w-full p-2 border rounded" /></div>}
+                                {!modal.isEditing && <div><label className="block text-sm font-medium">سبب التأجيل الأول (إن وجد)</label><input type="text" name="firstSessionReason" value={formData.firstSessionReason || ''} onChange={handleFormChange} className="w-full p-2 border rounded" /></div>}
+                                {modal.isEditing && <div className="p-4 bg-gray-50 border rounded-lg space-y-4"><h3 className="font-semibold text-gray-700">قرار الحسم (إن وجد)</h3><div className="grid grid-cols-2 gap-4"><div><label className="block text-xs font-medium">تاريخ الحسم</label><input type="date" name="decisionDate" value={formData.decisionDate || ''} onChange={handleFormChange} className="w-full p-2 border rounded" /></div><div><label className="block text-xs font-medium">رقم القرار</label><input type="text" name="decisionNumber" value={formData.decisionNumber || ''} onChange={handleFormChange} className="w-full p-2 border rounded" /></div></div><div><label className="block text-xs font-medium">ملخص القرار</label><textarea name="decisionSummary" value={formData.decisionSummary || ''} onChange={handleFormChange} className="w-full p-2 border rounded" rows={2}></textarea></div><div><label className="block text-xs font-medium">ملاحظات</label><textarea name="decisionNotes" value={formData.decisionNotes || ''} onChange={handleFormChange} className="w-full p-2 border rounded" rows={2}></textarea></div></div>}
                                 </>
                             )}
                             {modal.type === 'session' && (
                                 <>
-                                <div><label className="block text-sm font-medium text-gray-700">تاريخ الجلسة</label><input type="date" name="date" value={formData.date || ''} onChange={handleFormChange} className="w-full p-2 border rounded" required /></div>
-                                {modal.isEditing && <div><label className="block text-sm font-medium text-gray-700">سبب التأجيل (السابق)</label><input type="text" name="postponementReason" value={formData.postponementReason || ''} onChange={handleFormChange} className="w-full p-2 border rounded" /></div>}
-                                <div><label className="block text-sm font-medium text-gray-700">المكلف بالحضور</label><select name="assignee" value={formData.assignee || 'بدون تخصيص'} onChange={handleFormChange} className="w-full p-2 border rounded">{(assistants || []).map(a => <option key={a} value={a}>{a}</option>)}</select></div>
+                                <div><label className="block text-sm font-medium">تاريخ الجلسة</label><input type="date" name="date" value={formData.date || ''} onChange={handleFormChange} className="w-full p-2 border rounded" required /></div>
+                                {modal.isEditing && <div><label className="block text-sm font-medium">سبب التأجيل (السابق)</label><input type="text" name="postponementReason" value={formData.postponementReason || ''} onChange={handleFormChange} className="w-full p-2 border rounded" /></div>}
+                                <div><label className="block text-sm font-medium">المكلف بالحضور</label><select name="assignee" value={formData.assignee || 'بدون تخصيص'} onChange={handleFormChange} className="w-full p-2 border rounded">{(assistants || []).map(a => <option key={a} value={a}>{a}</option>)}</select></div>
                                 </>
                             )}
-                            <div className="mt-6 flex justify-end gap-4"><button type="button" onClick={handleCloseModal} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">إلغاء</button><button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">حفظ</button></div>
+                            <div className="mt-6 flex justify-end gap-4"><button type="button" onClick={handleCloseModal} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">إلغاء</button><button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">حفظ</button></div>
                         </form>
                     </div>
                 </div>

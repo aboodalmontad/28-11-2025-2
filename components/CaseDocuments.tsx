@@ -1,8 +1,7 @@
-
 import * as React from 'react';
 import { useData } from '../context/DataContext';
 import { CaseDocument } from '../types';
-import { DocumentArrowUpIcon, TrashIcon, DocumentTextIcon, XMarkIcon, ExclamationTriangleIcon, ArrowPathIcon, CameraIcon, CloudArrowUpIcon, CloudArrowDownIcon, CheckCircleIcon, ExclamationCircleIcon, ArrowDownTrayIcon, MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon, ArrowsPointingOutIcon, ArrowTopRightOnSquareIcon } from './icons';
+import { DocumentArrowUpIcon, TrashIcon, EyeIcon, DocumentTextIcon, PhotoIcon, XMarkIcon, ExclamationTriangleIcon, ArrowPathIcon, CameraIcon, CloudArrowUpIcon, CloudArrowDownIcon, CheckCircleIcon, ExclamationCircleIcon, ArrowDownTrayIcon } from './icons';
 import { renderAsync } from 'docx-preview';
 
 interface CaseDocumentsProps {
@@ -111,21 +110,25 @@ const TextPreview: React.FC<{ file: File; name: string }> = ({ file, name }) => 
     }, [file]);
 
     return (
-        <div className="w-full h-full bg-white p-4 overflow-auto rounded text-right">
-            {content === null && !error && <div className="text-center p-8 text-gray-600">جاري تحميل المحتوى...</div>}
-            {error && <div className="text-center p-8 text-red-600">{error}</div>}
-            {content && <pre className="text-sm whitespace-pre-wrap text-gray-800 font-mono">{content}</pre>}
+        <div className="w-full h-full bg-gray-100 p-4 rounded-lg overflow-auto flex flex-col">
+            <h3 className="text-lg font-semibold border-b border-gray-300 pb-2 mb-4 text-gray-800 flex-shrink-0">{name}</h3>
+            <div className="flex-grow bg-white p-6 rounded shadow-inner overflow-auto">
+                {content === null && !error && <div className="text-center p-8 text-gray-600">جاري تحميل المحتوى...</div>}
+                {error && <div className="text-center p-8 text-red-600">{error}</div>}
+                {content && <pre className="text-sm whitespace-pre-wrap text-gray-800">{content}</pre>}
+            </div>
         </div>
     );
 };
 
-const DocxPreview: React.FC<{ file: File; name: string }> = ({ file, name }) => {
+const DocxPreview: React.FC<{ file: File; name: string; onClose: () => void; onDownload: () => void }> = ({ file, name, onClose, onDownload }) => {
     const previewerRef = React.useRef<HTMLDivElement>(null);
     const [error, setError] = React.useState<string | null>(null);
     const [isLoading, setIsLoading] = React.useState(true);
+    const isOldDocFormat = name.toLowerCase().endsWith('.doc');
 
     React.useEffect(() => {
-        if (!previewerRef.current) {
+        if (isOldDocFormat || !previewerRef.current) {
             setIsLoading(false);
             return;
         }
@@ -136,81 +139,48 @@ const DocxPreview: React.FC<{ file: File; name: string }> = ({ file, name }) => 
             })
             .catch(e => {
                 console.error('Docx-preview error:', e);
-                setError('حدث خطأ أثناء عرض المستند. قد يكون الملف تالفاً.');
+                setError('حدث خطأ أثناء عرض المستند. قد يكون الملف تالفًا أو غير مدعوم. جرب تنزيل الملف بدلاً من ذلك.');
                 setIsLoading(false);
             });
-    }, [file]);
+    }, [file, isOldDocFormat]);
 
     return (
-        <div className="w-full h-full bg-white p-8 overflow-auto rounded relative">
-            {isLoading && (
-                <div className="absolute inset-0 flex items-center justify-center bg-white/70 z-10">
-                    <ArrowPathIcon className="w-8 h-8 text-blue-600 animate-spin" />
+        <div className="w-full h-full bg-gray-100 p-4 rounded-lg overflow-auto flex flex-col">
+            <div className="flex justify-between items-center border-b border-gray-300 pb-2 mb-4 flex-shrink-0">
+                <h3 className="text-lg font-semibold text-gray-800">{name}</h3>
+                <div className="flex items-center gap-4">
+                    <button onClick={onDownload} className="flex items-center gap-2 text-sm px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                        <ArrowDownTrayIcon className="w-4 h-4" />
+                        <span>تنزيل الملف</span>
+                    </button>
+                    <button onClick={onClose} className="p-2 text-gray-500 hover:bg-gray-200 rounded-full">
+                        <XMarkIcon className="w-5 h-5" />
+                    </button>
                 </div>
-            )}
-            {error ? (
-                <div className="flex flex-col items-center justify-center h-full text-center p-8">
-                     <ExclamationCircleIcon className="w-12 h-12 text-red-500 mb-4" />
-                     <h4 className="text-lg font-bold text-red-800">فشل العرض</h4>
-                     <p className="text-gray-600 mt-2">{error}</p>
-                </div>
-            ) : (
-                <div ref={previewerRef} className="docx-container bg-white shadow-sm p-4 min-h-[500px]" />
-            )}
-        </div>
-    );
-};
-
-const ImageViewer: React.FC<{ src: string; name: string }> = ({ src, name }) => {
-    const [scale, setScale] = React.useState(1);
-    const [rotation, setRotation] = React.useState(0);
-    const [isDragging, setIsDragging] = React.useState(false);
-    const [position, setPosition] = React.useState({ x: 0, y: 0 });
-    const dragStart = React.useRef({ x: 0, y: 0 });
-
-    const handleZoomIn = () => setScale(prev => Math.min(prev + 0.25, 4));
-    const handleZoomOut = () => setScale(prev => Math.max(prev - 0.25, 0.5));
-    const handleRotate = () => setRotation(prev => (prev + 90) % 360);
-    const handleReset = () => {
-        setScale(1);
-        setRotation(0);
-        setPosition({ x: 0, y: 0 });
-    };
-
-    return (
-        <div className="relative w-full h-full bg-black/90 flex items-center justify-center overflow-hidden rounded-md">
-            {/* Image Container with Transforms */}
-            <div 
-                className="transition-transform duration-200 ease-out"
-                style={{ 
-                    transform: `scale(${scale}) rotate(${rotation}deg) translate(${position.x}px, ${position.y}px)`,
-                    cursor: scale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default'
-                }}
-            >
-                <img 
-                    src={src} 
-                    alt={name} 
-                    className="max-h-[85vh] max-w-[85vw] object-contain select-none"
-                    draggable={false}
-                />
             </div>
-
-            {/* Floating Toolbar */}
-            <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 flex items-center gap-4 bg-black/60 backdrop-blur-md px-6 py-3 rounded-full shadow-2xl border border-white/10 z-20">
-                <button onClick={handleZoomOut} className="text-white hover:text-blue-400 transition-colors p-1" title="تصغير">
-                    <MagnifyingGlassMinusIcon className="w-6 h-6" />
-                </button>
-                <span className="text-white text-xs font-mono min-w-[3rem] text-center">{Math.round(scale * 100)}%</span>
-                <button onClick={handleZoomIn} className="text-white hover:text-blue-400 transition-colors p-1" title="تكبير">
-                    <MagnifyingGlassPlusIcon className="w-6 h-6" />
-                </button>
-                <div className="w-px h-6 bg-white/20 mx-2"></div>
-                <button onClick={handleRotate} className="text-white hover:text-green-400 transition-colors p-1" title="تدوير">
-                    <ArrowPathIcon className="w-5 h-5" />
-                </button>
-                <button onClick={handleReset} className="text-white hover:text-red-400 transition-colors p-1" title="إعادة تعيين">
-                    <ArrowsPointingOutIcon className="w-5 h-5" />
-                </button>
+            <div className="flex-grow bg-white p-2 rounded shadow-inner overflow-auto relative">
+                {isLoading && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-white/70">
+                        <ArrowPathIcon className="w-8 h-8 text-blue-600 animate-spin" />
+                    </div>
+                )}
+                {isOldDocFormat ? (
+                    <div className="flex flex-col items-center justify-center h-full text-center p-8">
+                        <ExclamationTriangleIcon className="w-12 h-12 text-yellow-500 mb-4" />
+                        <h4 className="text-lg font-bold text-gray-800">تنسيق ملف غير مدعوم للمعاينة</h4>
+                        <p className="text-gray-600 mt-2">
+                            لا يمكن عرض ملفات Word القديمة (ذات امتداد .doc) مباشرة في المتصفح. يرجى استخدام زر التنزيل لفتح الملف باستخدام Microsoft Word.
+                        </p>
+                    </div>
+                ) : error ? (
+                    <div className="flex flex-col items-center justify-center h-full text-center p-8">
+                         <ExclamationCircleIcon className="w-12 h-12 text-red-500 mb-4" />
+                         <h4 className="text-lg font-bold text-red-800">فشل عرض الملف</h4>
+                         <p className="text-gray-600 mt-2">{error}</p>
+                    </div>
+                ) : (
+                    <div ref={previewerRef} />
+                )}
             </div>
         </div>
     );
@@ -223,6 +193,7 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
     const [error, setError] = React.useState<string | null>(null);
     const [isLoading, setIsLoading] = React.useState(true);
 
+    // Get the latest doc state from context, in case it was updated by a download
     const currentDoc = documents.find(d => d.id === doc.id) || doc;
 
     React.useEffect(() => {
@@ -231,6 +202,7 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
             setIsLoading(true);
             setError(null);
             try {
+                // getDocumentFile now handles downloading and updates state internally
                 const retrievedFile = await getDocumentFile(doc.id);
                 
                 if (retrievedFile) {
@@ -240,13 +212,13 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
                 } else {
                     const latestDocState = documents.find(d => d.id === doc.id)?.localState;
                     if (latestDocState === 'error') {
-                        setError('فشل تنزيل الملف. تحقق من الاتصال.');
+                        setError('فشل تنزيل الملف. يرجى التحقق من اتصالك بالإنترنت والتأكد من تطبيق صلاحيات التخزين (Storage Policies) بشكل صحيح في لوحة تحكم Supabase.');
                     } else {
-                        setError('الملف غير متوفر محلياً.');
+                        setError('الملف غير متوفر محلياً. حاول مرة أخرى عند توفر اتصال بالإنترنت لتنزيله.');
                     }
                 }
             } catch (e: any) {
-                setError('خطأ غير متوقع: ' + e.message);
+                setError('حدث خطأ غير متوقع: ' + e.message);
             } finally {
                 setIsLoading(false);
             }
@@ -255,9 +227,12 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
         loadFile();
             
         return () => {
-            if (url) URL.revokeObjectURL(url);
+            if (url) {
+                URL.revokeObjectURL(url);
+            }
         };
     }, [doc.id, getDocumentFile]);
+
 
     const handleDownload = () => {
         if (objectUrl) {
@@ -269,122 +244,44 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
             document.body.removeChild(a);
         }
     };
-    
-    const handleOpenExternal = () => {
-        if (objectUrl) {
-            window.open(objectUrl, '_blank');
-        }
-    };
 
-    const renderContent = () => {
-        if (isLoading) {
-            return (
-                <div className="flex flex-col items-center justify-center h-full text-white">
-                    <ArrowPathIcon className="w-10 h-10 animate-spin mb-4 text-blue-500" />
-                    <p>جاري تحميل المستند...</p>
-                </div>
-            );
-        }
-
-        if (error || !file || !objectUrl) {
-            return (
-                <div className="flex flex-col items-center justify-center h-full text-white p-8">
-                    <ExclamationTriangleIcon className="w-12 h-12 text-red-500 mb-4"/>
-                    <p className="text-center text-lg">{error || 'حدث خطأ غير معروف'}</p>
-                </div>
-            );
-        }
-
+    const renderPreview = () => {
+        if (!file || !objectUrl) return null;
+        
+        // Show a loading indicator if the file is currently being downloaded
         if (currentDoc.localState === 'downloading') {
             return (
-                <div className="flex flex-col items-center justify-center h-full text-white">
+                <div className="flex flex-col items-center justify-center h-full">
                     <CloudArrowDownIcon className="w-12 h-12 text-blue-500 animate-spin mb-4" />
-                    <p>جاري تنزيل الملف...</p>
+                    <p className="text-gray-700">جاري تنزيل الملف...</p>
                 </div>
             );
         }
 
-        if (file.type.startsWith('image/')) {
-            return <ImageViewer src={objectUrl} name={doc.name} />;
+        if (file.type.startsWith('image/')) return <img src={objectUrl} alt={doc.name} className="max-h-full max-w-full object-contain mx-auto" />;
+        if (file.type.startsWith('text/')) return <TextPreview file={file} name={doc.name} />;
+        if (doc.name.toLowerCase().endsWith('.docx') || doc.name.toLowerCase().endsWith('.doc')) {
+             return <DocxPreview file={file} name={doc.name} onClose={onClose} onDownload={handleDownload} />;
         }
-        
-        if (file.type === 'application/pdf') {
-            return (
-                <div className="flex flex-col items-center justify-center h-full text-white p-8 text-center">
-                    <DocumentTextIcon className="w-20 h-20 text-red-500 mb-6" />
-                    <h3 className="font-bold text-xl mb-2">مستند PDF</h3>
-                    <p className="text-gray-400 mb-8 max-w-md">
-                        لفتح هذا المستند، يرجى الضغط على الزر أدناه لفتحه في متصفح الجهاز.
-                    </p>
-                    <button 
-                        onClick={handleOpenExternal} 
-                        className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-lg"
-                    >
-                        <ArrowTopRightOnSquareIcon className="w-5 h-5" />
-                        <span>فتح PDF في المتصفح</span>
-                    </button>
-                </div>
-            );
-        }
-
-        if (file.type.startsWith('text/')) {
-            return <TextPreview file={file} name={doc.name} />;
-        }
-
-        if (doc.name.toLowerCase().endsWith('.docx')) {
-             return <DocxPreview file={file} name={doc.name} />;
-        }
-
         return (
-            <div className="text-center p-8 flex flex-col items-center justify-center h-full text-white">
-                <DocumentTextIcon className="w-16 h-16 text-gray-500 mb-4" />
-                <h3 className="font-bold text-lg mb-2">لا توجد معاينة مباشرة</h3>
-                <p className="text-gray-400 mb-6">نوع الملف ({doc.type}) غير مدعوم للمعاينة داخل التطبيق.</p>
-                <button onClick={handleDownload} className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+            <div className="text-center p-8 flex flex-col items-center justify-center h-full">
+                <DocumentTextIcon className="w-16 h-16 text-gray-400 mb-4" />
+                <h3 className="font-bold text-lg">لا توجد معاينة متاحة</h3>
+                <p className="text-gray-600">تنسيق الملف ({doc.type}) غير مدعوم للمعاينة المباشرة.</p>
+                <button onClick={handleDownload} className="mt-6 flex items-center mx-auto gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
                     <ArrowDownTrayIcon className="w-5 h-5" />
-                    <span>تنزيل الملف</span>
+                    <span>تنزيل الملف ({ (file.size / (1024 * 1024)).toFixed(2) } MB)</span>
                 </button>
             </div>
         );
     };
 
     return (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-fade-in" onClick={onClose}>
-            <div className="relative w-full h-full max-w-6xl max-h-[95vh] flex flex-col bg-gray-900 rounded-xl overflow-hidden shadow-2xl border border-gray-800" onClick={e => e.stopPropagation()}>
-                {/* Header */}
-                <div className="flex justify-between items-center p-4 bg-gray-800 border-b border-gray-700 select-none">
-                    <div className="flex items-center gap-3 overflow-hidden">
-                        <div className="p-2 bg-blue-600/20 rounded-lg">
-                            <DocumentTextIcon className="w-5 h-5 text-blue-400" />
-                        </div>
-                        <div className="flex flex-col">
-                            <h3 className="text-white font-bold truncate max-w-xs sm:max-w-md text-sm sm:text-base">{doc.name}</h3>
-                            <span className="text-xs text-gray-400">{(doc.size / 1024).toFixed(1)} KB &bull; {file?.type || doc.type}</span>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        {!isLoading && !error && file && (
-                            <>
-                                <button onClick={handleOpenExternal} className="flex items-center gap-2 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs sm:text-sm rounded-lg transition-colors" title="فتح في نافذة جديدة">
-                                    <ArrowTopRightOnSquareIcon className="w-4 h-4" />
-                                    <span className="hidden sm:inline">فتح</span>
-                                </button>
-                                <button onClick={handleDownload} className="flex items-center gap-2 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs sm:text-sm rounded-lg transition-colors">
-                                    <ArrowDownTrayIcon className="w-4 h-4" />
-                                    <span className="hidden sm:inline">تنزيل</span>
-                                </button>
-                            </>
-                        )}
-                        <button onClick={onClose} className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-full transition-colors">
-                            <XMarkIcon className="w-6 h-6" />
-                        </button>
-                    </div>
-                </div>
-
-                {/* Content Area */}
-                <div className="flex-grow overflow-hidden bg-gray-950 relative">
-                    {renderContent()}
-                </div>
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4" onClick={onClose}>
+            <div className="bg-white rounded-lg shadow-xl w-full h-full max-w-4xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                {isLoading && <div className="flex items-center justify-center h-full"><ArrowPathIcon className="w-8 h-8 animate-spin text-blue-500" /></div>}
+                {error && <div className="flex flex-col items-center justify-center h-full p-4"><ExclamationTriangleIcon className="w-10 h-10 text-red-500 mb-4"/><p className="text-red-700 text-center">{error}</p></div>}
+                {!isLoading && !error && renderPreview()}
             </div>
         </div>
     );
@@ -530,7 +427,6 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
     const [previewDoc, setPreviewDoc] = React.useState<CaseDocument | null>(null);
     const [isDragging, setIsDragging] = React.useState(false);
     const [isCameraOpen, setIsCameraOpen] = React.useState(false);
-    const fileInputRef = React.useRef<HTMLInputElement>(null);
 
     const caseDocuments = React.useMemo(() => 
         documents.filter(doc => doc.caseId === caseId).sort((a,b) => b.addedAt.getTime() - a.addedAt.getTime()), 
@@ -541,9 +437,6 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
         if (files && files.length > 0) {
             try {
                 await addDocuments(caseId, files);
-                if (fileInputRef.current) {
-                    fileInputRef.current.value = '';
-                }
             } catch (err: any) {
                 alert(`فشل في إضافة الوثائق: ${err.message}`);
             }
@@ -598,64 +491,21 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
     };
     
     const handlePreview = async (doc: CaseDocument) => {
-        const isPdf = doc.type === 'application/pdf';
-        // Add check for legacy Word documents (.doc) or specific mime type
-        const isLegacyWord = doc.name.toLowerCase().endsWith('.doc') || doc.type === 'application/msword';
-
-        if (isPdf || isLegacyWord) {
-            try {
-                const file = await getDocumentFile(doc.id);
-                if (file) {
-                    const objectUrl = URL.createObjectURL(file);
-                    
-                    if (isPdf) {
-                        const newWindow = window.open(objectUrl, '_blank');
-                        if (!newWindow || newWindow.closed || typeof newWindow.closed == 'undefined') {
-                            alert('تم منع فتح النافذة المنبثقة. يرجى السماح بالنوافذ المنبثقة لعرض ملفات PDF.');
-                        }
-                    } else {
-                        // For legacy Word files, we use a hidden anchor with the 'download' attribute.
-                        // This preserves the filename and extension, allowing the OS to properly recognize
-                        // the file type and offer the correct "Open with" application (e.g., Word).
-                        // It does trigger a browser download/save action, but this is the standard way
-                        // to hand off a Blob to an external application from a web page.
-                        const a = document.createElement('a');
-                        a.style.display = 'none';
-                        a.href = objectUrl;
-                        a.download = doc.name;
-                        document.body.appendChild(a);
-                        a.click();
-                        
-                        setTimeout(() => {
-                            document.body.removeChild(a);
-                            // Revoke URL after a delay to ensure download starts
-                            setTimeout(() => URL.revokeObjectURL(objectUrl), 10000); 
-                        }, 100);
-                        return; // Exit here
-                    }
-                } else {
-                    alert('تعذر فتح الملف حالياً. تأكد من اكتمال التنزيل.');
-                }
-            } catch (e) {
-                console.error("Error opening file directly:", e);
-                alert('حدث خطأ أثناء محاولة فتح الملف.');
+        if (doc.type === 'application/pdf') {
+            const file = await getDocumentFile(doc.id);
+            if (file) {
+                const url = URL.createObjectURL(file);
+                window.open(url, '_blank');
             }
-            return; // CRITICAL: Return here so setPreviewDoc (modal) is never called for these types
+        } else {
+            setPreviewDoc(doc);
         }
-        setPreviewDoc(doc);
     };
 
     return (
         <div className="space-y-4">
             <div className="flex flex-col sm:flex-row gap-4">
-                 <input 
-                    type="file" 
-                    id={`file-upload-${caseId}`} 
-                    multiple 
-                    className="hidden" 
-                    onChange={(e) => handleFileChange(e.target.files)} 
-                    ref={fileInputRef}
-                 />
+                 <input type="file" id={`file-upload-${caseId}`} multiple className="hidden" onChange={(e) => handleFileChange(e.target.files)} />
                  <div 
                     onDragEnter={handleDragEvents}
                     onDragLeave={handleDragEvents}

@@ -1,3 +1,4 @@
+
 import * as React from 'react';
 import { AccountingEntry, Client, Invoice, InvoiceItem, Case, Stage, Session } from '../types';
 import { formatDate, toInputDateString, parseInputDateString } from '../utils/dateUtils';
@@ -24,7 +25,8 @@ const EntriesTab: React.FC = () => {
     }, [accountingEntries]);
 
     const filteredAndSortedEntries = React.useMemo(() => {
-        const filtered = (accountingEntries || []).filter(entry => {
+        const entries = accountingEntries || [];
+        const filtered = entries.filter(entry => {
             if (!searchQuery) return true;
             const lowercasedQuery = searchQuery.toLowerCase();
             return (
@@ -33,7 +35,7 @@ const EntriesTab: React.FC = () => {
                 (entry.amount || 0).toString().includes(searchQuery)
             );
         });
-        return filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        return filtered.sort((a, b) => b.date.getTime() - a.date.getTime());
     }, [accountingEntries, searchQuery]);
 
     const handleOpenModal = (entry?: AccountingEntry) => {
@@ -130,7 +132,7 @@ const EntriesTab: React.FC = () => {
                             </tr>
                         </thead>
                         <tbody>
-                            {(filteredAndSortedEntries || []).map(entry => (
+                            {filteredAndSortedEntries.map(entry => (
                                 <tr key={entry.id} className="border-b hover:bg-gray-50">
                                     <td className="px-4 py-3">{formatDate(entry.date)}</td>
                                     <td className="px-4 py-3">{entry.description}</td>
@@ -144,7 +146,7 @@ const EntriesTab: React.FC = () => {
                                     </td>
                                 </tr>
                             ))}
-                            {(filteredAndSortedEntries || []).length === 0 && <tr><td colSpan={5} className="text-center p-4">لا توجد قيود.</td></tr>}
+                            {filteredAndSortedEntries.length === 0 && <tr><td colSpan={5} className="text-center p-4">لا توجد قيود.</td></tr>}
                         </tbody>
                     </table>
                 </div>
@@ -187,6 +189,7 @@ const EntriesTab: React.FC = () => {
     );
 };
 
+// --- TAB: INVOICES ---
 const InvoicesTab: React.FC<{ initialInvoiceData?: { clientId: string, caseId?: string }, clearInitialInvoiceData: () => void }> = ({ initialInvoiceData, clearInitialInvoiceData }) => {
     const { invoices, setInvoices, clients, deleteInvoice, permissions } = useData();
     const [modal, setModal] = React.useState<{ isOpen: boolean; data?: Invoice }>({ isOpen: false });
@@ -304,6 +307,7 @@ const InvoicesTab: React.FC<{ initialInvoiceData?: { clientId: string, caseId?: 
     );
 };
 
+// --- INVOICE MODAL ---
 const InvoiceModal: React.FC<{ isOpen: boolean; onClose: () => void; initialData?: Partial<Invoice>; onSave: (inv: Invoice) => void; clients: Client[] }> = ({ isOpen, onClose, initialData, onSave, clients }) => {
     const [formData, setFormData] = React.useState<Partial<Invoice>>({
         items: [{ id: `item-${Date.now()}`, description: '', amount: 0 }],
@@ -316,7 +320,7 @@ const InvoiceModal: React.FC<{ isOpen: boolean; onClose: () => void; initialData
 
     React.useEffect(() => {
         if (initialData) {
-            setFormData({ ...initialData, issueDate: initialData.issueDate || new Date(), dueDate: initialData.dueDate || new Date() });
+            setFormData({ ...initialData, issueDate: initialData.issueDate || new Date(), dueDate: initialData.dueDate || new Date(), items: initialData.items || [{ id: `item-${Date.now()}`, description: '', amount: 0 }] });
         }
     }, [initialData]);
 
@@ -335,8 +339,10 @@ const InvoiceModal: React.FC<{ isOpen: boolean; onClose: () => void; initialData
 
     const handleItemChange = (index: number, field: keyof InvoiceItem, value: any) => {
         const newItems = [...(formData.items || [])];
-        newItems[index] = { ...newItems[index], [field]: value };
-        setFormData(prev => ({ ...prev, items: newItems }));
+        if (newItems[index]) {
+            newItems[index] = { ...newItems[index], [field]: value };
+            setFormData(prev => ({ ...prev, items: newItems }));
+        }
     };
 
     const addItem = () => setFormData(prev => ({ ...prev, items: [...(prev.items || []), { id: `item-${Date.now()}`, description: '', amount: 0 }] }));
@@ -352,7 +358,7 @@ const InvoiceModal: React.FC<{ isOpen: boolean; onClose: () => void; initialData
         onSave(invoice);
     };
 
-    const subtotal = (formData.items || []).reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+    const subtotal = (formData.items || []).reduce((sum, item) => sum + Number(item.amount || 0), 0);
     const total = subtotal + (subtotal * (formData.taxRate || 0) / 100) - (formData.discount || 0);
 
     if (!isOpen) return null;
@@ -386,7 +392,7 @@ const InvoiceModal: React.FC<{ isOpen: boolean; onClose: () => void; initialData
                             <h3 className="font-semibold">بنود الفاتورة</h3>
                             <button type="button" onClick={addItem} className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1"><PlusIcon className="w-4 h-4"/> إضافة بند</button>
                         </div>
-                        {formData.items?.map((item, index) => (
+                        {(formData.items || []).map((item, index) => (
                             <div key={item.id} className="flex gap-2 mb-2 items-center">
                                 <input type="text" placeholder="البيان" value={item.description} onChange={e => handleItemChange(index, 'description', e.target.value)} className="flex-grow p-2 border rounded text-sm" required />
                                 <input type="number" placeholder="المبلغ" value={item.amount} onChange={e => handleItemChange(index, 'amount', Number(e.target.value))} className="w-24 p-2 border rounded text-sm" required />
@@ -396,9 +402,9 @@ const InvoiceModal: React.FC<{ isOpen: boolean; onClose: () => void; initialData
                     </div>
 
                     <div className="grid grid-cols-3 gap-4 border-t pt-4">
-                        <div><label className="block text-xs font-medium">ضريبة (%)</label><input type="number" value={formData.taxRate} onChange={e => setFormData({...formData, taxRate: Number(e.target.value)})} className="w-full p-2 border rounded text-sm" /></div>
-                        <div><label className="block text-xs font-medium">خصم (مبلغ)</label><input type="number" value={formData.discount} onChange={e => setFormData({...formData, discount: Number(e.target.value)})} className="w-full p-2 border rounded text-sm" /></div>
-                        <div><label className="block text-xs font-medium">الحالة</label><select value={formData.status} onChange={e => setFormData({...formData, status: e.target.value as any})} className="w-full p-2 border rounded text-sm"><option value="draft">مسودة</option><option value="sent">مرسلة</option><option value="paid">مدفوعة</option><option value="overdue">متأخرة</option></select></div>
+                        <div><label className="block text-xs font-medium">ضريبة (%)</label><input type="number" value={formData.taxRate || 0} onChange={e => setFormData({...formData, taxRate: Number(e.target.value)})} className="w-full p-2 border rounded text-sm" /></div>
+                        <div><label className="block text-xs font-medium">خصم (مبلغ)</label><input type="number" value={formData.discount || 0} onChange={e => setFormData({...formData, discount: Number(e.target.value)})} className="w-full p-2 border rounded text-sm" /></div>
+                        <div><label className="block text-xs font-medium">الحالة</label><select value={formData.status || 'draft'} onChange={e => setFormData({...formData, status: e.target.value as any})} className="w-full p-2 border rounded text-sm"><option value="draft">مسودة</option><option value="sent">مرسلة</option><option value="paid">مدفوعة</option><option value="overdue">متأخرة</option></select></div>
                     </div>
                     
                     <div className="flex justify-between items-center font-bold text-lg bg-gray-50 p-2 rounded">
