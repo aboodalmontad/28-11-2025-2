@@ -1,8 +1,9 @@
+
 import * as React from 'react';
 import { useData } from '../context/DataContext';
 import { CaseDocument } from '../types';
 import { DocumentArrowUpIcon, TrashIcon, DocumentTextIcon, XMarkIcon, ExclamationTriangleIcon, ArrowPathIcon, CameraIcon, CloudArrowUpIcon, CloudArrowDownIcon, CheckCircleIcon, ExclamationCircleIcon, ArrowDownTrayIcon, MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon, ArrowsPointingOutIcon, ArrowTopRightOnSquareIcon } from './icons';
-import * as docx from 'docx-preview';
+import { renderAsync } from 'docx-preview';
 
 interface CaseDocumentsProps {
     caseId: string;
@@ -129,23 +130,15 @@ const DocxPreview: React.FC<{ file: File; name: string }> = ({ file, name }) => 
             return;
         }
 
-        // Use namespace access for better reliability
-        const renderFn = docx.renderAsync || (docx as any).default?.renderAsync;
-
-        if (renderFn) {
-            renderFn(file, previewerRef.current)
-                .then(() => {
-                    setIsLoading(false);
-                })
-                .catch(e => {
-                    console.error('Docx-preview error:', e);
-                    setError('حدث خطأ أثناء عرض المستند. قد يكون الملف تالفاً.');
-                    setIsLoading(false);
-                });
-        } else {
-            setError('تعذر العثور على محرك عرض مستندات Word.');
-            setIsLoading(false);
-        }
+        renderAsync(file, previewerRef.current)
+            .then(() => {
+                setIsLoading(false);
+            })
+            .catch(e => {
+                console.error('Docx-preview error:', e);
+                setError('حدث خطأ أثناء عرض المستند. قد يكون الملف تالفاً.');
+                setIsLoading(false);
+            });
     }, [file]);
 
     return (

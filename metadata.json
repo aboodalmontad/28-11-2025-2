@@ -1,6 +1,6 @@
 {
-  "name": "تعريف مساعدين مكتب المحامي 29-12-2025",
-  "description": "A comprehensive web application for lawyers to manage their clients, cases, sessions, appointments, and administrative tasks efficiently.",
+  "name": "تعريف مساعدين مكتب المحامي 30-12-2025",
+  "description": "تطبيق متكامل لإدارة مكاتب المحاماة يعمل بكامل وظائفه بدون إنترنت مع مزامنة تلقائية فور توفر الاتصال.",
   "requestFramePermissions": [
     "camera"
   ]
