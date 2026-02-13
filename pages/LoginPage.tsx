@@ -122,8 +122,6 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
         if (!supabase) { setError("Supabase client is not available."); setLoading(false); return; }
 
         try {
-            // Step 1: Call RPC to generate the code in the system so the Admin can see it
-            // The RPC now returns an object { code: string, full_name: string }
             const { data: res, error: otpError } = await supabase.rpc('generate_otp_by_mobile', { 
                 mobile_to_check: normalizedMobile 
             });
@@ -145,7 +143,6 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                 throw new Error("رقم الجوال غير مسجل في النظام. تأكد من إدخال الرقم الصحيح.");
             }
 
-            // Step 2: Send WhatsApp to the MANAGER with user name and phone
             const managerWaNumber = "963958932922";
             const messageText = `طلب تغيير كلمة مرور:\nالمستخدم: ${res.full_name}\nرقم الهاتف: ${normalizedMobile}\nيريد تغيير كلمة المرور الخاصة به. يرجى تزويده بكود التحقق الظاهر في لوحة التحكم الخاصة بك.`;
             const url = `https://wa.me/${managerWaNumber}?text=${encodeURIComponent(messageText)}`;
@@ -185,7 +182,7 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                 setMessage("تم تغيير كلمة المرور بنجاح. يمكنك الآن تسجيل الدخول.");
                 setAuthStep('login');
                 setForgotPasswordStep('request');
-                setForm(prev => ({ ...prev, password: '' })); // Clear password field
+                setForm(prev => ({ ...prev, password: '' })); 
                 setOtpCode('');
                 setNewPassword('');
             } else {
@@ -264,7 +261,7 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
             } catch (err: any) {
                  setError(err.message || "فشل تسجيل الدخول.");
             } finally { setLoading(false); }
-        } else { // Sign up
+        } else { 
             try {
                 if (!isOnline) throw new Error('لا يمكن إنشاء حساب جديد بدون اتصال بالإنترنت.');
                 const normalizedMobile = normalizeMobileForDB(form.mobile);
@@ -406,7 +403,7 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                 </div>
                 
                 <div className="mt-8 text-center">
-                    <p className="text-xs text-gray-400 mb-1">الإصدار: 29-12-2025</p>
+                    <p className="text-xs text-gray-400 mb-1">الإصدار: 13-02-2026</p>
                     <p className="text-xs text-gray-400">جميع حقوق الملكية محفوظة لشركة الحلول التقنية © {new Date().getFullYear()}</p>
                 </div>
             </div>

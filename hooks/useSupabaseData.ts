@@ -856,10 +856,37 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                             const sessionIndex = stage.sessions.findIndex(s => s.id === sessionId);
                             if (sessionIndex !== -1) {
                                 const oldSession = stage.sessions[sessionIndex];
-                                const newSession: Session = { id: `session-${Date.now()}`, court: oldSession.court, caseNumber: oldSession.caseNumber, date: newDate, clientName: oldSession.clientName, opponentName: oldSession.opponentName, postponementReason: newReason, isPostponed: false, assignee: oldSession.assignee, updated_at: new Date(), user_id: oldSession.user_id };
-                                const updatedOldSession: Session = { ...oldSession, isPostponed: true, nextSessionDate: newDate, nextPostponementReason: newReason, updated_at: new Date() };
-                                const newSessions = [...stage.sessions]; newSessions[sessionIndex] = updatedOldSession; newSessions.push(newSession);
-                                caseModified = true; clientModified = true;
+                                // Use a more unique ID with random component
+                                const randomPart = Math.random().toString(36).substring(2, 7);
+                                const newSessionId = `session-${Date.now()}-${randomPart}`;
+                                
+                                const newSession: Session = { 
+                                    id: newSessionId, 
+                                    court: oldSession.court, 
+                                    caseNumber: oldSession.caseNumber, 
+                                    date: newDate, 
+                                    clientName: oldSession.clientName, 
+                                    opponentName: oldSession.opponentName, 
+                                    postponementReason: newReason, 
+                                    isPostponed: false, 
+                                    assignee: oldSession.assignee, 
+                                    updated_at: new Date(), 
+                                    user_id: oldSession.user_id 
+                                };
+                                
+                                const updatedOldSession: Session = { 
+                                    ...oldSession, 
+                                    isPostponed: true, 
+                                    nextSessionDate: newDate, 
+                                    nextPostponementReason: newReason, 
+                                    updated_at: new Date() 
+                                };
+                                
+                                const newSessions = [...stage.sessions]; 
+                                newSessions[sessionIndex] = updatedOldSession; 
+                                newSessions.push(newSession);
+                                caseModified = true; 
+                                clientModified = true;
                                 return { ...stage, sessions: newSessions, updated_at: new Date() };
                             }
                             return stage;
@@ -870,7 +897,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     if (clientModified) return { ...client, cases: newCases, updated_at: new Date() };
                     return client;
                 });
-                return newClients.some((c, i) => c !== prev.clients[i]) ? { ...prev, clients: newClients } : prev;
+                return { ...prev, clients: newClients };
              });
         }
     };

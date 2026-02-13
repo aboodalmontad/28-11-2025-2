@@ -1,23 +1,19 @@
 
 import * as React from 'react';
-// Fix: Use `import type` for Session and User as they are used as types, not values. This resolves module resolution errors in some environments.
 import type { Session as AuthSession, User } from '@supabase/supabase-js';
 
-// Lazy import ALL page components for code splitting.
-// This ensures the browser only downloads the code needed for the current screen.
-const ClientsPage = React.lazy(() => import('./pages/ClientsPage'));
-const HomePage = React.lazy(() => import('./pages/HomePage'));
-const AccountingPage = React.lazy(() => import('./pages/AccountingPage'));
-const SettingsPage = React.lazy(() => import('./pages/SettingsPage'));
-const LoginPage = React.lazy(() => import('./pages/LoginPage'));
-const AdminDashboard = React.lazy(() => import('./pages/AdminDashboard'));
-const PendingApprovalPage = React.lazy(() => import('./pages/PendingApprovalPage'));
-const SubscriptionExpiredPage = React.lazy(() => import('./pages/SubscriptionExpiredPage'));
-
+// Static import ALL page components to prevent dynamic import fetch errors
+import ClientsPage from './pages/ClientsPage';
+import HomePage from './pages/HomePage';
+import AccountingPage from './pages/AccountingPage';
+import SettingsPage from './pages/SettingsPage';
+import LoginPage from './pages/LoginPage';
+import AdminDashboard from './pages/AdminDashboard';
+import PendingApprovalPage from './pages/PendingApprovalPage';
+import SubscriptionExpiredPage from './pages/SubscriptionExpiredPage';
 
 import ConfigurationModal from './components/ConfigurationModal';
 import { useSupabaseData, SyncStatus } from './hooks/useSupabaseData';
-// Fix: Added ExclamationTriangleIcon to the import list to resolve the "Cannot find name" error on line 589.
 import { UserIcon, CalculatorIcon, Cog6ToothIcon, NoSymbolIcon, PowerIcon, PrintIcon, ShareIcon, CalendarDaysIcon, ClipboardDocumentCheckIcon, ExclamationCircleIcon, ExclamationTriangleIcon, ArrowPathIcon } from './components/icons';
 import ContextMenu, { MenuItem } from './components/ContextMenu';
 import AdminTaskModal from './components/AdminTaskModal';
@@ -26,12 +22,11 @@ import { getSupabaseClient } from './supabaseClient';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
 import UnpostponedSessionsModal from './components/UnpostponedSessionsModal';
 import NotificationCenter, { RealtimeAlert } from './components/RealtimeNotifier';
-import { IDataContext, DataProvider } from './context/DataContext';
+import { DataProvider } from './context/DataContext';
 import PrintableReport from './components/PrintableReport';
 import { printElement } from './utils/printUtils';
-import { formatDate, isSameDay, safeReviveDate } from './utils/dateUtils';
+import { formatDate, isSameDay, safeReviveDate, toInputDateString } from './utils/dateUtils';
 import SyncStatusIndicator from './components/SyncStatusIndicator';
-
 
 type Page = 'home' | 'admin-tasks' | 'clients' | 'accounting' | 'settings';
 
@@ -54,7 +49,6 @@ const Navbar: React.FC<{
     permissions: Permissions;
 }> = ({ currentPage, onNavigate, onLogout, syncStatus, lastSyncError, isDirty, isOnline, onManualSync, profile, isAutoSyncEnabled, homePageActions, permissions }) => {
     
-    // Define all items, then filter based on permissions
     const allNavItems = [
         { id: 'home', label: 'المفكرة', icon: CalendarDaysIcon, visible: permissions.can_view_agenda }, 
         { id: 'admin-tasks', label: 'المهام الإدارية', icon: ClipboardDocumentCheckIcon, visible: permissions.can_view_admin_tasks },
@@ -71,7 +65,7 @@ const Navbar: React.FC<{
                     <div className="flex flex-col items-start sm:flex-row sm:items-baseline gap-0 sm:gap-2">
                         <h1 className="text-xl font-bold text-gray-800">مكتب المحامي</h1>
                         <div className="flex items-center gap-1 text-xs text-gray-500">
-                            <span>الإصدار: 29-12-2025</span>
+                            <span>الإصدار: 13-02-2026</span>
                             {profile && (
                                 <>
                                     <span className="mx-1 text-gray-300">|</span>
@@ -81,7 +75,6 @@ const Navbar: React.FC<{
                         </div>
                     </div>
                 </button>
-                 {/* Desktop Navigation - Hidden on Mobile */}
                  <div className="hidden sm:flex items-center gap-1 sm:gap-2">
                     {navItems.map(item => (
                         <button
@@ -95,7 +88,6 @@ const Navbar: React.FC<{
                         </button>
                     ))}
                 </div>
-                {/* Page Actions - Always visible if conditions met */}
                 {currentPage === 'home' && homePageActions}
             </nav>
             <div className="flex items-center gap-2 sm:gap-4">
@@ -171,14 +163,12 @@ const OfflineBanner: React.FC = () => {
             setIsVisible(false);
             const timer = setTimeout(() => {
                 setIsRendered(false);
-            }, 300); // Match transition duration
+            }, 300);
             return () => clearTimeout(timer);
         }
     }, [isOnline]);
     
-    if (!isRendered) {
-        return null;
-    }
+    if (!isRendered) return null;
 
     return (
         <div 
@@ -192,7 +182,6 @@ const OfflineBanner: React.FC = () => {
     );
 };
 
-
 const LAST_USER_CACHE_KEY = 'lawyerAppLastUser';
 const LAST_USER_CREDENTIALS_CACHE_KEY = 'lawyerAppLastUserCredentials';
 const UNPOSTPONED_MODAL_SHOWN_KEY = 'lawyerAppUnpostponedModalShown';
@@ -205,7 +194,6 @@ const FullScreenLoader: React.FC<{ text?: string }> = ({ text = 'جاري الت
 );
 
 const App: React.FC<AppProps> = ({ onRefresh }) => {
-    // 1. Optimistic Session Initialization from LocalStorage
     const [session, setSession] = React.useState<AuthSession | null>(() => {
         if (typeof window !== 'undefined') {
             try {
@@ -228,7 +216,6 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     });
 
     const [isAuthLoading, setIsAuthLoading] = React.useState(!session);
-    
     const [profile, setProfile] = React.useState<Profile | null>(null);
     const [showConfigModal, setShowConfigModal] = React.useState(false);
 
@@ -238,7 +225,6 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     const [contextMenu, setContextMenu] = React.useState<{ isOpen: boolean; position: { x: number; y: number }; menuItems: MenuItem[] }>({ isOpen: false, position: { x: 0, y: 0 }, menuItems: [] });
     const [initialInvoiceData, setInitialInvoiceData] = React.useState<{ clientId: string; caseId?: string } | undefined>();
     
-    // State lifted from HomePage for printing
     const [isPrintModalOpen, setIsPrintModalOpen] = React.useState(false);
     const [isPrintAssigneeModalOpen, setIsPrintAssigneeModalOpen] = React.useState(false);
     const [isShareAssigneeModalOpen, setIsShareAssigneeModalOpen] = React.useState(false);
@@ -251,18 +237,13 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
 
     const supabase = getSupabaseClient();
     const isOnline = useOnlineStatus();
-
-    // Fetch central data
     const data = useSupabaseData(session?.user ?? null, isAuthLoading);
 
-    // Effect: Fix for "Infinite profile loading"
-    // Triggers a manual sync automatically if user is logged in but profile is missing locally.
     React.useEffect(() => {
         const hasSessionButNoProfile = session && !profile && data.profiles.length === 0;
         const canSync = isOnline && !data.isDataLoading && data.syncStatus !== 'syncing' && !isAuthLoading;
         
         if (hasSessionButNoProfile && canSync) {
-            console.log("Profile missing locally, triggering initial sync...");
             data.manualSync();
         }
     }, [session, profile, data.profiles.length, isOnline, data.isDataLoading, data.syncStatus, isAuthLoading]);
@@ -341,17 +322,6 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     }, [session, data.profiles, data.unpostponedSessions, data.setShowUnpostponedSessionsModal]);
 
     React.useEffect(() => {
-        if (session) {
-            import('./pages/ClientsPage');
-            import('./pages/AccountingPage');
-            import('./pages/SettingsPage');
-            import('./pages/AdminDashboard');
-            import('./pages/PendingApprovalPage');
-            import('./pages/SubscriptionExpiredPage');
-        }
-    }, [session]);
-
-    React.useEffect(() => {
         const justUpdated = localStorage.getItem('lawyerAppUpdated');
         if (justUpdated === 'true') {
             data.addRealtimeAlert('لقد تم تحديث التطبيق إلى أحدث إصدار متاح بنجاح! شكراً لصبركم.', 'sync');
@@ -388,9 +358,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
         }
     };
     
-    const handleNavigation = (page: Page) => {
-        setCurrentPage(page);
-    };
+    const handleNavigation = (page: Page) => setCurrentPage(page);
 
     const handleOpenAdminTaskModal = (initialData: any = null) => {
         setInitialAdminTaskData(initialData);
@@ -421,41 +389,27 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
 
     const showContextMenu = (event: React.MouseEvent, menuItems: MenuItem[]) => {
         event.preventDefault();
-        setContextMenu({
-            isOpen: true,
-            position: { x: event.clientX, y: event.clientY },
-            menuItems,
-        });
+        setContextMenu({ isOpen: true, position: { x: event.clientX, y: event.clientY }, menuItems });
     };
 
-    const closeContextMenu = () => {
-        setContextMenu({ ...contextMenu, isOpen: false });
-    };
-    
+    const closeContextMenu = () => setContextMenu({ ...contextMenu, isOpen: false });
     const handleCreateInvoice = (clientId: string, caseId?: string) => {
         setInitialInvoiceData({ clientId, caseId });
         setCurrentPage('accounting');
     };
 
     const handleGenerateAssigneeReport = (assignee: string | null) => {
-        const dailyAppointments = data.appointments
-            .filter(a => isSameDay(a.date, selectedDate))
-            .sort((a, b) => a.time.localeCompare(b.time));
-    
+        const dailyAppointments = data.appointments.filter(a => isSameDay(a.date, selectedDate)).sort((a, b) => a.time.localeCompare(b.time));
         const dailySessions = data.allSessions.filter(s => isSameDay(s.date, selectedDate));
-    
         const allUncompletedTasks = data.adminTasks.filter(t => !t.completed);
         const filteredForAssigneeTasks = assignee ? allUncompletedTasks.filter(t => t.assignee === assignee) : allUncompletedTasks;
-    
         const groupedAndSortedTasks = filteredForAssigneeTasks.reduce((acc, task) => {
             const location = task.location || 'غير محدد';
             if (!acc[location]) acc[location] = [];
             acc[location].push(task);
             return acc;
         }, {} as Record<string, AdminTask[]>);
-    
         const importanceOrder = { 'urgent': 3, 'important': 2, 'normal': 1 };
-    
         for (const location in groupedAndSortedTasks) {
             groupedAndSortedTasks[location].sort((a, b) => {
                 const importanceA = importanceOrder[a.importance];
@@ -467,18 +421,9 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                 return a.task.localeCompare(b.task, 'ar');
             });
         }
-    
         const filteredAppointments = assignee ? dailyAppointments.filter(a => a.assignee === assignee) : dailyAppointments;
         const filteredSessions = assignee ? dailySessions.filter(s => s.assignee === assignee) : dailySessions;
-    
-        setPrintableReportData({
-            assignee: assignee || 'جدول الأعمال العام',
-            date: selectedDate,
-            appointments: filteredAppointments,
-            sessions: filteredSessions,
-            adminTasks: groupedAndSortedTasks,
-        });
-    
+        setPrintableReportData({ assignee: assignee || 'جدول الأعمال العام', date: selectedDate, appointments: filteredAppointments, sessions: filteredSessions, adminTasks: groupedAndSortedTasks });
         setIsPrintAssigneeModalOpen(false);
         setIsPrintModalOpen(true);
     };
@@ -494,7 +439,6 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
             acc[location].push(task);
             return acc;
         }, {} as Record<string, AdminTask[]>);
-        
         const importanceOrder = { 'urgent': 3, 'important': 2, 'normal': 1 };
         for (const location in groupedAndSortedTasks) {
             groupedAndSortedTasks[location].sort((a, b) => {
@@ -508,8 +452,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
             });
         }
         const filteredAppointments = assignee ? dailyAppointments.filter(a => a.assignee === assignee) : dailyAppointments;
-        const filteredSessions = assignee ? dailySessions.filter(s => s.assignee === assignee) : dailySessions;
-
+        const filteredSessions = dailySessions.filter(s => s.assignee === assignee);
         let message = `*جدول أعمال مكتب المحامي*\n*التاريخ:* ${formatDate(selectedDate)}\n*لـِ:* ${assignee || 'الجميع'}\n\n`;
         if (filteredSessions.length > 0) {
             message += `*القسم الأول: الجلسات (${filteredSessions.length})*\n`;
@@ -517,10 +460,10 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
             message += `\n`;
         }
         if (filteredAppointments.length > 0) {
-             const formatTime = (time: string) => { if (!time) return ''; let [hours, minutes] = time.split(':'); let hh = parseInt(hours, 10); const ampm = hh >= 12 ? 'مساءً' : 'صباحًا'; hh = hh % 12; hh = hh ? hh : 12; const finalHours = hh.toString().padStart(2, '0'); return `${finalHours}:${minutes} ${ampm}`; };
+             const formatTimeShort = (time: string) => { if (!time) return ''; let [hours, minutes] = time.split(':'); let hh = parseInt(hours, 10); const ampm = hh >= 12 ? 'مساءً' : 'صباحًا'; hh = hh % 12; hh = hh ? hh : 12; const finalHours = hh.toString().padStart(2, '0'); return `${finalHours}:${minutes} ${ampm}`; };
              const importanceMap: { [key: string]: { text: string } } = { normal: { text: 'عادي' }, important: { text: 'مهم' }, urgent: { text: 'عاجل' } };
             message += `*القسم الثاني: المواعيد (${filteredAppointments.length})*\n`;
-            filteredAppointments.forEach(a => { message += `- (${formatTime(a.time)}) ${a.title}`; if (a.importance !== 'normal') message += ` (${importanceMap[a.importance]?.text})`; message += `\n`; });
+            filteredAppointments.forEach(a => { message += `- (${formatTimeShort(a.time)}) ${a.title}`; if (a.importance !== 'normal') message += ` (${importanceMap[a.importance]?.text})`; message += `\n`; });
             message += `\n`;
         }
         const taskLocations = Object.keys(groupedAndSortedTasks);
@@ -534,56 +477,29 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                 }
             });
         }
-        
         const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
         window.open(whatsappUrl, '_blank');
         setIsShareAssigneeModalOpen(false);
     };
 
-    if (isAuthLoading && !session) {
-        return <FullScreenLoader text="جاري التحقق من الهوية..." />;
-    }
-    
-    if (data.isDataLoading && session) {
-         return <FullScreenLoader text="جاري تحميل قاعدة البيانات المحلية..." />;
-    }
-    
+    if (isAuthLoading && !session) return <FullScreenLoader text="جاري التحقق من الهوية..." />;
+    if (data.isDataLoading && session) return <FullScreenLoader text="جاري تحميل قاعدة البيانات المحلية..." />;
+
     const handleLoginSuccess = (user: User, isOfflineLogin: boolean = false) => {
-        if (!isOfflineLogin) {
-            localStorage.setItem(LAST_USER_CACHE_KEY, JSON.stringify(user));
-        }
+        if (!isOfflineLogin) localStorage.setItem(LAST_USER_CACHE_KEY, JSON.stringify(user));
         if (isOfflineLogin) {
-             const offlineSession = {
-                 access_token: "offline_access_token",
-                 refresh_token: "offline_refresh_token",
-                 expires_in: 3600 * 24 * 7,
-                 token_type: "bearer",
-                 user: user
-             } as AuthSession;
+             const offlineSession = { access_token: "offline_access_token", refresh_token: "offline_refresh_token", expires_in: 3600 * 24 * 7, token_type: "bearer", user: user } as AuthSession;
              setSession(offlineSession);
         }
     };
 
-    if (showConfigModal) {
-        return <ConfigurationModal onRetry={() => { data.manualSync(); setShowConfigModal(false); }} />;
-    }
+    if (showConfigModal) return <ConfigurationModal onRetry={() => { data.manualSync(); setShowConfigModal(false); }} />;
+    if (data.syncStatus === 'unconfigured' || data.syncStatus === 'uninitialized') return <ConfigurationModal onRetry={data.manualSync} />;
     
-    if (data.syncStatus === 'unconfigured' || data.syncStatus === 'uninitialized') {
-        return <ConfigurationModal onRetry={data.manualSync} />;
-    }
-    
-    if (!session) {
-        return (
-            <React.Suspense fallback={<FullScreenLoader text="جاري التحميل..." />}>
-                <LoginPage onForceSetup={() => setShowConfigModal(true)} onLoginSuccess={handleLoginSuccess}/>
-            </React.Suspense>
-        );
-    }
+    if (!session) return <LoginPage onForceSetup={() => setShowConfigModal(true)} onLoginSuccess={handleLoginSuccess}/>;
     
     const effectiveProfile = profile || data.profiles.find(p => p.id === session.user.id);
-    
     if (!effectiveProfile) {
-         // Show specific UI if sync is finished but profile still not found
          if (data.syncStatus === 'synced' || data.syncStatus === 'error') {
              return (
                  <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-6 text-center">
@@ -600,63 +516,30 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                  </div>
              );
          }
-         
          return <FullScreenLoader text="جاري جلب الملف الشخصي من السحابة..." />;
     }
 
-    if (effectiveProfile && !effectiveProfile.mobile_verified && effectiveProfile.role !== 'admin') {
-         return (
-            <React.Suspense fallback={<FullScreenLoader />}>
-                <LoginPage 
-                    onForceSetup={() => setShowConfigModal(true)} 
-                    onLoginSuccess={handleLoginSuccess}
-                    initialMode="otp"
-                    currentUser={session.user}
-                    currentMobile={effectiveProfile.mobile_number}
-                    onLogout={handleLogout}
-                    onVerificationSuccess={data.fetchAndRefresh}
-                />
-            </React.Suspense>
-         );
+    if (!effectiveProfile.mobile_verified && effectiveProfile.role !== 'admin') {
+         return <LoginPage onForceSetup={() => setShowConfigModal(true)} onLoginSuccess={handleLoginSuccess} initialMode="otp" currentUser={session.user} currentMobile={effectiveProfile.mobile_number} onLogout={handleLogout} onVerificationSuccess={data.fetchAndRefresh} />;
     }
 
-    if (effectiveProfile && !effectiveProfile.is_approved) {
-        return (
-            <React.Suspense fallback={<FullScreenLoader />}>
-                <PendingApprovalPage onLogout={handleLogout} />
-            </React.Suspense>
-        );
-    }
+    if (!effectiveProfile.is_approved) return <PendingApprovalPage onLogout={handleLogout} />;
 
-    if (effectiveProfile && (!effectiveProfile.is_active || (effectiveProfile.subscription_end_date && safeReviveDate(effectiveProfile.subscription_end_date) < new Date()))) {
-        return (
-            <React.Suspense fallback={<FullScreenLoader />}>
-                <SubscriptionExpiredPage onLogout={handleLogout} />
-            </React.Suspense>
-        );
+    if (!effectiveProfile.is_active || (effectiveProfile.subscription_end_date && safeReviveDate(effectiveProfile.subscription_end_date) < new Date())) {
+        return <SubscriptionExpiredPage onLogout={handleLogout} />;
     }
     
-    if (effectiveProfile && effectiveProfile.role === 'admin') {
+    if (effectiveProfile.role === 'admin') {
          return (
             <DataProvider value={data}>
-                <React.Suspense fallback={<FullScreenLoader />}>
-                    <AdminDashboard onLogout={handleLogout} onOpenConfig={() => setShowConfigModal(true)} />
-                </React.Suspense>
-                <NotificationCenter 
-                    appointmentAlerts={data.triggeredAlerts}
-                    realtimeAlerts={data.realtimeAlerts}
-                    userApprovalAlerts={data.userApprovalAlerts}
-                    dismissAppointmentAlert={data.dismissAlert}
-                    dismissRealtimeAlert={data.dismissRealtimeAlert}
-                    dismissUserApprovalAlert={data.dismissUserApprovalAlert}
-                />
+                <AdminDashboard onLogout={handleLogout} onOpenConfig={() => setShowConfigModal(true)} />
+                <NotificationCenter appointmentAlerts={data.triggeredAlerts} realtimeAlerts={data.realtimeAlerts} userApprovalAlerts={data.userApprovalAlerts} dismissAppointmentAlert={data.dismissAlert} dismissRealtimeAlert={data.dismissRealtimeAlert} dismissUserApprovalAlert={data.dismissUserApprovalAlert} />
             </DataProvider>
         );
     }
 
     const renderPage = () => {
         const checkPermission = (allowed: boolean) => allowed;
-
         switch (currentPage) {
             case 'clients':
                 if (!checkPermission(data.permissions.can_view_clients || data.permissions.can_view_cases)) return <HomePage onOpenAdminTaskModal={handleOpenAdminTaskModal} showContextMenu={showContextMenu} mainView="agenda" selectedDate={selectedDate} setSelectedDate={setSelectedDate} />;
@@ -664,8 +547,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
             case 'accounting':
                 if (!checkPermission(data.permissions.can_view_finance)) return <HomePage onOpenAdminTaskModal={handleOpenAdminTaskModal} showContextMenu={showContextMenu} mainView="agenda" selectedDate={selectedDate} setSelectedDate={setSelectedDate} />;
                 return <AccountingPage initialInvoiceData={initialInvoiceData} clearInitialInvoiceData={() => setInitialInvoiceData(undefined)} />;
-            case 'settings':
-                return <SettingsPage />;
+            case 'settings': return <SettingsPage />;
             case 'admin-tasks':
                 if (!checkPermission(data.permissions.can_view_admin_tasks)) return <HomePage onOpenAdminTaskModal={handleOpenAdminTaskModal} showContextMenu={showContextMenu} mainView="agenda" selectedDate={selectedDate} setSelectedDate={setSelectedDate} />;
                 return <HomePage onOpenAdminTaskModal={handleOpenAdminTaskModal} showContextMenu={showContextMenu} mainView="adminTasks" selectedDate={selectedDate} setSelectedDate={setSelectedDate} />;
@@ -686,26 +568,12 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     
     const homePageActions = (
         <div ref={actionsMenuRef} className="relative">
-            <button
-                onClick={() => setIsActionsMenuOpen(prev => !prev)}
-                className="p-2 text-gray-600 rounded-full hover:bg-gray-100 transition-colors"
-                aria-label="إجراءات جدول الأعمال"
-                aria-haspopup="true"
-                aria-expanded={isActionsMenuOpen}
-            >
-                <PrintIcon className="w-5 h-5" />
-            </button>
+            <button onClick={() => setIsActionsMenuOpen(prev => !prev)} className="p-2 text-gray-600 rounded-full hover:bg-gray-100 transition-colors" aria-label="إجراءات جدول الأعمال" aria-haspopup="true" aria-expanded={isActionsMenuOpen}><PrintIcon className="w-5 h-5" /></button>
             {isActionsMenuOpen && (
                 <div className="absolute left-0 mt-2 w-56 origin-top-left bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-20">
-                    <div className="py-1" role="menu" aria-orientation="vertical">
-                        <button onClick={() => { setIsPrintAssigneeModalOpen(true); setIsActionsMenuOpen(false); }} className="w-full text-right flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" role="menuitem">
-                            <PrintIcon className="w-5 h-5 text-gray-500" />
-                            <span>طباعة جدول الأعمال</span>
-                        </button>
-                        <button onClick={() => { setIsShareAssigneeModalOpen(true); setIsActionsMenuOpen(false); }} className="w-full text-right flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" role="menuitem">
-                            <ShareIcon className="w-5 h-5 text-gray-500" />
-                            <span>إرسال عبر واتساب</span>
-                        </button>
+                    <div className="py-1" role="menu">
+                        <button onClick={() => { setIsPrintAssigneeModalOpen(true); setIsActionsMenuOpen(false); }} className="w-full text-right flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" role="menuitem"><PrintIcon className="w-5 h-5 text-gray-500" /><span>طباعة جدول الأعمال</span></button>
+                        <button onClick={() => { setIsShareAssigneeModalOpen(true); setIsActionsMenuOpen(false); }} className="w-full text-right flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" role="menuitem"><ShareIcon className="w-5 h-5 text-gray-500" /><span>إرسال عبر واتساب</span></button>
                     </div>
                 </div>
             )}
@@ -715,138 +583,49 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     return (
         <DataProvider value={data}>
             <div className="flex flex-col h-screen bg-gray-50">
-                <Navbar
-                    currentPage={currentPage}
-                    onNavigate={handleNavigation}
-                    onLogout={handleLogout}
-                    syncStatus={data.syncStatus}
-                    lastSyncError={data.lastSyncError}
-                    isDirty={data.isDirty}
-                    isOnline={isOnline}
-                    onManualSync={data.manualSync}
-                    profile={effectiveProfile}
-                    isAutoSyncEnabled={data.isAutoSyncEnabled}
-                    homePageActions={homePageActions}
-                    permissions={data.permissions}
-                />
+                <Navbar currentPage={currentPage} onNavigate={handleNavigation} onLogout={handleLogout} syncStatus={data.syncStatus} lastSyncError={data.lastSyncError} isDirty={data.isDirty} isOnline={isOnline} onManualSync={data.manualSync} profile={effectiveProfile} isAutoSyncEnabled={data.isAutoSyncEnabled} homePageActions={homePageActions} permissions={data.permissions} />
                 <OfflineBanner />
                 <main className="flex-grow p-4 sm:p-6 overflow-y-auto pb-20 sm:pb-6">
-                    <React.Suspense fallback={<FullScreenLoader />}>
-                        {renderPage()}
-                    </React.Suspense>
+                    {renderPage()}
                 </main>
-                
                 <MobileNavbar currentPage={currentPage} onNavigate={handleNavigation} permissions={data.permissions} />
-
-                <AdminTaskModal 
-                    isOpen={isAdminTaskModalOpen}
-                    onClose={() => setIsAdminTaskModalOpen(false)}
-                    onSubmit={handleSaveAdminTask}
-                    initialData={initialAdminTaskData}
-                    assistants={data.assistants}
-                />
-
-                <ContextMenu 
-                    isOpen={contextMenu.isOpen}
-                    position={contextMenu.position}
-                    menuItems={contextMenu.menuItems}
-                    onClose={closeContextMenu}
-                />
-                
-                <UnpostponedSessionsModal
-                    isOpen={data.showUnpostponedSessionsModal}
-                    onClose={() => data.setShowUnpostponedSessionsModal(false)}
-                    sessions={data.unpostponedSessions}
-                    onPostpone={data.postponeSession}
-                    assistants={data.assistants}
-                />
-
-                <NotificationCenter 
-                    appointmentAlerts={data.triggeredAlerts}
-                    realtimeAlerts={data.realtimeAlerts}
-                    userApprovalAlerts={data.userApprovalAlerts}
-                    dismissAppointmentAlert={data.dismissAlert}
-                    dismissRealtimeAlert={data.dismissRealtimeAlert}
-                    dismissUserApprovalAlert={data.dismissUserApprovalAlert}
-                />
-
+                <AdminTaskModal isOpen={isAdminTaskModalOpen} onClose={() => setIsAdminTaskModalOpen(false)} onSubmit={handleSaveAdminTask} initialData={initialAdminTaskData} assistants={data.assistants} />
+                <ContextMenu isOpen={contextMenu.isOpen} position={contextMenu.position} menuItems={contextMenu.menuItems} onClose={closeContextMenu} />
+                <UnpostponedSessionsModal isOpen={data.showUnpostponedSessionsModal} onClose={() => data.setShowUnpostponedSessionsModal(false)} sessions={data.unpostponedSessions} onPostpone={data.postponeSession} assistants={data.assistants} />
+                <NotificationCenter appointmentAlerts={data.triggeredAlerts} realtimeAlerts={data.realtimeAlerts} userApprovalAlerts={data.userApprovalAlerts} dismissAppointmentAlert={data.dismissAlert} dismissRealtimeAlert={data.dismissRealtimeAlert} dismissUserApprovalAlert={data.dismissUserApprovalAlert} />
                 {isPrintAssigneeModalOpen && (
                     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50 no-print p-4 overflow-y-auto" onClick={() => setIsPrintAssigneeModalOpen(false)}>
                         <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
                             <h2 className="text-xl font-bold mb-4 border-b pb-3">اختر الشخص لطباعة جدول أعماله</h2>
                             <div className="space-y-3 max-h-80 overflow-y-auto">
-                                <button onClick={() => handleGenerateAssigneeReport(null)} className="w-full text-right px-4 py-3 bg-blue-50 text-blue-800 font-semibold rounded-lg hover:bg-blue-100 transition-colors">
-                                    طباعة جدول الأعمال العام (لكل المهام اليومية)
-                                </button>
+                                <button onClick={() => handleGenerateAssigneeReport(null)} className="w-full text-right px-4 py-3 bg-blue-50 text-blue-800 font-semibold rounded-lg hover:bg-blue-100 transition-colors">طباعة جدول الأعمال العام (لكل المهام اليومية)</button>
                                 <h3 className="text-md font-semibold text-gray-600 pt-2">أو طباعة لشخص محدد:</h3>
-                                {data.assistants.map(name => (
-                                    <button
-                                        key={name}
-                                        onClick={() => handleGenerateAssigneeReport(name)}
-                                        className="w-full text-right block px-4 py-2 bg-gray-50 text-gray-800 rounded-md hover:bg-gray-100 transition-colors"
-                                    >
-                                        {name}
-                                    </button>
-                                ))}
+                                {data.assistants.map(name => <button key={name} onClick={() => handleGenerateAssigneeReport(name)} className="w-full text-right block px-4 py-2 bg-gray-50 text-gray-800 rounded-md hover:bg-gray-100 transition-colors">{name}</button>)}
                             </div>
-                            <div className="mt-6 flex justify-end">
-                                <button type="button" onClick={() => setIsPrintAssigneeModalOpen(false)} className="px-6 py-2 bg-gray-200 text-gray-800 font-semibold rounded-lg hover:bg-gray-300 transition-colors">إغلاق</button>
-                            </div>
+                            <div className="mt-6 flex justify-end"><button type="button" onClick={() => setIsPrintAssigneeModalOpen(false)} className="px-6 py-2 bg-gray-200 text-gray-800 font-semibold rounded-lg hover:bg-gray-300 transition-colors">إغلاق</button></div>
                         </div>
                     </div>
                 )}
-                
                 {isShareAssigneeModalOpen && (
                     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50 no-print p-4 overflow-y-auto" onClick={() => setIsShareAssigneeModalOpen(false)}>
                         <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
                             <h2 className="text-xl font-bold mb-4 border-b pb-3">اختر الشخص لإرسال جدول أعماله عبر واتساب</h2>
                             <div className="space-y-3 max-h-80 overflow-y-auto">
-                                <button
-                                    onClick={() => handleShareAssigneeReport(null)}
-                                    className="w-full text-right px-4 py-3 bg-green-50 text-green-800 font-semibold rounded-lg hover:bg-green-100 transition-colors"
-                                >
-                                    إرسال جدول الأعمال العام (لكل المهام اليومية)
-                                </button>
+                                <button onClick={() => handleShareAssigneeReport(null)} className="w-full text-right px-4 py-3 bg-green-50 text-green-800 font-semibold rounded-lg hover:bg-green-100 transition-colors">إرسال جدول الأعمال العام (لكل المهام اليومية)</button>
                                 <h3 className="text-md font-semibold text-gray-600 pt-2">أو إرسال لشخص محدد:</h3>
-                                {data.assistants.map(name => (
-                                    <button
-                                        key={name}
-                                        onClick={() => handleShareAssigneeReport(name)}
-                                        className="w-full text-right block px-4 py-2 bg-gray-50 text-gray-800 rounded-md hover:bg-gray-100 transition-colors"
-                                    >
-                                        {name}
-                                    </button>
-                                ))}
+                                {data.assistants.map(name => <button key={name} onClick={() => handleShareAssigneeReport(name)} className="w-full text-right block px-4 py-2 bg-gray-50 text-gray-800 rounded-md hover:bg-gray-100 transition-colors">{name}</button>)}
                             </div>
-                            <div className="mt-6 flex justify-end">
-                                <button type="button" onClick={() => setIsShareAssigneeModalOpen(false)} className="px-6 py-2 bg-gray-200 text-gray-800 font-semibold rounded-lg hover:bg-gray-300 transition-colors">إغلاق</button>
-                            </div>
+                            <div className="mt-6 flex justify-end"><button type="button" onClick={() => setIsShareAssigneeModalOpen(false)} className="px-6 py-2 bg-gray-200 text-gray-800 font-semibold rounded-lg hover:bg-gray-300 transition-colors">إغلاق</button></div>
                         </div>
                     </div>
                 )}
-
                 {isPrintModalOpen && printableReportData && (
                     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setIsPrintModalOpen(false)}>
                         <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
-                            <div className="overflow-y-auto" ref={printReportRef}>
-                                <PrintableReport reportData={printableReportData} />
-                            </div>
+                            <div className="overflow-y-auto" ref={printReportRef}><PrintableReport reportData={printableReportData} /></div>
                             <div className="mt-6 flex justify-end gap-4 border-t pt-4 no-print">
-                                <button
-                                    type="button"
-                                    className="px-6 py-2 bg-gray-200 text-gray-800 font-semibold rounded-lg hover:bg-gray-300 transition-colors"
-                                    onClick={() => setIsPrintModalOpen(false)}
-                                >
-                                    إغلاق
-                                </button>
-                                <button
-                                    type="button"
-                                    className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors"
-                                    onClick={() => printElement(printReportRef.current)}
-                                >
-                                    <PrintIcon className="w-5 h-5" />
-                                    <span>طباعة</span>
-                                </button>
+                                <button type="button" className="px-6 py-2 bg-gray-200 text-gray-800 font-semibold rounded-lg hover:bg-gray-300 transition-colors" onClick={() => setIsPrintModalOpen(false)}>إغلاق</button>
+                                <button type="button" className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors" onClick={() => printElement(printReportRef.current)}><PrintIcon className="w-5 h-5" /><span>طباعة</span></button>
                             </div>
                         </div>
                     </div>
