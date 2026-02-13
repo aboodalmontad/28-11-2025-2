@@ -1,8 +1,10 @@
 
 import { getSupabaseClient } from '../supabaseClient';
 import { Client, AdminTask, Appointment, AccountingEntry, Invoice, InvoiceItem, CaseDocument, Profile, SiteFinancialEntry, SyncDeletion } from '../types';
+// Fix: Use `import type` for User as it is used as a type, not a value. This resolves module resolution errors in some environments.
 import type { User } from '@supabase/supabase-js';
 
+// This file defines the shape of data when flattened for sync operations.
 export type FlatData = {
     clients: Omit<Client, 'cases'>[];
     cases: any[];
@@ -19,6 +21,10 @@ export type FlatData = {
     site_finances: SiteFinancialEntry[];
 };
 
+
+/**
+ * Checks if all required tables exist in the Supabase database schema.
+ */
 export const checkSupabaseSchema = async () => {
     const supabase = getSupabaseClient();
     if (!supabase) {
@@ -31,7 +37,7 @@ export const checkSupabaseSchema = async () => {
         'appointments': 'id', 'accounting_entries': 'id', 'assistants': 'name',
         'invoices': 'id', 'invoice_items': 'id', 'case_documents': 'id',
         'site_finances': 'id',
-        'sync_deletions': 'id',
+        'sync_deletions': 'id', // Checked for resurrection fix
     };
     
     const tableCheckPromises = Object.entries(tableChecks).map(([table, query]) =>
@@ -45,8 +51,8 @@ export const checkSupabaseSchema = async () => {
                 const message = String(result.error.message || '').toLowerCase();
                 const code = String(result.error.code || '');
                 
-                if (code === '42P01' || message.includes('does not exist') || message.includes('could not find the table') || message.includes('relation') ) {
-                    return { success: false, error: 'uninitialized', message: `Database uninitialized. Missing table: ${result.table}.` };
+                if (code === '42P01' || message.includes('does not exist') || message.includes('could not find the table') || message.includes('schema cache') || message.includes('relation') ) {
+                    return { success: false, error: 'uninitialized', message: `Database uninitialized. Missing table or relation: ${result.table}.` };
                 } else {
                     throw result.error;
                 }
@@ -54,14 +60,25 @@ export const checkSupabaseSchema = async () => {
         }
         return { success: true, error: null, message: '' };
     } catch (err: any) {
-        const message = String(err?.message || err?.error_description || err || '').toLowerCase();
-        if (message.includes('failed to fetch') || message.includes('networkerror')) {
-            return { success: false, error: 'network', message: 'فشل الاتصال بالسيرفر. يرجى التحقق من اتصال الإنترنت.' };
+        const message = String(err?.message || '').toLowerCase();
+        const code = String(err?.code || '');
+
+        if (message.includes('failed to fetch')) {
+            return { success: false, error: 'network', message: 'Failed to connect to the server. Check internet connection and CORS settings.' };
         }
-        return { success: false, error: 'unknown', message: `فحص قاعدة البيانات فشل: ${message}` };
+        
+        if (message.includes('does not exist') || code === '42P01' || message.includes('could not find the table') || message.includes('schema cache')) {
+            return { success: false, error: 'uninitialized', message: 'Database is not fully initialized.' };
+        }
+
+        return { success: false, error: 'unknown', message: `Database schema check failed: ${err.message}` };
     }
 };
 
+
+/**
+ * Fetches the entire dataset for the current user from Supabase.
+ */
 export const fetchDataFromSupabase = async (): Promise<Partial<FlatData>> => {
     const supabase = getSupabaseClient();
     if (!supabase) throw new Error('Supabase client not available.');
@@ -103,7 +120,9 @@ export const fetchDataFromSupabase = async (): Promise<Partial<FlatData>> => {
     ];
 
     for (const { res, name } of results) {
-        if (res.error) throw new Error(`فشل تحميل بيانات ${name}: ${res.error.message}`);
+        if (res.error) {
+            throw new Error(`Failed to fetch ${name}: ${res.error.message}`);
+        }
     }
 
     return {
@@ -126,15 +145,34 @@ export const fetchDataFromSupabase = async (): Promise<Partial<FlatData>> => {
 export const fetchDeletionsFromSupabase = async (): Promise<SyncDeletion[]> => {
     const supabase = getSupabaseClient();
     if (!supabase) return [];
+    
+    // Fetch deletions from the last 30 days to keep payload small but effective
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     try {
-        const { data, error } = await supabase.from('sync_deletions').select('*').gte('deleted_at', thirtyDaysAgo.toISOString());
-        if (error) throw error;
+        const { data, error } = await supabase
+            .from('sync_deletions')
+            .select('*')
+            .gte('deleted_at', thirtyDaysAgo.toISOString());
+
+        if (error) {
+            // Robust error stringification to avoid [object Object]
+            const errorMsg = error.message || JSON.stringify(error) || 'Unknown Supabase error';
+            throw new Error(errorMsg);
+        }
         return data || [];
-    } catch (err) {
-        console.warn("Fetch deletions failed (non-critical):", err);
+    } catch (err: any) {
+        let msg = 'Unknown error fetching deletions';
+        if (err instanceof Error) {
+            msg = err.message;
+        } else if (typeof err === 'object' && err !== null) {
+            msg = (err as any).message || JSON.stringify(err);
+        } else {
+            msg = String(err);
+        }
+        console.warn("Fetch deletions failed (non-critical, continuing sync):", msg);
+        // Return empty array to allow sync to proceed even if deletions check fails
         return []; 
     }
 };
@@ -143,7 +181,12 @@ export const deleteDataFromSupabase = async (deletions: Partial<FlatData>, user:
     const supabase = getSupabaseClient();
     if (!supabase) throw new Error('Supabase client not available.');
 
-    const deletionOrder: (keyof FlatData)[] = ['case_documents', 'invoice_items', 'sessions', 'stages', 'cases', 'invoices', 'admin_tasks', 'appointments', 'accounting_entries', 'assistants', 'clients', 'site_finances', 'profiles'];
+    const deletionOrder: (keyof FlatData)[] = [
+        'case_documents', 'invoice_items', 'sessions', 'stages', 'cases', 'invoices', 
+        'admin_tasks', 'appointments', 'accounting_entries', 'assistants', 'clients',
+        'site_finances',
+        'profiles',
+    ];
 
     for (const table of deletionOrder) {
         const itemsToDelete = (deletions as any)[table];
@@ -151,15 +194,30 @@ export const deleteDataFromSupabase = async (deletions: Partial<FlatData>, user:
             const primaryKeyColumn = table === 'assistants' ? 'name' : 'id';
             const ids = itemsToDelete.map((i: any) => i[primaryKeyColumn]);
             
+            // 1. Log the deletion for sync resurrection prevention
             if (table !== 'profiles') {
-                const deletionsLog = ids.map((id: string) => ({ table_name: table, record_id: id, user_id: user.id }));
-                await supabase.from('sync_deletions').insert(deletionsLog);
+                const deletionsLog = ids.map((id: string) => ({
+                    table_name: table,
+                    record_id: id,
+                    user_id: user.id
+                }));
+                
+                const { error: logError } = await supabase.from('sync_deletions').insert(deletionsLog).select();
+                
+                if (logError) {
+                    console.warn("Could not log deletion (safe to ignore if DB not updated):", logError.message || JSON.stringify(logError));
+                }
             }
 
-            const query = supabase.from(table).delete().in(primaryKeyColumn, ids);
-            if (table !== 'profiles' && table !== 'assistants') query.eq('user_id', user.id);
-            const { error } = await query;
-            if (error) throw new Error(`فشل حذف بيانات من ${table}: ${error.message}`);
+            // 2. Perform the hard delete
+            const { error } = await supabase.from(table).delete().in(primaryKeyColumn, ids);
+            if (error) {
+                console.error(`Error deleting from ${table}:`, error);
+                const msg = error.message || JSON.stringify(error);
+                const newError = new Error(msg);
+                (newError as any).table = table;
+                throw newError;
+            }
         }
     }
 };
@@ -167,13 +225,32 @@ export const deleteDataFromSupabase = async (deletions: Partial<FlatData>, user:
 export const upsertDataToSupabase = async (data: Partial<FlatData>, user: User) => {
     const supabase = getSupabaseClient();
     if (!supabase) throw new Error('Supabase client not available.');
+
+    // IMPORTANT: 'user' passed here might be a constructed object with 'effectiveUserId' as 'id'.
+    // We use this ID to assign ownership of new records.
     const userId = user.id;
 
+    // Map application data (camelCase) to database schema (snake_case)
     const dataToUpsert = {
         clients: data.clients?.map(({ contactInfo, ...rest }) => ({ ...rest, user_id: userId, contact_info: contactInfo })),
         cases: data.cases?.map(({ clientName, opponentName, feeAgreement, ...rest }) => ({ ...rest, user_id: userId, client_name: clientName, opponent_name: opponentName, fee_agreement: feeAgreement })),
         stages: data.stages?.map(({ caseNumber, firstSessionDate, decisionDate, decisionNumber, decisionSummary, decisionNotes, ...rest }) => ({ ...rest, user_id: userId, case_number: caseNumber, first_session_date: firstSessionDate, decision_date: decisionDate, decision_number: decisionNumber, decision_summary: decisionSummary, decision_notes: decisionNotes })),
-        sessions: data.sessions?.map((s: any) => ({ id: s.id, user_id: userId, stage_id: s.stage_id, court: s.court, case_number: s.caseNumber, date: s.date, client_name: s.clientName, opponent_name: s.opponentName, postponement_reason: s.postponementReason, next_postponement_reason: s.nextPostponementReason, is_postponed: s.isPostponed, next_session_date: s.nextSessionDate, assignee: s.assignee, updated_at: s.updated_at })),
+        sessions: data.sessions?.map((s: any) => ({
+            id: s.id,
+            user_id: userId,
+            stage_id: s.stage_id,
+            court: s.court,
+            case_number: s.caseNumber,
+            date: s.date,
+            client_name: s.clientName,
+            opponent_name: s.opponentName,
+            postponement_reason: s.postponementReason,
+            next_postponement_reason: s.nextPostponementReason,
+            is_postponed: s.isPostponed,
+            next_session_date: s.nextSessionDate,
+            assignee: s.assignee,
+            updated_at: s.updated_at
+        })),
         admin_tasks: data.admin_tasks?.map(({ dueDate, orderIndex, ...rest }) => ({ ...rest, user_id: userId, due_date: dueDate, order_index: orderIndex })),
         appointments: data.appointments?.map(({ reminderTimeInMinutes, ...rest }) => ({ ...rest, user_id: userId, reminder_time_in_minutes: reminderTimeInMinutes })),
         accounting_entries: data.accounting_entries?.map(({ clientId, caseId, clientName, ...rest }) => ({ ...rest, user_id: userId, client_id: clientId, case_id: caseId, client_name: clientName })),
@@ -188,35 +265,57 @@ export const upsertDataToSupabase = async (data: Partial<FlatData>, user: User) 
     const upsertTable = async (table: string, records: any[] | undefined, options: { onConflict?: string } = {}) => {
         if (!records || records.length === 0) return [];
         const { data: responseData, error } = await supabase.from(table).upsert(records, options).select();
-        if (error) throw new Error(`فشل تحديث جدول ${table}: ${error.message}`);
+        if (error) {
+            console.error(`Error upserting to ${table}:`, error);
+            // Fix: properly extract error message to prevent [object Object]
+            const errorDetails = error.message || JSON.stringify(error);
+            const msg = `Error upserting to ${table}: ${errorDetails}`;
+            const newError = new Error(msg);
+            (newError as any).table = table;
+            throw newError;
+        }
         return responseData || [];
     };
     
     const results: Partial<Record<keyof FlatData, any[]>> = {};
+
     results.profiles = await upsertTable('profiles', dataToUpsert.profiles);
     results.assistants = await upsertTable('assistants', dataToUpsert.assistants, { onConflict: 'user_id,name' });
+    
+    // Core Hierarchy: Clients -> Cases -> Stages -> Sessions
     results.clients = await upsertTable('clients', dataToUpsert.clients);
     results.cases = await upsertTable('cases', dataToUpsert.cases);
     results.stages = await upsertTable('stages', dataToUpsert.stages);
     results.sessions = await upsertTable('sessions', dataToUpsert.sessions);
+    
+    // Dependencies on Core
     results.invoices = await upsertTable('invoices', dataToUpsert.invoices);
     results.invoice_items = await upsertTable('invoice_items', dataToUpsert.invoice_items);
     results.case_documents = await upsertTable('case_documents', dataToUpsert.case_documents);
-    results.admin_tasks = await upsertTable('admin_tasks', dataToUpsert.admin_tasks);
-    results.appointments = await upsertTable('appointments', dataToUpsert.appointments);
-    results.accounting_entries = await upsertTable('accounting_entries', dataToUpsert.accounting_entries);
-    results.site_finances = await upsertTable('site_finances', dataToUpsert.site_finances);
+    
+    // Miscellaneous (Accounting often links to Clients/Cases, so it should come after)
+    const [adminTasks, appointments, accountingEntries, site_finances] = await Promise.all([
+        upsertTable('admin_tasks', dataToUpsert.admin_tasks),
+        upsertTable('appointments', dataToUpsert.appointments),
+        upsertTable('accounting_entries', dataToUpsert.accounting_entries),
+        upsertTable('site_finances', dataToUpsert.site_finances),
+    ]);
+    results.admin_tasks = adminTasks;
+    results.appointments = appointments;
+    results.accounting_entries = accountingEntries;
+    results.site_finances = site_finances;
     
     return results;
 };
 
+// Helper to transform remote snake_case data to local camelCase format
 export const transformRemoteToLocal = (remote: any): Partial<FlatData> => {
     if (!remote) return {};
     return {
         clients: remote.clients?.map(({ contact_info, ...r }: any) => ({ ...r, contactInfo: contact_info })),
         cases: remote.cases?.map(({ client_name, opponent_name, fee_agreement, ...r }: any) => ({ ...r, clientName: client_name, opponentName: opponent_name, feeAgreement: fee_agreement })),
         stages: remote.stages?.map(({ case_number, first_session_date, decision_date, decision_number, decision_summary, decision_notes, ...r }: any) => ({ ...r, caseNumber: case_number, firstSessionDate: first_session_date, decisionDate: decision_date, decisionNumber: decision_number, decisionSummary: decision_summary, decisionNotes: decision_notes })),
-        sessions: remote.sessions?.map(({ case_number, client_name, opponent_name, postponement_reason, next_postponement_reason, is_postponed, next_session_date, ...r }: any) => ({ ...r, caseNumber: case_number, clientName: client_name, opponentName: opponent_name, postponementReason: postponement_reason, nextPostponementReason: next_postponement_reason, is_postponed: is_postponed, nextSessionDate: next_session_date })),
+        sessions: remote.sessions?.map(({ case_number, client_name, opponent_name, postponement_reason, next_postponement_reason, is_postponed, next_session_date, ...r }: any) => ({ ...r, caseNumber: case_number, clientName: client_name, opponentName: opponent_name, postponementReason: postponement_reason, nextPostponementReason: next_postponement_reason, isPostponed: is_postponed, nextSessionDate: next_session_date })),
         admin_tasks: remote.admin_tasks?.map(({ due_date, order_index, ...r }: any) => ({ ...r, dueDate: due_date, orderIndex: order_index })),
         appointments: remote.appointments?.map(({ reminder_time_in_minutes, ...r }: any) => ({ ...r, reminderTimeInMinutes: reminder_time_in_minutes })),
         accounting_entries: remote.accounting_entries?.map(({ client_id, case_id, client_name, ...r }: any) => ({ ...r, clientId: client_id, caseId: case_id, clientName: client_name })),
