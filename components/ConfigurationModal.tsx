@@ -232,7 +232,12 @@ BEGIN
 END$$;
 
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Profiles Visibility" ON public.profiles FOR SELECT USING (auth.uid() = id OR lawyer_id = auth.uid() OR public.is_admin());
+CREATE POLICY "Profiles Visibility" ON public.profiles FOR SELECT USING (
+    auth.uid() = id OR 
+    lawyer_id = auth.uid() OR 
+    id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR 
+    public.is_admin()
+);
 CREATE POLICY "Profiles Update" ON public.profiles FOR UPDATE USING (auth.uid() = id OR lawyer_id = auth.uid() OR public.is_admin());
 
 CREATE POLICY "Access Own Data" ON public.assistants FOR ALL USING (user_id = public.get_data_owner_id() OR public.is_admin());
