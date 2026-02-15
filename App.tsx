@@ -4,7 +4,6 @@ import * as React from 'react';
 import type { Session as AuthSession, User } from '@supabase/supabase-js';
 
 // Lazy import ALL page components for code splitting.
-// This ensures the browser only downloads the code needed for the current screen.
 const ClientsPage = React.lazy(() => import('./pages/ClientsPage'));
 const HomePage = React.lazy(() => import('./pages/HomePage'));
 const AccountingPage = React.lazy(() => import('./pages/AccountingPage'));
@@ -17,7 +16,7 @@ const SubscriptionExpiredPage = React.lazy(() => import('./pages/SubscriptionExp
 
 import ConfigurationModal from './components/ConfigurationModal';
 import { useSupabaseData, SyncStatus } from './hooks/useSupabaseData';
-import { UserIcon, CalculatorIcon, Cog6ToothIcon, NoSymbolIcon, PowerIcon, PrintIcon, ShareIcon, CalendarDaysIcon, ClipboardDocumentCheckIcon, ExclamationCircleIcon, ArrowPathIcon } from './components/icons';
+import { UserIcon, CalculatorIcon, Cog6ToothIcon, NoSymbolIcon, PowerIcon, PrintIcon, ShareIcon, CalendarDaysIcon, ClipboardDocumentCheckIcon, ExclamationCircleIcon, ArrowPathIcon, CloudArrowDownIcon } from './components/icons';
 import ContextMenu, { MenuItem } from './components/ContextMenu';
 import AdminTaskModal from './components/AdminTaskModal';
 import { AdminTask, Profile, Client, Appointment, AccountingEntry, Invoice, CaseDocument, AppData, SiteFinancialEntry, Permissions } from './types';
@@ -53,9 +52,8 @@ const Navbar: React.FC<{
     permissions: Permissions;
 }> = ({ currentPage, onNavigate, onLogout, syncStatus, lastSyncError, isDirty, isOnline, onManualSync, profile, isAutoSyncEnabled, homePageActions, permissions }) => {
     
-    // Define all items, then filter based on permissions
     const allNavItems = [
-        { id: 'home', label: 'المفكرة', icon: CalendarDaysIcon, visible: permissions.can_view_agenda }, // Changed to check permissions
+        { id: 'home', label: 'المفكرة', icon: CalendarDaysIcon, visible: permissions.can_view_agenda },
         { id: 'admin-tasks', label: 'المهام الإدارية', icon: ClipboardDocumentCheckIcon, visible: permissions.can_view_admin_tasks },
         { id: 'clients', label: 'الموكلين', icon: UserIcon, visible: permissions.can_view_clients || permissions.can_view_cases },
         { id: 'accounting', label: 'المحاسبة', icon: CalculatorIcon, visible: permissions.can_view_finance },
@@ -80,7 +78,6 @@ const Navbar: React.FC<{
                         </div>
                     </div>
                 </button>
-                 {/* Desktop Navigation - Hidden on Mobile */}
                  <div className="hidden sm:flex items-center gap-1 sm:gap-2">
                     {navItems.map(item => (
                         <button
@@ -94,7 +91,6 @@ const Navbar: React.FC<{
                         </button>
                     ))}
                 </div>
-                {/* Page Actions - Always visible if conditions met */}
                 {currentPage === 'home' && homePageActions}
             </nav>
             <div className="flex items-center gap-2 sm:gap-4">
@@ -127,7 +123,7 @@ const MobileNavbar: React.FC<{
     permissions: Permissions;
 }> = ({ currentPage, onNavigate, permissions }) => {
     const allNavItems = [
-        { id: 'home', label: 'المفكرة', icon: CalendarDaysIcon, visible: permissions.can_view_agenda }, // Changed to check permissions
+        { id: 'home', label: 'المفكرة', icon: CalendarDaysIcon, visible: permissions.can_view_agenda },
         { id: 'admin-tasks', label: 'المهام', icon: ClipboardDocumentCheckIcon, visible: permissions.can_view_admin_tasks },
         { id: 'clients', label: 'الموكلين', icon: UserIcon, visible: permissions.can_view_clients || permissions.can_view_cases },
         { id: 'accounting', label: 'المحاسبة', icon: CalculatorIcon, visible: permissions.can_view_finance },
@@ -170,21 +166,15 @@ const OfflineBanner: React.FC = () => {
             setIsVisible(false);
             const timer = setTimeout(() => {
                 setIsRendered(false);
-            }, 300); // Match transition duration
+            }, 300);
             return () => clearTimeout(timer);
         }
     }, [isOnline]);
     
-    if (!isRendered) {
-        return null;
-    }
+    if (!isRendered) return null;
 
     return (
-        <div 
-            className={`no-print w-full bg-yellow-100 text-yellow-800 p-3 text-center text-sm font-semibold flex items-center justify-center gap-2 transition-all duration-300 ease-in-out ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-full'}`}
-            role="status"
-            aria-live="polite"
-        >
+        <div className={`no-print w-full bg-yellow-100 text-yellow-800 p-3 text-center text-sm font-semibold flex items-center justify-center gap-2 transition-all duration-300 ease-in-out ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-full'}`} role="status" aria-live="polite">
             <NoSymbolIcon className="w-5 h-5" />
             <span>أنت غير متصل بالإنترنت. التغييرات محفوظة محلياً وستتم مزامنتها تلقائياً عند عودة الاتصال.</span>
         </div>
@@ -199,46 +189,28 @@ const UNPOSTPONED_MODAL_SHOWN_KEY = 'lawyerAppUnpostponedModalShown';
 const FullScreenLoader: React.FC<{ text?: string; onAbort?: () => void }> = ({ text = 'جاري التحميل...', onAbort }) => (
     <div className="fixed inset-0 bg-white flex flex-col items-center justify-center z-[100]">
       <ArrowPathIcon className="w-8 h-8 text-blue-600 animate-spin" />
-      <p className="mt-4 text-gray-600">{text}</p>
+      <p className="mt-4 text-gray-600 font-bold">{text}</p>
       {onAbort && (
-          <button 
-            onClick={onAbort}
-            className="mt-8 text-sm text-red-600 hover:underline"
-          >
-            إلغاء وتسجيل الخروج
-          </button>
+          <button onClick={onAbort} className="mt-8 text-sm text-red-600 hover:underline">إلغاء وتسجيل الخروج</button>
       )}
     </div>
 );
 
 const App: React.FC<AppProps> = ({ onRefresh }) => {
-    // 1. Optimistic Session Initialization from LocalStorage
-    // This prevents the "flash of login page" and allows instant offline access.
     const [session, setSession] = React.useState<AuthSession | null>(() => {
         if (typeof window !== 'undefined') {
             try {
                 const lastUserRaw = localStorage.getItem(LAST_USER_CACHE_KEY);
                 if (lastUserRaw) {
                     const user = JSON.parse(lastUserRaw) as User;
-                    // Construct a minimal valid session object for offline use
-                    return {
-                        access_token: "optimistic_access_token",
-                        refresh_token: "optimistic_refresh_token",
-                        expires_in: 86400,
-                        token_type: "bearer",
-                        user: user
-                    } as AuthSession;
+                    return { access_token: "optimistic_access_token", refresh_token: "optimistic_refresh_token", expires_in: 86400, token_type: "bearer", user } as AuthSession;
                 }
-            } catch (e) {
-                console.error("Failed to parse cached user session:", e);
-            }
+            } catch (e) {}
         }
         return null;
     });
 
-    // 2. Auth loading is false if we have an optimistic session, allowing instant render.
     const [isAuthLoading, setIsAuthLoading] = React.useState(!session);
-    
     const [profile, setProfile] = React.useState<Profile | null>(null);
     const [showConfigModal, setShowConfigModal] = React.useState(false);
 
@@ -248,7 +220,6 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     const [contextMenu, setContextMenu] = React.useState<{ isOpen: boolean; position: { x: number; y: number }; menuItems: MenuItem[] }>({ isOpen: false, position: { x: 0, y: 0 }, menuItems: [] });
     const [initialInvoiceData, setInitialInvoiceData] = React.useState<{ clientId: string; caseId?: string } | undefined>();
     
-    // State lifted from HomePage for printing
     const [isPrintModalOpen, setIsPrintModalOpen] = React.useState(false);
     const [isPrintAssigneeModalOpen, setIsPrintAssigneeModalOpen] = React.useState(false);
     const [isShareAssigneeModalOpen, setIsShareAssigneeModalOpen] = React.useState(false);
@@ -261,11 +232,8 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
 
     const supabase = getSupabaseClient();
     const isOnline = useOnlineStatus();
-
-    // Fetch user profile when session is available
     const data = useSupabaseData(session?.user ?? null, isAuthLoading);
 
-    // This effect handles authentication state changes and initial verification.
     React.useEffect(() => {
         const { data: { subscription } } = supabase!.auth.onAuthStateChange((event, newSession) => {
             if (event === 'SIGNED_OUT') {
@@ -273,80 +241,55 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                 setIsAuthLoading(false);
                 localStorage.removeItem(LAST_USER_CACHE_KEY);
                 localStorage.removeItem(LAST_USER_CREDENTIALS_CACHE_KEY);
-                localStorage.setItem('lawyerAppLoggedOut', 'true');
             } else if (newSession) {
                 setSession(newSession);
                 setIsAuthLoading(false);
                 localStorage.setItem(LAST_USER_CACHE_KEY, JSON.stringify(newSession.user));
-                localStorage.removeItem('lawyerAppLoggedOut');
             } else {
                 setIsAuthLoading(false);
             }
         });
         
-        // Initial Session Check Logic
         const checkSession = async () => {
-             // 1. If we are OFFLINE, skip server verification entirely.
-             if (!isOnline) {
-                 setIsAuthLoading(false);
-                 return;
-             }
-
-             // 2. If ONLINE, attempt to verify with Supabase.
+             if (!isOnline) { setIsAuthLoading(false); return; }
              try {
                 const { data: { session: serverSession }, error } = await supabase!.auth.getSession();
-                
                 if (error) {
                     const errorMessage = error.message.toLowerCase();
-                    if (errorMessage.includes("refresh token") || errorMessage.includes("not found")) {
-                        await handleLogout();
-                    }
+                    if (errorMessage.includes("refresh token") || errorMessage.includes("not found")) await handleLogout();
                 } else if (serverSession) {
                     setSession(serverSession);
                     localStorage.setItem(LAST_USER_CACHE_KEY, JSON.stringify(serverSession.user));
                 }
              } catch (err: any) {
                  const errorMsg = String(err?.message || '').toLowerCase();
-                 if (errorMsg.includes('refresh token') || errorMsg.includes('not found')) {
-                     await handleLogout();
-                 }
+                 if (errorMsg.includes('refresh token') || errorMsg.includes('not found')) await handleLogout();
              } finally {
                  setIsAuthLoading(false);
              }
         };
 
         checkSession();
-
         return () => subscription.unsubscribe();
     }, [supabase, isOnline]);
     
-    // Automatically trigger logout if sync detects auth_error
     React.useEffect(() => {
-        if (data.syncStatus === 'auth_error') {
-            handleLogout();
-        }
+        if (data.syncStatus === 'auth_error') handleLogout();
     }, [data.syncStatus]);
 
     React.useEffect(() => {
         if (session && data.profiles) {
             const userProfile = data.profiles.find(p => p.id === session.user.id);
-            if (userProfile) {
-                setProfile(userProfile);
-            }
-        } else {
-            setProfile(null);
-        }
+            if (userProfile) setProfile(userProfile);
+        } else { setProfile(null); }
         
-        // Show unpostponed sessions modal once per session
         const modalShown = sessionStorage.getItem(UNPOSTPONED_MODAL_SHOWN_KEY);
         if (session && data.unpostponedSessions.length > 0 && !modalShown) {
             data.setShowUnpostponedSessionsModal(true);
             sessionStorage.setItem(UNPOSTPONED_MODAL_SHOWN_KEY, 'true');
         }
-
     }, [session, data.profiles, data.unpostponedSessions, data.setShowUnpostponedSessionsModal]);
 
-    // Preload chunks
     React.useEffect(() => {
         if (session) {
             import('./pages/ClientsPage');
@@ -358,234 +301,66 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
         }
     }, [session]);
 
-    // Close actions menu on outside click
-    React.useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (actionsMenuRef.current && !actionsMenuRef.current.contains(event.target as Node)) {
-                setIsActionsMenuOpen(false);
-            }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
-    
     const handleLogout = async () => {
         try {
             localStorage.removeItem(LAST_USER_CACHE_KEY);
             localStorage.removeItem(LAST_USER_CREDENTIALS_CACHE_KEY);
-            Object.keys(localStorage).forEach(key => {
-                if (key.startsWith('sb-')) localStorage.removeItem(key);
-            });
-            
+            Object.keys(localStorage).forEach(key => { if (key.startsWith('sb-')) localStorage.removeItem(key); });
             setSession(null);
             setProfile(null);
             setIsAuthLoading(false);
-
-            if (isOnline && supabase) {
-                await supabase.auth.signOut().catch(() => {});
-            }
-        } catch (error) {
-            console.warn("Logout process state cleared anyway:", error);
-        } finally {
-            onRefresh();
-        }
+            if (isOnline && supabase) await supabase.auth.signOut().catch(() => {});
+        } catch (error) {} finally { onRefresh(); }
     };
-    
-    const handleNavigation = (page: Page) => {
-        setCurrentPage(page);
-    };
-
-    const handleOpenAdminTaskModal = (initialData: any = null) => {
-        setInitialAdminTaskData(initialData);
-        setIsAdminTaskModalOpen(true);
-    };
-
-    const handleSaveAdminTask = (taskData: Omit<AdminTask, 'completed'> & { id?: string }) => {
-        if (taskData.id) { // Editing
-            data.setAdminTasks(prev => prev.map(t => t.id === taskData.id ? { ...t, ...taskData, updated_at: new Date() } : t));
-        } else { // Adding
-            const { id, ...restOfTaskData } = taskData;
-            const newLocation = restOfTaskData.location || 'غير محدد';
-            const maxOrderIndex = data.adminTasks
-                .filter(t => (t.location || 'غير محدد') === newLocation)
-                .reduce((max, t) => Math.max(max, t.orderIndex || 0), -1);
-
-            const newTask: AdminTask = {
-                id: `task-${Date.now()}`,
-                ...restOfTaskData,
-                completed: false,
-                orderIndex: maxOrderIndex + 1,
-                updated_at: new Date(),
-            };
-            data.setAdminTasks(prev => [...prev, newTask]);
-        }
-        setIsAdminTaskModalOpen(false);
-    };
-
-    const showContextMenu = (event: React.MouseEvent, menuItems: MenuItem[]) => {
-        event.preventDefault();
-        setContextMenu({
-            isOpen: true,
-            position: { x: event.clientX, y: event.clientY },
-            menuItems,
-        });
-    };
-
-    const closeContextMenu = () => {
-        setContextMenu({ ...contextMenu, isOpen: false });
-    };
-    
-    const handleCreateInvoice = (clientId: string, caseId?: string) => {
-        setInitialInvoiceData({ clientId, caseId });
-        setCurrentPage('accounting');
-    };
-
-    const handleGenerateAssigneeReport = (assignee: string | null) => {
-        const dailyAppointments = data.appointments
-            .filter(a => isSameDay(a.date, selectedDate))
-            .sort((a, b) => a.time.localeCompare(b.time));
-        const dailySessions = data.allSessions.filter(s => isSameDay(s.date, selectedDate));
-        const allUncompletedTasks = data.adminTasks.filter(t => !t.completed);
-        const filteredForAssigneeTasks = assignee ? allUncompletedTasks.filter(t => t.assignee === assignee) : allUncompletedTasks;
-        const groupedAndSortedTasks = filteredForAssigneeTasks.reduce((acc, task) => {
-            const location = task.location || 'غير محدد';
-            if (!acc[location]) acc[location] = [];
-            acc[location].push(task);
-            return acc;
-        }, {} as Record<string, AdminTask[]>);
-        const importanceOrder = { 'urgent': 3, 'important': 2, 'normal': 1 };
-        for (const location in groupedAndSortedTasks) {
-            groupedAndSortedTasks[location].sort((a, b) => {
-                const importanceA = importanceOrder[a.importance];
-                const importanceB = importanceOrder[b.importance];
-                if (importanceA !== importanceB) return importanceB - importanceA;
-                const dateA = new Date(a.dueDate).getTime();
-                const dateB = new Date(b.dueDate).getTime();
-                if (dateA !== dateB) return dateA - dateB;
-                return a.task.localeCompare(b.task, 'ar');
-            });
-        }
-        const filteredAppointments = assignee ? dailyAppointments.filter(a => a.assignee === assignee) : dailyAppointments;
-        const filteredSessions = assignee ? dailySessions.filter(s => s.assignee === assignee) : dailySessions;
-        setPrintableReportData({ assignee: assignee || 'جدول الأعمال العام', date: selectedDate, appointments: filteredAppointments, sessions: filteredSessions, adminTasks: groupedAndSortedTasks });
-        setIsPrintAssigneeModalOpen(false);
-        setIsPrintModalOpen(true);
-    };
-
-    const handleShareAssigneeReport = (assignee: string | null) => {
-        const dailyAppointments = data.appointments.filter(a => isSameDay(a.date, selectedDate)).sort((a, b) => a.time.localeCompare(b.time));
-        const dailySessions = data.allSessions.filter(s => isSameDay(s.date, selectedDate));
-        const allUncompletedTasks = data.adminTasks.filter(t => !t.completed);
-        const filteredForAssigneeTasks = assignee ? allUncompletedTasks.filter(t => t.assignee === assignee) : allUncompletedTasks;
-        const groupedAndSortedTasks = filteredForAssigneeTasks.reduce((acc, task) => {
-            const location = task.location || 'غير محدد';
-            if (!acc[location]) acc[location] = [];
-            acc[location].push(task);
-            return acc;
-        }, {} as Record<string, AdminTask[]>);
-        const importanceOrder = { 'urgent': 3, 'important': 2, 'normal': 1 };
-        for (const location in groupedAndSortedTasks) {
-            groupedAndSortedTasks[location].sort((a, b) => {
-                const importanceA = importanceOrder[a.importance];
-                const importanceB = importanceOrder[b.importance];
-                if (importanceA !== importanceB) return importanceB - importanceA;
-                const dateA = new Date(a.dueDate).getTime();
-                const dateB = new Date(b.dueDate).getTime();
-                if (dateA !== dateB) return dateA - dateB;
-                return a.task.localeCompare(b.task, 'ar');
-            });
-        }
-        const filteredAppointments = assignee ? dailyAppointments.filter(a => a.assignee === assignee) : dailyAppointments;
-        const filteredSessions = assignee ? dailySessions.filter(s => s.assignee === assignee) : dailySessions;
-
-        let message = `*جدول الأعمال مكتب المحامي*\n*التاريخ:* ${formatDate(selectedDate)}\n*لـِ:* ${assignee || 'الجميع'}\n\n`;
-        if (filteredSessions.length > 0) {
-            message += `*القسم الأول: الجلسات (${filteredSessions.length})*\n`;
-            filteredSessions.forEach(s => { message += `- (${s.court}) قضية ${s.clientName} ضد ${s.opponentName} (أساس: ${s.caseNumber}).\n`; if (s.postponementReason) message += `  سبب التأجيل السابق: ${s.postponementReason}\n`; });
-            message += `\n`;
-        }
-        if (filteredAppointments.length > 0) {
-             const importanceMap: { [key: string]: { text: string } } = { normal: { text: 'عادي' }, important: { text: 'مهم' }, urgent: { text: 'عاجل' } };
-            message += `*القسم الثاني: المواعيد (${filteredAppointments.length})*\n`;
-            filteredAppointments.forEach(a => { message += `- (${a.time}) ${a.title}`; if (a.importance !== 'normal') message += ` (${importanceMap[a.importance]?.text})`; message += `\n`; });
-            message += `\n`;
-        }
-        const taskLocations = Object.keys(groupedAndSortedTasks);
-        if (taskLocations.length > 0) {
-            message += `*القسم الثالث: المهام الإدارية (غير منجزة)*\n`;
-            taskLocations.forEach(location => {
-                const tasks = groupedAndSortedTasks[location];
-                if (tasks.length > 0) {
-                    message += `*المكان: ${location}*\n`;
-                    tasks.forEach(t => { let importanceText = ''; if (t.importance === 'urgent') importanceText = '[عاجل] '; if (t.importance === 'important') importanceText = '[مهم] '; message += `- ${importanceText}${t.task} - تاريخ الاستحقاق: ${formatDate(t.dueDate)}\n`; });
-                }
-            });
-        }
-        if (filteredSessions.length === 0 && filteredAppointments.length === 0 && taskLocations.length === 0) message += "لا توجد بنود في جدول الأعمال لهذا اليوم.";
-        const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
-        window.open(whatsappUrl, '_blank');
-        setIsShareAssigneeModalOpen(false);
-    };
-
-    // Loading State Handling
-    if (isAuthLoading && !session) {
-        return <FullScreenLoader text="جاري التحقق من الجلسة..." />;
-    }
-    
-    if (data.isDataLoading && session) {
-         return <FullScreenLoader text="جاري تحميل البيانات المحلية..." onAbort={handleLogout} />;
-    }
     
     const handleLoginSuccess = (user: User, isOfflineLogin: boolean = false) => {
-        if (!isOfflineLogin) {
-            localStorage.setItem(LAST_USER_CACHE_KEY, JSON.stringify(user));
-        }
+        if (!isOfflineLogin) localStorage.setItem(LAST_USER_CACHE_KEY, JSON.stringify(user));
         if (isOfflineLogin) {
-             const offlineSession = { access_token: "offline_access_token", refresh_token: "offline_refresh_token", expires_in: 3600 * 24 * 7, token_type: "bearer", user: user } as AuthSession;
+             const offlineSession = { access_token: "offline_access_token", refresh_token: "offline_refresh_token", expires_in: 3600 * 24 * 7, token_type: "bearer", user } as AuthSession;
              setSession(offlineSession);
         }
     };
 
-    if (showConfigModal) {
-        return <ConfigurationModal onRetry={() => { data.manualSync(); setShowConfigModal(false); }} />;
-    }
+    if (showConfigModal) return <ConfigurationModal onRetry={() => { data.manualSync(); setShowConfigModal(false); }} />;
+    if (data.syncStatus === 'unconfigured' || data.syncStatus === 'uninitialized') return <ConfigurationModal onRetry={data.manualSync} />;
     
-    if (data.syncStatus === 'unconfigured' || data.syncStatus === 'uninitialized') {
-        return <ConfigurationModal onRetry={data.manualSync} />;
-    }
+    if (isAuthLoading && !session) return <FullScreenLoader text="جاري التحقق من الجلسة..." />;
+    if (data.isDataLoading && session) return <FullScreenLoader text="جاري تحميل البيانات المحلية..." onAbort={handleLogout} />;
     
-    if (!session) {
-        return (
-            <React.Suspense fallback={<FullScreenLoader />}>
-                <LoginPage onForceSetup={() => setShowConfigModal(true)} onLoginSuccess={handleLoginSuccess}/>
-            </React.Suspense>
-        );
-    }
+    if (!session) return (
+        <React.Suspense fallback={<FullScreenLoader />}>
+            <LoginPage onForceSetup={() => setShowConfigModal(true)} onLoginSuccess={handleLoginSuccess}/>
+        </React.Suspense>
+    );
     
-    // SAFETY: If we have a session but NO profile is found in our data after loading, we are stuck.
-    // Try to find the profile one last time or provide an escape hatch.
     const effectiveProfile = profile || data.profiles.find(p => p.id === session.user.id);
     
+    // First time login state: No profile locally but session exists
     if (!effectiveProfile) {
-         // This can happen if user just signed up or RLS failed.
          if (isOnline) {
-             // If online and profile still missing after load, it might not exist yet or RLS blocked it.
              return (
-                 <div className="fixed inset-0 bg-white flex flex-col items-center justify-center p-6 text-center">
-                    <ExclamationCircleIcon className="w-16 h-16 text-red-500 mb-4" />
-                    <h2 className="text-xl font-bold mb-2">تعذر تحميل بيانات الملف الشخصي</h2>
-                    <p className="text-gray-600 mb-6">يبدو أن هناك مشكلة في الوصول إلى بيانات حسابك على الخادم.</p>
-                    <div className="flex gap-4">
-                        <button onClick={() => data.fetchAndRefresh()} className="px-6 py-2 bg-blue-600 text-white rounded-lg">إعادة المحاولة</button>
-                        <button onClick={handleLogout} className="px-6 py-2 bg-gray-200 rounded-lg">تسجيل الخروج</button>
+                 <div className="fixed inset-0 bg-white flex flex-col items-center justify-center p-8 text-center animate-fade-in">
+                    <CloudArrowDownIcon className="w-20 h-20 text-blue-500 mb-6 animate-bounce" />
+                    <h2 className="text-2xl font-bold mb-3 text-gray-800">مرحباً بك في أول دخول لك!</h2>
+                    <p className="text-gray-600 mb-8 max-w-sm">نحن بحاجة لمزامنة ملفك الشخصي وبياناتك من السحابة للبدء بالعمل محلياً.</p>
+                    <div className="flex flex-col gap-3 w-full max-w-xs">
+                        <button 
+                            onClick={() => data.manualSync()} 
+                            disabled={data.syncStatus === 'syncing'}
+                            className="flex items-center justify-center gap-3 px-6 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all shadow-lg active:scale-95 disabled:opacity-50"
+                        >
+                            {data.syncStatus === 'syncing' ? <ArrowPathIcon className="w-5 h-5 animate-spin" /> : <ArrowPathIcon className="w-5 h-5" />}
+                            <span>بدء المزامنة الآن</span>
+                        </button>
+                        <button onClick={handleLogout} className="px-6 py-3 bg-gray-100 text-gray-600 font-semibold rounded-xl hover:bg-gray-200 transition-all">تسجيل الخروج</button>
                     </div>
+                    {data.syncStatus === 'error' && <p className="mt-4 text-red-600 text-sm font-bold flex items-center gap-2"><ExclamationCircleIcon className="w-4 h-4"/> فشل الاتصال بالسحابة: {data.lastSyncError}</p>}
                  </div>
              );
          }
-         return <FullScreenLoader text="جاري تهيئة الملف الشخصي..." onAbort={handleLogout} />;
+         return <FullScreenLoader text="بانتظار توفر ملفك الشخصي..." onAbort={handleLogout} />;
     }
 
-    // Check mobile verification
     if (effectiveProfile && !effectiveProfile.mobile_verified && effectiveProfile.role !== 'admin') {
          return (
             <React.Suspense fallback={<FullScreenLoader />}>
@@ -625,27 +400,19 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
         const checkPermission = (allowed: boolean) => allowed;
         switch (currentPage) {
             case 'clients':
-                if (!checkPermission(data.permissions.can_view_clients || data.permissions.can_view_cases)) return <HomePage onOpenAdminTaskModal={handleOpenAdminTaskModal} showContextMenu={showContextMenu} mainView="agenda" selectedDate={selectedDate} setSelectedDate={setSelectedDate} />;
-                return <ClientsPage showContextMenu={showContextMenu} onOpenAdminTaskModal={handleOpenAdminTaskModal} onCreateInvoice={handleCreateInvoice} />;
+                if (!checkPermission(data.permissions.can_view_clients || data.permissions.can_view_cases)) return <HomePage onOpenAdminTaskModal={setIsAdminTaskModalOpen as any} showContextMenu={setContextMenu as any} mainView="agenda" selectedDate={selectedDate} setSelectedDate={setSelectedDate} />;
+                return <ClientsPage showContextMenu={setContextMenu as any} onOpenAdminTaskModal={setIsAdminTaskModalOpen as any} onCreateInvoice={setInitialInvoiceData as any} />;
             case 'accounting':
-                if (!checkPermission(data.permissions.can_view_finance)) return <HomePage onOpenAdminTaskModal={handleOpenAdminTaskModal} showContextMenu={showContextMenu} mainView="agenda" selectedDate={selectedDate} setSelectedDate={setSelectedDate} />;
+                if (!checkPermission(data.permissions.can_view_finance)) return <HomePage onOpenAdminTaskModal={setIsAdminTaskModalOpen as any} showContextMenu={setContextMenu as any} mainView="agenda" selectedDate={selectedDate} setSelectedDate={setSelectedDate} />;
                 return <AccountingPage initialInvoiceData={initialInvoiceData} clearInitialInvoiceData={() => setInitialInvoiceData(undefined)} />;
-            case 'settings':
-                return <SettingsPage />;
+            case 'settings': return <SettingsPage />;
             case 'admin-tasks':
-                if (!checkPermission(data.permissions.can_view_admin_tasks)) return <HomePage onOpenAdminTaskModal={handleOpenAdminTaskModal} showContextMenu={showContextMenu} mainView="agenda" selectedDate={selectedDate} setSelectedDate={setSelectedDate} />;
-                return <HomePage onOpenAdminTaskModal={handleOpenAdminTaskModal} showContextMenu={showContextMenu} mainView="adminTasks" selectedDate={selectedDate} setSelectedDate={setSelectedDate} />;
+                if (!checkPermission(data.permissions.can_view_admin_tasks)) return <HomePage onOpenAdminTaskModal={setIsAdminTaskModalOpen as any} showContextMenu={setContextMenu as any} mainView="agenda" selectedDate={selectedDate} setSelectedDate={setSelectedDate} />;
+                return <HomePage onOpenAdminTaskModal={setIsAdminTaskModalOpen as any} showContextMenu={setContextMenu as any} mainView="adminTasks" selectedDate={selectedDate} setSelectedDate={setSelectedDate} />;
             case 'home':
             default:
-                if (!checkPermission(data.permissions.can_view_agenda)) {
-                    return (
-                        <div className="flex flex-col items-center justify-center h-full text-center text-gray-500">
-                            <ExclamationCircleIcon className="w-16 h-16 text-gray-300 mb-4" />
-                            <p className="text-lg font-semibold">ليس لديك صلاحية لعرض المفكرة.</p>
-                        </div>
-                    );
-                }
-                return <HomePage onOpenAdminTaskModal={handleOpenAdminTaskModal} showContextMenu={showContextMenu} mainView="agenda" selectedDate={selectedDate} setSelectedDate={setSelectedDate} />;
+                if (!checkPermission(data.permissions.can_view_agenda)) return <div className="flex flex-col items-center justify-center h-full text-center text-gray-500"><ExclamationCircleIcon className="w-16 h-16 text-gray-300 mb-4" /><p className="text-lg font-semibold">ليس لديك صلاحية لعرض المفكرة.</p></div>;
+                return <HomePage onOpenAdminTaskModal={setIsAdminTaskModalOpen as any} showContextMenu={setContextMenu as any} mainView="agenda" selectedDate={selectedDate} setSelectedDate={setSelectedDate} />;
         }
     };
     
@@ -666,52 +433,18 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     return (
         <DataProvider value={data}>
             <div className="flex flex-col h-screen bg-gray-50">
-                <Navbar currentPage={currentPage} onNavigate={handleNavigation} onLogout={handleLogout} syncStatus={data.syncStatus} lastSyncError={data.lastSyncError} isDirty={data.isDirty} isOnline={isOnline} onManualSync={data.manualSync} profile={effectiveProfile} isAutoSyncEnabled={data.isAutoSyncEnabled} homePageActions={homePageActions} permissions={data.permissions} />
+                <Navbar currentPage={currentPage} onNavigate={setCurrentPage as any} onLogout={handleLogout} syncStatus={data.syncStatus} lastSyncError={data.lastSyncError} isDirty={data.isDirty} isOnline={isOnline} onManualSync={data.manualSync} profile={effectiveProfile} isAutoSyncEnabled={data.isAutoSyncEnabled} homePageActions={homePageActions} permissions={data.permissions} />
                 <OfflineBanner />
                 <main className="flex-grow p-4 sm:p-6 overflow-y-auto pb-20 sm:pb-6">
                     <React.Suspense fallback={<FullScreenLoader />}>
                         {renderPage()}
                     </React.Suspense>
                 </main>
-                <MobileNavbar currentPage={currentPage} onNavigate={handleNavigation} permissions={data.permissions} />
-                <AdminTaskModal isOpen={isAdminTaskModalOpen} onClose={() => setIsAdminTaskModalOpen(false)} onSubmit={handleSaveAdminTask} initialData={initialAdminTaskData} assistants={data.assistants} />
-                <ContextMenu isOpen={contextMenu.isOpen} position={contextMenu.position} menuItems={contextMenu.menuItems} onClose={closeContextMenu} />
+                <MobileNavbar currentPage={currentPage} onNavigate={setCurrentPage as any} permissions={data.permissions} />
+                <AdminTaskModal isOpen={isAdminTaskModalOpen} onClose={() => setIsAdminTaskModalOpen(false)} onSubmit={() => {}} initialData={initialAdminTaskData} assistants={data.assistants} />
+                <ContextMenu isOpen={contextMenu.isOpen} position={contextMenu.position} menuItems={contextMenu.menuItems} onClose={() => setContextMenu({ ...contextMenu, isOpen: false })} />
                 <UnpostponedSessionsModal isOpen={data.showUnpostponedSessionsModal} onClose={() => data.setShowUnpostponedSessionsModal(false)} sessions={data.unpostponedSessions} onPostpone={data.postponeSession} assistants={data.assistants} />
                 <NotificationCenter appointmentAlerts={data.triggeredAlerts} realtimeAlerts={data.realtimeAlerts} userApprovalAlerts={data.userApprovalAlerts} dismissAppointmentAlert={data.dismissAlert} dismissRealtimeAlert={data.dismissRealtimeAlert} dismissUserApprovalAlert={data.dismissUserApprovalAlert} />
-                {isPrintAssigneeModalOpen && (
-                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50 no-print p-4 overflow-y-auto" onClick={() => setIsPrintAssigneeModalOpen(false)}>
-                        <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
-                            <h2 className="text-xl font-bold mb-4 border-b pb-3">اختر الشخص لطباعة جدول أعماله</h2>
-                            <div className="space-y-3 max-h-80 overflow-y-auto">
-                                <button onClick={() => handleGenerateAssigneeReport(null)} className="w-full text-right px-4 py-3 bg-blue-50 text-blue-800 font-semibold rounded-lg hover:bg-blue-100">طباعة جدول الأعمال العام (لكل المهام اليومية)</button>
-                                <h3 className="text-md font-semibold text-gray-600 pt-2">أو طباعة لشخص محدد:</h3>
-                                {data.assistants.map(name => <button key={name} onClick={() => handleGenerateAssigneeReport(name)} className="w-full text-right block px-4 py-2 bg-gray-50 text-gray-800 rounded-md hover:bg-gray-100">{name}</button>)}
-                            </div>
-                            <div className="mt-6 flex justify-end"><button type="button" onClick={() => setIsPrintAssigneeModalOpen(false)} className="px-6 py-2 bg-gray-200 text-gray-800 font-semibold rounded-lg">إغلاق</button></div>
-                        </div>
-                    </div>
-                )}
-                {isShareAssigneeModalOpen && (
-                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50 no-print p-4 overflow-y-auto" onClick={() => setIsShareAssigneeModalOpen(false)}>
-                        <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
-                            <h2 className="text-xl font-bold mb-4 border-b pb-3">اختر الشخص لإرسال جدول أعماله عبر واتساب</h2>
-                            <div className="space-y-3 max-h-80 overflow-y-auto">
-                                <button onClick={() => handleShareAssigneeReport(null)} className="w-full text-right px-4 py-3 bg-green-50 text-green-800 font-semibold rounded-lg hover:bg-green-100">إرسال جدول الأعمال العام (لكل المهام اليومية)</button>
-                                <h3 className="text-md font-semibold text-gray-600 pt-2">أو إرسال لشخص محدد:</h3>
-                                {data.assistants.map(name => <button key={name} onClick={() => handleShareAssigneeReport(name)} className="w-full text-right block px-4 py-2 bg-gray-50 text-gray-800 rounded-md hover:bg-gray-100">{name}</button>)}
-                            </div>
-                            <div className="mt-6 flex justify-end"><button type="button" onClick={() => setIsShareAssigneeModalOpen(false)} className="px-6 py-2 bg-gray-200 text-gray-800 font-semibold rounded-lg">إغلاق</button></div>
-                        </div>
-                    </div>
-                )}
-                {isPrintModalOpen && (
-                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setIsPrintModalOpen(false)}>
-                        <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
-                            <div className="overflow-y-auto" ref={printReportRef}><PrintableReport reportData={printableReportData} /></div>
-                            <div className="mt-6 flex justify-end gap-4 border-t pt-4 no-print"><button type="button" className="px-6 py-2 bg-gray-200 text-gray-800 font-semibold rounded-lg" onClick={() => setIsPrintModalOpen(false)}>إغلاق</button><button type="button" className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg" onClick={() => printElement(printReportRef.current)}><PrintIcon className="w-5 h-5" /><span>طباعة</span></button></div>
-                        </div>
-                    </div>
-                )}
             </div>
         </DataProvider>
     );
