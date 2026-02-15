@@ -373,7 +373,9 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     React.useEffect(() => {
         const justUpdated = localStorage.getItem('lawyerAppUpdated');
         if (justUpdated === 'true') {
-            data.addRealtimeAlert('تم تحديث التطبيق إلى آخر إصدار بنجاح', 'sync');
+            // Show a clear message to the user
+            data.addRealtimeAlert('تم تحديث التطبيق بنجاح إلى الإصدار الجديد (15-2-2026)', 'sync');
+            // Remove the flag so it doesn't show again on subsequent reloads
             localStorage.removeItem('lawyerAppUpdated');
         }
     }, [data.addRealtimeAlert]);

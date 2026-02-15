@@ -1,3 +1,4 @@
+
 import * as React from 'react';
 import { createRoot } from 'react-dom/client';
 // Fix: Corrected the import path for the App component by removing the `.tsx` extension. This is standard practice and helps module resolvers correctly locate the file, resolving the "no default export" error.
@@ -18,10 +19,11 @@ window.addEventListener('storage', (event) => {
 if ('serviceWorker' in navigator) {
   // This listener handles messages from the service worker.
   // When a new service worker is activated, it sends a 'RELOAD_PAGE_NOW' message
-  // to all clients, forcing them to reload to get the latest version. This is more
-  // reliable than the 'controllerchange' event.
+  // to all clients, forcing them to reload to get the latest version.
   navigator.serviceWorker.addEventListener('message', event => {
     if (event.data && event.data.type === 'RELOAD_PAGE_NOW') {
+      // Set a flag to show the update message on the next load
+      localStorage.setItem('lawyerAppUpdated', 'true');
       window.location.reload();
     }
   });
