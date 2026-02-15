@@ -468,33 +468,33 @@ const HomePage: React.FC<HomePageProps> = ({
                             currentDate={calendarViewDate}
                             setCurrentDate={setCalendarViewDate}
                         />
-                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                         <div className="grid grid-cols-3 gap-1.5">
                             <div className="relative">
                                 <button
                                     onClick={() => setViewMode('unpostponed')}
-                                    className={`w-full flex items-center justify-center gap-2 px-4 py-2 text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 text-sm font-semibold ${viewMode === 'unpostponed' ? 'bg-red-700' : 'bg-red-600 hover:bg-red-700'}`}
+                                    className={`w-full flex items-center justify-center gap-1 px-1 py-1.5 text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 text-[10px] sm:text-xs font-bold ${viewMode === 'unpostponed' ? 'bg-red-700' : 'bg-red-600 hover:bg-red-700'}`}
                                 >
-                                    <ExclamationTriangleIcon className="w-5 h-5" />
+                                    <ExclamationTriangleIcon className="w-4 h-4" />
                                     <span>غير المرحلة</span>
                                 </button>
                                 {unpostponedSessions.length > 0 && (
-                                     <span className="absolute -top-2 -start-2 flex h-5 w-5 items-center justify-center rounded-full bg-yellow-400 text-black text-xs font-bold ring-2 ring-white animate-pulse" title={`${unpostponedSessions.length} جلسات غير مرحلة`}>
+                                     <span className="absolute -top-1 -start-1 flex h-4 w-4 items-center justify-center rounded-full bg-yellow-400 text-black text-[9px] font-bold ring-1 ring-white animate-pulse" title={`${unpostponedSessions.length} جلسات غير مرحلة`}>
                                         {unpostponedSessions.length}
                                     </span>
                                 )}
                             </div>
                             <button
                                 onClick={handleShowTodaysAgenda}
-                                className={`w-full flex items-center justify-center gap-2 px-4 py-2 text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 text-sm font-semibold ${viewMode === 'daily' ? 'bg-blue-700' : 'bg-blue-600 hover:bg-blue-700'}`}
+                                className={`w-full flex items-center justify-center gap-1 px-1 py-1.5 text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 text-[10px] sm:text-xs font-bold ${viewMode === 'daily' ? 'bg-blue-700' : 'bg-blue-600 hover:bg-blue-700'}`}
                             >
-                                <CalendarIcon className="w-5 h-5" />
+                                <CalendarIcon className="w-4 h-4" />
                                 <span>أجندة اليوم</span>
                             </button>
                             <button
                                 onClick={() => setViewMode('upcoming')}
-                                className={`w-full flex items-center justify-center gap-2 px-4 py-2 text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 text-sm font-semibold ${viewMode === 'upcoming' ? 'bg-green-700' : 'bg-green-600 hover:bg-green-700'}`}
+                                className={`w-full flex items-center justify-center gap-1 px-1 py-1.5 text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 text-[10px] sm:text-xs font-bold ${viewMode === 'upcoming' ? 'bg-green-700' : 'bg-green-600 hover:bg-green-700'}`}
                             >
-                                <ChevronLeftIcon className="w-5 h-5" />
+                                <ChevronLeftIcon className="w-4 h-4" />
                                 <span>القادمة</span>
                             </button>
                         </div>
