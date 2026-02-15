@@ -98,8 +98,8 @@ const mergeForRefresh = <T extends { id: any; updated_at?: Date | string }>(loca
         const id = remoteItem.id ?? (remoteItem as any).name;
         const existingItem = finalItems.get(id);
         if (existingItem) {
-            const remoteDate = new Date(remoteItem.updated_at || 0).getTime();
-            const localDate = new Date(existingItem.updated_at || 0).getTime();
+            const remoteDate = new Date(remoteItem.updated_at || 0);
+            const localDate = new Date(existingItem.updated_at || 0);
             if (remoteDate > localDate) finalItems.set(id, remoteItem);
         } else { finalItems.set(id, remoteItem); }
     }
@@ -185,10 +185,14 @@ const cleanupExpiredDocuments = async (remoteDocs: any[], supabase: any) => {
         const expiredIds = expiredDocs.map((d: any) => d.id);
         const expiredPaths = expiredDocs.map((d: any) => d.storage_path).filter((p: any) => !!p);
 
+        // Delete from DB first
         const { error: dbError } = await supabase.from('case_documents').delete().in('id', expiredIds);
         if (dbError) {
             console.error("Failed to delete expired docs metadata:", dbError);
         } else {
+            // If DB delete success, delete from storage
+            // Note: We do NOT log these deletions to 'sync_deletions' because we WANT local clients to keep their copies (Archive behavior).
+            // Normal delete triggers might log them, but clients should be smart enough not to delete local files if they are 'synced'.
             if (expiredPaths.length > 0) {
                 const { error: storageError } = await supabase.storage.from('documents').remove(expiredPaths);
                 if (storageError) console.error("Failed to delete expired docs files:", storageError);
@@ -198,12 +202,15 @@ const cleanupExpiredDocuments = async (remoteDocs: any[], supabase: any) => {
 };
 
 export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletionsSynced, onSyncStatusChange, onDocumentsUploaded, excludedDocIds, isOnline, isAuthLoading, syncStatus }: UseSyncProps) => {
+    // Refs to store the latest values of data without triggering re-creation of manualSync
     const userRef = React.useRef(user);
     const localDataRef = React.useRef(localData);
     const deletedIdsRef = React.useRef(deletedIds);
     const excludedDocIdsRef = React.useRef(excludedDocIds);
+    // Track syncStatus via ref to break dependency loop in useCallback
     const syncStatusRef = React.useRef(syncStatus);
 
+    // Update refs on every render
     userRef.current = user;
     localDataRef.current = localData;
     deletedIdsRef.current = deletedIds;
@@ -231,6 +238,7 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
         }
     
         try {
+            // 0. Upload Pending Files FIRST
             const pendingDocs = localDataRef.current.documents.filter(d => d.localState === 'pending_upload');
             const uploadedDocIds: string[] = [];
 
@@ -252,6 +260,8 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
                             } else {
                                 uploadedDocIds.push(doc.id);
                             }
+                        } else {
+                            console.warn(`File for doc ${doc.id} missing in IndexedDB`);
                         }
                     } catch (e) {
                         console.error(`Error uploading doc ${doc.id}:`, e);
@@ -263,6 +273,7 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
                 }
             }
 
+            // 1. Fetch Remote Data AND Deletions Log
             setStatus('syncing', 'جاري جلب البيانات من السحابة...');
             const [remoteDataRaw, remoteDeletions] = await Promise.all([
                 fetchDataFromSupabase(),
@@ -270,17 +281,24 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
             ]);
             const remoteFlatData = transformRemoteToLocal(remoteDataRaw);
 
+            // 1.5 Cloud Cleanup (72h Rule)
             const supabase = getSupabaseClient();
             if (supabase && remoteDataRaw.case_documents) {
+                // Fire and forget cleanup to avoid blocking sync UI too much, or await if critical.
+                // We await to ensure we don't sync back expired docs immediately.
                 await cleanupExpiredDocuments(remoteDataRaw.case_documents, supabase);
             }
 
+            // 2. Prepare Local Data
             let localFlatData = flattenData(localDataRef.current);
+            
+            // 3. Apply Remote Deletions
             localFlatData = applyDeletionsToLocal(localFlatData, remoteDeletions);
 
             const isLocalEffectivelyEmpty = (localFlatData.clients.length === 0 && localFlatData.admin_tasks.length === 0 && localFlatData.appointments.length === 0 && localFlatData.accounting_entries.length === 0 && localFlatData.invoices.length === 0 && localFlatData.case_documents.length === 0);
-            const hasPendingDeletions = Object.values(deletedIdsRef.current).some((arr: any) => arr && arr.length > 0);
-            const isRemoteEffectivelyEmpty = !remoteDataRaw || Object.values(remoteDataRaw).every((arr: any) => !arr || arr.length === 0);
+            const hasPendingDeletions = Object.values(deletedIdsRef.current).some((arr: any) => arr.length > 0);
+            // Fix: Cast arr to any to avoid "Property length does not exist on type unknown" error
+            const isRemoteEffectivelyEmpty = !remoteDataRaw || Object.values(remoteDataRaw).every((arr: any) => arr?.length === 0);
 
             if (isLocalEffectivelyEmpty && !isRemoteEffectivelyEmpty && !hasPendingDeletions) {
                 const freshData = constructData(remoteFlatData);
@@ -311,12 +329,17 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
                 for (const localItem of localItems) {
                     const id = localItem.id ?? localItem.name;
 
+                    // Special Logic for Documents: Archive vs Pending Upload
                     if (key === 'case_documents') {
                         const doc = localItem as CaseDocument;
+                        // If it's pending upload and wasn't successfully uploaded in this session, skip upserting it to avoid 404s for others
                         if (doc.localState === 'pending_upload' && !uploadedDocIds.includes(doc.id)) {
-                            finalMergedItems.set(doc.id, localItem);
+                            finalMergedItems.set(doc.id, localItem); // Keep it local
                             continue; 
                         }
+                        
+                        // ARCHIVE LOGIC: If doc is synced locally but missing from remote (deleted due to 72h rule or other), keep it local.
+                        // Do NOT push to itemsToUpsert (which would re-upload it).
                         if (doc.localState === 'synced' && !remoteMap.has(doc.id)) {
                             finalMergedItems.set(doc.id, doc);
                             continue;
@@ -340,6 +363,10 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
                             finalMergedItems.set(id, localItem);
                         } else { finalMergedItems.set(id, remoteItem); }
                     } else {
+                        // For documents, we already handled the "missing remote" case above.
+                        // For other entities, if they are missing remotely, it usually means they are new locally and need upsert.
+                        // Or they were deleted remotely. We use 'fetchDeletionsFromSupabase' to handle hard remote deletes.
+                        // If it wasn't in deletion log, we assume it's new.
                         itemsToUpsert.push(localItem);
                         finalMergedItems.set(id, localItem);
                     }
@@ -353,6 +380,7 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
                         const deletedSet = (deletedIdsSets as any)[entityKey];
                         if (deletedSet) isDeleted = deletedSet.has(id);
                         
+                        // Prevent resurrection of locally excluded documents
                         if (key === 'case_documents' && excludedDocIdsRef.current && excludedDocIdsRef.current.has(id)) {
                             isDeleted = true;
                         }
@@ -369,21 +397,27 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
                 ...(flatUpserts.clients || []).map(c => c.id)
             ]);
             
-            if (flatUpserts.cases) flatUpserts.cases = flatUpserts.cases.filter(c => validClientIds.has(c.client_id));
+            if (flatUpserts.cases) {
+                flatUpserts.cases = flatUpserts.cases.filter(c => validClientIds.has(c.client_id));
+            }
             
             const validCaseIds = new Set([
                 ...(remoteFlatData.cases || []).map(c => c.id),
                 ...(flatUpserts.cases || []).map(c => c.id)
             ]);
             
-            if (flatUpserts.stages) flatUpserts.stages = flatUpserts.stages.filter(s => validCaseIds.has(s.case_id));
+            if (flatUpserts.stages) {
+                flatUpserts.stages = flatUpserts.stages.filter(s => validCaseIds.has(s.case_id));
+            }
             
             const validStageIds = new Set([
                 ...(remoteFlatData.stages || []).map(s => s.id),
                 ...(flatUpserts.stages || []).map(s => s.id)
             ]);
             
-            if (flatUpserts.sessions) flatUpserts.sessions = flatUpserts.sessions.filter(s => validStageIds.has(s.stage_id));
+            if (flatUpserts.sessions) {
+                flatUpserts.sessions = flatUpserts.sessions.filter(s => validStageIds.has(s.stage_id));
+            }
             
             if (mergedFlatData.cases) mergedFlatData.cases = mergedFlatData.cases.filter(c => validClientIds.has(c.client_id));
             if (mergedFlatData.stages) mergedFlatData.stages = mergedFlatData.stages.filter(s => validCaseIds.has(s.case_id));
@@ -450,7 +484,7 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
             if (err.table) errorMessage = `[جدول: ${err.table}] ${errorMessage}`;
             setStatus('error', `فشل المزامنة: ${errorMessage}`);
         }
-    }, [isOnline, onDataSynced, onDeletionsSynced, isAuthLoading, onDocumentsUploaded]);
+    }, [isOnline, onDataSynced, onDeletionsSynced, isAuthLoading, onDocumentsUploaded]); // Removed syncStatus from deps to fix infinite loop
 
     const fetchAndRefresh = React.useCallback(async () => {
         if (syncStatusRef.current === 'syncing' || isAuthLoading) return;
@@ -485,11 +519,23 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
             let localFlatData = flattenData(localDataRef.current);
             localFlatData = applyDeletionsToLocal(localFlatData, remoteDeletions);
 
+            // Important: Handle conflicts or just update with remote data.
+            // For fetchAndRefresh, we usually trust remote more, but we can merge.
+            // Using a simple merge strategy here similar to sync but favoring remote for conflict if needed.
+            // Actually manualSync logic already handles merging logic better.
+            // But fetchAndRefresh implies "I want what's on server".
+            
             const mergedFlatData: Partial<FlatData> = {};
             
             for (const key of Object.keys(remoteFlatData) as (keyof FlatData)[]) {
                 const remoteItems = (remoteFlatData as any)[key] || [];
                 const localItems = (localFlatData as any)[key] || [];
+                
+                // Merge strategy:
+                // 1. If item in remote and local, take newest.
+                // 2. If item in remote only, take remote.
+                // 3. If item in local only, take local (it might be a new unsynced item).
+                
                 const mergedItems = mergeForRefresh(localItems, remoteItems);
                 (mergedFlatData as any)[key] = mergedItems;
             }
