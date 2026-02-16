@@ -7,7 +7,7 @@ import { getSupabaseClient } from '../supabaseClient';
 import { Client, Case, Stage, Session, CaseDocument, AppData, DeletedIds, getInitialDeletedIds, SyncDeletion } from '../types';
 import { getDb, DOCS_FILES_STORE_NAME } from '../utils/db';
 
-export type SyncStatus = 'loading' | 'syncing' | 'synced' | 'error' | 'unconfigured' | 'uninitialized' | 'auth_error';
+export type SyncStatus = 'loading' | 'syncing' | 'synced' | 'error' | 'unconfigured' | 'uninitialized';
 
 
 interface UseSyncProps {
@@ -25,10 +25,29 @@ interface UseSyncProps {
 }
 
 const flattenData = (data: AppData): FlatData => {
-    const cases = data.clients.flatMap(c => c.cases.map(cs => ({ ...cs, client_id: c.id })));
-    const stages = cases.flatMap(cs => cs.stages.map(st => ({ ...st, case_id: cs.id })));
-    const sessions = stages.flatMap(st => st.sessions.map(s => ({ ...s, stage_id: st.id })));
-    const invoice_items = data.invoices.flatMap(inv => inv.items.map(item => ({ ...item, invoice_id: inv.id })));
+    const cases = data.clients.flatMap(c => c.cases.map(cs => ({ 
+        ...cs, 
+        client_id: c.id, 
+        clientId: c.id 
+    })));
+    
+    const stages = cases.flatMap(cs => cs.stages.map(st => ({ 
+        ...st, 
+        case_id: cs.id,
+        caseId: cs.id
+    })));
+    
+    const sessions = stages.flatMap(st => st.sessions.map(s => ({ 
+        ...s, 
+        stage_id: st.id,
+        stageId: st.id
+    })));
+    
+    const invoice_items = data.invoices.flatMap(inv => inv.items.map(item => ({ 
+        ...item, 
+        invoice_id: inv.id,
+        invoiceId: inv.id
+    })));
 
     return {
         clients: data.clients.map(({ cases, ...client }) => client),
@@ -50,32 +69,40 @@ const flattenData = (data: AppData): FlatData => {
 const constructData = (flatData: Partial<FlatData>): AppData => {
     const sessionMap = new Map<string, Session[]>();
     (flatData.sessions || []).forEach(s => {
-        const stageId = (s as any).stage_id;
-        if (!sessionMap.has(stageId)) sessionMap.set(stageId, []);
-        sessionMap.get(stageId)!.push(s as Session);
+        const stageId = (s as any).stageId || (s as any).stage_id;
+        if (stageId) {
+            if (!sessionMap.has(stageId)) sessionMap.set(stageId, []);
+            sessionMap.get(stageId)!.push(s as Session);
+        }
     });
 
     const stageMap = new Map<string, Stage[]>();
     (flatData.stages || []).forEach(st => {
         const stage = { ...st, sessions: sessionMap.get(st.id) || [] } as Stage;
-        const caseId = (st as any).case_id;
-        if (!stageMap.has(caseId)) stageMap.set(caseId, []);
-        stageMap.get(caseId)!.push(stage);
+        const caseId = (st as any).caseId || (st as any).case_id;
+        if (caseId) {
+            if (!stageMap.has(caseId)) stageMap.set(caseId, []);
+            stageMap.get(caseId)!.push(stage);
+        }
     });
 
     const caseMap = new Map<string, Case[]>();
     (flatData.cases || []).forEach(cs => {
         const caseItem = { ...cs, stages: stageMap.get(cs.id) || [] } as Case;
-        const clientId = (cs as any).client_id;
-        if (!caseMap.has(clientId)) caseMap.set(clientId, []);
-        caseMap.get(clientId)!.push(caseItem);
+        const clientId = (cs as any).clientId || (cs as any).client_id;
+        if (clientId) {
+            if (!caseMap.has(clientId)) caseMap.set(clientId, []);
+            caseMap.get(clientId)!.push(caseItem);
+        }
     });
     
     const invoiceItemMap = new Map<string, any[]>();
     (flatData.invoice_items || []).forEach(item => {
-        const invoiceId = (item as any).invoice_id;
-        if(!invoiceItemMap.has(invoiceId)) invoiceItemMap.set(invoiceId, []);
-        invoiceItemMap.get(invoiceId)!.push(item);
+        const invoiceId = (item as any).invoiceId || (item as any).invoice_id;
+        if(invoiceId) {
+            if(!invoiceItemMap.has(invoiceId)) invoiceItemMap.set(invoiceId, []);
+            invoiceItemMap.get(invoiceId)!.push(item);
+        }
     });
 
     return {
@@ -100,6 +127,7 @@ const mergeForRefresh = <T extends { id: any; updated_at?: Date | string }>(loca
         if (existingItem) {
             const remoteDate = new Date(remoteItem.updated_at || 0).getTime();
             const localDate = new Date(existingItem.updated_at || 0).getTime();
+            // Use >= to allow local updates to persist if timestamps are equal (likely in same-device scenarios)
             if (remoteDate > localDate) finalItems.set(id, remoteItem);
         } else { finalItems.set(id, remoteItem); }
     }
@@ -135,28 +163,49 @@ const applyDeletionsToLocal = (localFlatData: FlatData, deletions: SyncDeletion[
     const clientIds = new Set(filteredClients.map(c => c.id));
     
     let filteredCases = filterItems(localFlatData.cases, 'cases');
-    filteredCases = filteredCases.filter(c => clientIds.has(c.client_id));
+    filteredCases = filteredCases.filter(c => {
+        const cid = c.clientId || c.client_id;
+        return clientIds.has(cid);
+    });
     const caseIds = new Set(filteredCases.map(c => c.id));
     
     let filteredStages = filterItems(localFlatData.stages, 'stages');
-    filteredStages = filteredStages.filter(s => caseIds.has(s.case_id));
+    filteredStages = filteredStages.filter(s => {
+        const cid = s.caseId || s.case_id;
+        return caseIds.has(cid);
+    });
     const stageIds = new Set(filteredStages.map(s => s.id));
     
     let filteredSessions = filterItems(localFlatData.sessions, 'sessions');
-    filteredSessions = filteredSessions.filter(s => stageIds.has(s.stage_id));
+    filteredSessions = filteredSessions.filter(s => {
+        const sid = s.stageId || s.stage_id;
+        return stageIds.has(sid);
+    });
     
     let filteredInvoices = filterItems(localFlatData.invoices, 'invoices');
-    filteredInvoices = filteredInvoices.filter(i => clientIds.has(i.client_id));
+    filteredInvoices = filteredInvoices.filter(i => {
+        const cid = i.clientId || i.client_id;
+        return clientIds.has(cid);
+    });
     const invoiceIds = new Set(filteredInvoices.map(i => i.id));
     
     let filteredInvoiceItems = filterItems(localFlatData.invoice_items, 'invoice_items');
-    filteredInvoiceItems = filteredInvoiceItems.filter(i => invoiceIds.has(i.invoice_id));
+    filteredInvoiceItems = filteredInvoiceItems.filter(i => {
+        const invid = i.invoiceId || i.invoice_id;
+        return invoiceIds.has(invid);
+    });
     
     let filteredDocs = filterItems(localFlatData.case_documents, 'case_documents');
-    filteredDocs = filteredDocs.filter(d => caseIds.has(d.caseId)); 
+    filteredDocs = filteredDocs.filter(d => {
+        const cid = d.caseId || d.case_id;
+        return caseIds.has(cid);
+    }); 
     
     let filteredEntries = filterItems(localFlatData.accounting_entries, 'accounting_entries');
-    filteredEntries = filteredEntries.filter(e => !e.clientId || clientIds.has(e.clientId));
+    filteredEntries = filteredEntries.filter(e => {
+        const cid = e.clientId || e.client_id;
+        return !cid || clientIds.has(cid);
+    });
 
     return {
         ...localFlatData,
@@ -226,7 +275,6 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
         if (!schemaCheck.success) {
             if (schemaCheck.error === 'unconfigured') setStatus('unconfigured');
             else if (schemaCheck.error === 'uninitialized') setStatus('uninitialized', `قاعدة البيانات غير مهيأة: ${schemaCheck.message}`);
-            else if (schemaCheck.error === 'auth_error') setStatus('auth_error', schemaCheck.message);
             else setStatus('error', `فشل الاتصال: ${schemaCheck.message}`);
             return;
         }
@@ -247,16 +295,10 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
                             const { error: uploadError } = await supabase!.storage.from('documents').upload(doc.storagePath, file, {
                                 upsert: true
                             });
-                            
-                            if (uploadError) {
-                                console.error(`Failed to upload ${doc.name}:`, uploadError);
-                            } else {
-                                uploadedDocIds.push(doc.id);
-                            }
+                            if (uploadError) { console.error(`Failed to upload ${doc.name}:`, uploadError); }
+                            else { uploadedDocIds.push(doc.id); }
                         }
-                    } catch (e) {
-                        console.error(`Error uploading doc ${doc.id}:`, e);
-                    }
+                    } catch (e) { console.error(`Error uploading doc ${doc.id}:`, e); }
                 }
                 
                 if (uploadedDocIds.length > 0 && onDocumentsUploaded) {
@@ -280,8 +322,8 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
             localFlatData = applyDeletionsToLocal(localFlatData, remoteDeletions);
 
             const isLocalEffectivelyEmpty = (localFlatData.clients.length === 0 && localFlatData.admin_tasks.length === 0 && localFlatData.appointments.length === 0 && localFlatData.accounting_entries.length === 0 && localFlatData.invoices.length === 0 && localFlatData.case_documents.length === 0);
-            const hasPendingDeletions = Object.values(deletedIdsRef.current).some((arr: any) => arr && arr.length > 0);
-            const isRemoteEffectivelyEmpty = !remoteDataRaw || Object.values(remoteDataRaw).every((arr: any) => !arr || arr.length === 0);
+            const hasPendingDeletions = Object.values(deletedIdsRef.current).some((arr: any) => arr.length > 0);
+            const isRemoteEffectivelyEmpty = !remoteDataRaw || Object.values(remoteDataRaw).every((arr: any) => arr?.length === 0);
 
             if (isLocalEffectivelyEmpty && !isRemoteEffectivelyEmpty && !hasPendingDeletions) {
                 const freshData = constructData(remoteFlatData);
@@ -325,18 +367,19 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
                     }
 
                     let isParentDeleted = false;
-                    if (key === 'cases' && deletedIdsSets.clients.has(localItem.client_id)) isParentDeleted = true;
-                    if (key === 'stages' && deletedIdsSets.cases.has(localItem.case_id)) isParentDeleted = true;
-                    if (key === 'sessions' && deletedIdsSets.stages.has(localItem.stage_id)) isParentDeleted = true;
-                    if (key === 'invoice_items' && deletedIdsSets.invoices.has(localItem.invoice_id)) isParentDeleted = true;
-                    if (key === 'case_documents' && deletedIdsSets.cases.has(localItem.caseId)) isParentDeleted = true;
+                    if (key === 'cases' && deletedIdsSets.clients.has(localItem.clientId || localItem.client_id)) isParentDeleted = true;
+                    if (key === 'stages' && deletedIdsSets.cases.has(localItem.caseId || localItem.case_id)) isParentDeleted = true;
+                    if (key === 'sessions' && deletedIdsSets.stages.has(localItem.stageId || localItem.stage_id)) isParentDeleted = true;
+                    if (key === 'invoice_items' && deletedIdsSets.invoices.has(localItem.invoiceId || localItem.invoice_id)) isParentDeleted = true;
+                    if (key === 'case_documents' && deletedIdsSets.cases.has(localItem.caseId || localItem.case_id)) isParentDeleted = true;
                     if (isParentDeleted) continue; 
 
                     const remoteItem = remoteMap.get(id);
                     if (remoteItem) {
                         const localDate = new Date(localItem.updated_at || 0).getTime();
                         const remoteDate = new Date(remoteItem.updated_at || 0).getTime();
-                        if (localDate > remoteDate) {
+                        // Changed to localDate >= remoteDate to ensure local decision wins
+                        if (localDate >= remoteDate) {
                             itemsToUpsert.push(localItem);
                             finalMergedItems.set(id, localItem);
                         } else { finalMergedItems.set(id, remoteItem); }
@@ -353,11 +396,7 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
                         const entityKey = key === 'admin_tasks' ? 'adminTasks' : key === 'accounting_entries' ? 'accountingEntries' : key === 'invoice_items' ? 'invoiceItems' : key === 'case_documents' ? 'documents' : key === 'site_finances' ? 'siteFinances' : key;
                         const deletedSet = (deletedIdsSets as any)[entityKey];
                         if (deletedSet) isDeleted = deletedSet.has(id);
-                        
-                        if (key === 'case_documents' && excludedDocIdsRef.current && excludedDocIdsRef.current.has(id)) {
-                            isDeleted = true;
-                        }
-
+                        if (key === 'case_documents' && excludedDocIdsRef.current && excludedDocIdsRef.current.has(id)) { isDeleted = true; }
                         if (!isDeleted) finalMergedItems.set(id, remoteItem);
                     }
                 }
@@ -365,33 +404,15 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
                 (mergedFlatData as any)[key] = Array.from(finalMergedItems.values());
             }
             
-            const validClientIds = new Set([
-                ...(remoteFlatData.clients || []).map(c => c.id),
-                ...(flatUpserts.clients || []).map(c => c.id)
-            ]);
+            const validClientIds = new Set((mergedFlatData.clients || []).map((c: any) => c.id));
+            if (mergedFlatData.cases) mergedFlatData.cases = mergedFlatData.cases.filter((c: any) => validClientIds.has(c.clientId || c.client_id));
             
-            if (flatUpserts.cases) flatUpserts.cases = flatUpserts.cases.filter(c => validClientIds.has(c.client_id));
+            const validCaseIds = new Set((mergedFlatData.cases || []).map((c: any) => c.id));
+            if (mergedFlatData.stages) mergedFlatData.stages = mergedFlatData.stages.filter((s: any) => validCaseIds.has(s.caseId || s.case_id));
+            if (mergedFlatData.case_documents) mergedFlatData.case_documents = mergedFlatData.case_documents.filter((d: any) => validCaseIds.has(d.caseId || d.case_id));
             
-            const validCaseIds = new Set([
-                ...(remoteFlatData.cases || []).map(c => c.id),
-                ...(flatUpserts.cases || []).map(c => c.id)
-            ]);
-            
-            if (flatUpserts.stages) flatUpserts.stages = flatUpserts.stages.filter(s => validCaseIds.has(s.case_id));
-            
-            const validStageIds = new Set([
-                ...(remoteFlatData.stages || []).map(s => s.id),
-                ...(flatUpserts.stages || []).map(s => s.id)
-            ]);
-            
-            if (flatUpserts.sessions) flatUpserts.sessions = flatUpserts.sessions.filter(s => validStageIds.has(s.stage_id));
-            
-            if (mergedFlatData.cases) mergedFlatData.cases = mergedFlatData.cases.filter(c => validClientIds.has(c.client_id));
-            if (mergedFlatData.stages) mergedFlatData.stages = mergedFlatData.stages.filter(s => validCaseIds.has(s.case_id));
-            if (mergedFlatData.sessions) mergedFlatData.sessions = mergedFlatData.sessions.filter(s => validStageIds.has(s.stage_id));
-            
-            if (mergedFlatData.case_documents) mergedFlatData.case_documents = mergedFlatData.case_documents.filter(doc => validCaseIds.has(doc.caseId));
-            if (flatUpserts.case_documents) flatUpserts.case_documents = flatUpserts.case_documents.filter(doc => validCaseIds.has(doc.caseId));
+            const validStageIds = new Set((mergedFlatData.stages || []).map((s: any) => s.id));
+            if (mergedFlatData.sessions) mergedFlatData.sessions = mergedFlatData.sessions.filter((s: any) => validStageIds.has(s.stageId || s.stage_id));
 
             let successfulDeletions = getInitialDeletedIds();
 
@@ -442,16 +463,8 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
             setStatus('synced');
         } catch (err: any) {
             let errorMessage = err.message || 'حدث خطأ غير متوقع.';
-            const errorMsgLower = errorMessage.toLowerCase();
-            
-            if (errorMsgLower.includes('refresh token') || errorMsgLower.includes('not found') || err?.status === 401) {
-                setStatus('auth_error', 'انتهت صلاحية الجلسة.');
-                return;
-            }
-
-            if (errorMsgLower.includes('failed to fetch')) errorMessage = 'فشل الاتصال بالخادم.';
+            if (errorMessage.toLowerCase().includes('failed to fetch')) errorMessage = 'فشل الاتصال بالخادم.';
             else console.error("Error during sync:", err);
-            
             if ((errorMessage.includes('column') && errorMessage.includes('does not exist')) || errorMessage.includes('relation')) {
                 setStatus('uninitialized', `هناك عدم تطابق في مخطط قاعدة البيانات: ${errorMessage}`); return;
             }
@@ -464,23 +477,16 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
         if (syncStatusRef.current === 'syncing' || isAuthLoading) return;
         const currentUser = userRef.current;
         if (!isOnline || !currentUser) return;
-    
         setStatus('syncing', 'جاري تحديث البيانات...');
-        
         try {
-            const [remoteDataRaw, remoteDeletions] = await Promise.all([
-                fetchDataFromSupabase(),
-                fetchDeletionsFromSupabase()
-            ]);
+            const [remoteDataRaw, remoteDeletions] = await Promise.all([ fetchDataFromSupabase(), fetchDeletionsFromSupabase() ]);
             const remoteFlatDataUntyped = transformRemoteToLocal(remoteDataRaw);
-    
             const deletedIdsSets = {
                 clients: new Set(deletedIdsRef.current.clients), cases: new Set(deletedIdsRef.current.cases), stages: new Set(deletedIdsRef.current.stages),
                 sessions: new Set(deletedIdsRef.current.sessions), adminTasks: new Set(deletedIdsRef.current.adminTasks), appointments: new Set(deletedIdsRef.current.appointments),
                 accountingEntries: new Set(deletedIdsRef.current.accountingEntries), invoices: new Set(deletedIdsRef.current.invoices), invoiceItems: new Set(deletedIdsRef.current.invoiceItems),
                 assistants: new Set(deletedIdsRef.current.assistants), documents: new Set(deletedIdsRef.current.documents), profiles: new Set(deletedIdsRef.current.profiles), siteFinances: new Set(deletedIdsRef.current.siteFinances),
             };
-    
             const remoteFlatData: Partial<FlatData> = {};
             for (const key of Object.keys(remoteFlatDataUntyped) as (keyof FlatData)[]) {
                 const entityKey = key === 'admin_tasks' ? 'adminTasks' : key === 'accounting_entries' ? 'accountingEntries' : key === 'invoice_items' ? 'invoiceItems' : key === 'case_documents' ? 'documents' : key === 'site_finances' ? 'siteFinances' : key;
@@ -489,30 +495,20 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
                     (remoteFlatData as any)[key] = ((remoteFlatDataUntyped as any)[key] || []).filter((item: any) => !deletedSet.has(item.id ?? item.name));
                 } else { (remoteFlatData as any)[key] = (remoteFlatDataUntyped as any)[key]; }
             }
-    
             let localFlatData = flattenData(localDataRef.current);
             localFlatData = applyDeletionsToLocal(localFlatData, remoteDeletions);
-
             const mergedFlatData: Partial<FlatData> = {};
-            
             for (const key of Object.keys(remoteFlatData) as (keyof FlatData)[]) {
                 const remoteItems = (remoteFlatData as any)[key] || [];
                 const localItems = (localFlatData as any)[key] || [];
                 const mergedItems = mergeForRefresh(localItems, remoteItems);
                 (mergedFlatData as any)[key] = mergedItems;
             }
-            
             const finalMergedData = constructData(mergedFlatData as FlatData);
             onDataSynced(finalMergedData);
             setStatus('synced');
-
         } catch (err: any) {
             console.error("Fetch error:", err);
-            const errorMsgLower = String(err?.message || '').toLowerCase();
-            if (errorMsgLower.includes('refresh token') || errorMsgLower.includes('not found') || err?.status === 401) {
-                setStatus('auth_error', 'انتهت صلاحية الجلسة.');
-                return;
-            }
             setStatus('error', `فشل التحديث: ${err.message}`);
         }
     }, [isOnline, onDataSynced, isAuthLoading]);

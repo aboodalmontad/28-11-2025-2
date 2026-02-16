@@ -234,6 +234,7 @@ END$$;
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Profiles Visibility" ON public.profiles FOR SELECT USING (auth.uid() = id OR lawyer_id = auth.uid() OR public.is_admin());
 CREATE POLICY "Profiles Update" ON public.profiles FOR UPDATE USING (auth.uid() = id OR lawyer_id = auth.uid() OR public.is_admin());
+CREATE POLICY "Profiles Insert" ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id OR public.is_admin());
 
 CREATE POLICY "Access Own Data" ON public.assistants FOR ALL USING (user_id = public.get_data_owner_id() OR public.is_admin());
 CREATE POLICY "Access Own Data" ON public.clients FOR ALL USING (user_id = public.get_data_owner_id() OR public.is_admin());
@@ -265,9 +266,10 @@ ALTER TABLE public.case_documents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.site_finances ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Admins manage finances" ON public.site_finances FOR ALL USING (public.is_admin());
 
--- 5. تفعيل Realtime
+-- 5. تفعيل Realtime (نسخة آمنة تتجاوز خطأ FOR ALL TABLES)
 DO $$
 DECLARE
+    is_all_tables boolean;
     t text;
     target_tables text[] := ARRAY[
         'public.profiles', 'public.clients', 'public.cases', 
@@ -277,9 +279,24 @@ DECLARE
         'public.site_finances', 'public.case_documents', 'public.sync_deletions'
     ];
 BEGIN
-    FOR t IN SELECT unnest(target_tables) LOOP
-        BEGIN EXECUTE 'ALTER PUBLICATION supabase_realtime ADD TABLE ' || t; EXCEPTION WHEN duplicate_object THEN NULL; END;
-    END LOOP;
+    -- التحقق إذا كانت الـ publication موجودة أصلاً وما إذا كانت تشمل كل الجداول
+    SELECT puballtables INTO is_all_tables FROM pg_publication WHERE pubname = 'supabase_realtime';
+    
+    IF is_all_tables IS NULL THEN
+        -- إذا لم تكن موجودة، ننشئها للجداول المحددة فقط
+        EXECUTE 'CREATE PUBLICATION supabase_realtime FOR TABLE ' || array_to_string(target_tables, ',');
+    ELSIF NOT is_all_tables THEN
+        -- إذا كانت موجودة وليست "للجميع"، نضيف الجداول الناقصة
+        FOR t IN SELECT unnest(target_tables) LOOP
+            BEGIN 
+                EXECUTE 'ALTER PUBLICATION supabase_realtime ADD TABLE ' || t; 
+            EXCEPTION 
+                WHEN duplicate_object THEN NULL; 
+                WHEN undefined_table THEN NULL;
+            END;
+        END LOOP;
+    END IF;
+    -- إذا كانت FOR ALL TABLES، لا نفعل شيئاً لأنها تشملهم تلقائياً
 END $$;
 
 -- 6. Storage Bucket
@@ -362,7 +379,7 @@ const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ onRetry }) => {
                             </div>
                             <div className="ms-3">
                                 <p className="text-sm text-blue-700">
-                                    هذا التحديث ضروري لإضافة ميزة استعادة كلمة المرور وإصلاح صلاحيات التخزين. يرجى نسخ الكود الجديد وتشغيله.
+                                    هذا التحديث ضروري لإضافة ميزة استعادة كلمة المرور وإصلاح صلاحيات التخزين ومزامنة البيانات. يرجى نسخ الكود الجديد وتشغيله.
                                 </p>
                             </div>
                         </div>

@@ -1,4 +1,3 @@
-
 import * as React from 'react';
 import { Client, Session, AdminTask, Appointment, AccountingEntry, Case, Stage, Invoice, InvoiceItem, CaseDocument, AppData, DeletedIds, getInitialDeletedIds, Profile, SiteFinancialEntry, Permissions, defaultPermissions } from '../types';
 import { useOnlineStatus } from './useOnlineStatus';
@@ -21,6 +20,13 @@ interface UserSettings {
     adminTasksLayout: 'horizontal' | 'vertical';
     locationOrder?: string[];
 }
+
+const defaultSettings: UserSettings = {
+    isAutoSyncEnabled: true,
+    isAutoBackupEnabled: true,
+    adminTasksLayout: 'horizontal',
+    locationOrder: [],
+};
 
 const getInitialData = (): AppData => ({
     clients: [] as Client[],
@@ -55,21 +61,33 @@ const safeArray = <T, U>(arr: any, mapFn: (doc: any, index: number) => U | undef
 
 const reviveDate = (date: any): Date => {
     if (!date) return new Date();
+    if (date instanceof Date) return date;
     const d = new Date(date);
     return isNaN(d.getTime()) ? new Date() : d;
+};
+
+/**
+ * Robust helper for optional date fields. 
+ * Correctly handles null, undefined, empty strings, and existing Date objects.
+ */
+const reviveOptionalDate = (date: any): Date | undefined => {
+    if (date === null || date === undefined || date === '') return undefined;
+    if (date instanceof Date) return date;
+    const d = new Date(date);
+    return isNaN(d.getTime()) ? undefined : d;
 };
 
 const validateDocuments = (doc: any, userId: string): CaseDocument | undefined => {
     if (!doc || typeof doc !== 'object' || !doc.id || !doc.name) return undefined;
     return {
         id: String(doc.id),
-        caseId: String(doc.caseId),
-        userId: String(doc.userId || userId),
+        caseId: String(doc.caseId || doc.case_id),
+        userId: String(doc.userId || doc.user_id || userId),
         name: String(doc.name),
         type: String(doc.type || 'application/octet-stream'),
         size: Number(doc.size || 0),
-        addedAt: reviveDate(doc.addedAt),
-        storagePath: String(doc.storagePath || ''),
+        addedAt: reviveDate(doc.addedAt || doc.added_at),
+        storagePath: String(doc.storagePath || doc.storage_path || ''),
         localState: doc.localState || 'pending_download', 
         updated_at: reviveDate(doc.updated_at),
     };
@@ -87,7 +105,7 @@ const validateAndFixData = (loadedData: any, user: User | null): AppData => {
              return {
                  id: String(client.id),
                  name: String(client.name),
-                 contactInfo: String(client.contactInfo || ''),
+                 contactInfo: String(client.contactInfo || client.contact_info || ''),
                  updated_at: reviveDate(client.updated_at),
                  user_id: clientUserId,
                  cases: safeArray(client.cases, (caseItem) => {
@@ -95,9 +113,9 @@ const validateAndFixData = (loadedData: any, user: User | null): AppData => {
                      return {
                          id: String(caseItem.id),
                          subject: String(caseItem.subject || ''),
-                         clientName: String(caseItem.clientName || client.name),
-                         opponentName: String(caseItem.opponentName || ''),
-                         feeAgreement: String(caseItem.feeAgreement || ''),
+                         clientName: String(caseItem.clientName || caseItem.client_name || client.name),
+                         opponentName: String(caseItem.opponentName || caseItem.opponent_name || ''),
+                         feeAgreement: String(caseItem.feeAgreement || caseItem.fee_agreement || ''),
                          status: ['active', 'closed', 'on_hold'].includes(caseItem.status) ? caseItem.status : 'active',
                          updated_at: reviveDate(caseItem.updated_at),
                          user_id: clientUserId,
@@ -106,12 +124,12 @@ const validateAndFixData = (loadedData: any, user: User | null): AppData => {
                              return {
                                  id: String(stage.id),
                                  court: String(stage.court || ''),
-                                 caseNumber: String(stage.caseNumber || ''),
-                                 firstSessionDate: stage.firstSessionDate ? reviveDate(stage.firstSessionDate) : undefined,
-                                 decisionDate: stage.decisionDate ? reviveDate(stage.decisionDate) : undefined,
-                                 decisionNumber: String(stage.decisionNumber || ''),
-                                 decisionSummary: String(stage.decisionSummary || ''),
-                                 decisionNotes: String(stage.decisionNotes || ''),
+                                 caseNumber: String(stage.caseNumber || stage.case_number || ''),
+                                 firstSessionDate: reviveOptionalDate(stage.firstSessionDate || stage.first_session_date),
+                                 decisionDate: reviveOptionalDate(stage.decisionDate || stage.decision_date),
+                                 decisionNumber: String(stage.decisionNumber || stage.decision_number || ''),
+                                 decisionSummary: String(stage.decisionSummary || stage.decision_summary || ''),
+                                 decisionNotes: String(stage.decisionNotes || stage.decision_notes || ''),
                                  updated_at: reviveDate(stage.updated_at),
                                  user_id: clientUserId,
                                  sessions: safeArray(stage.sessions, (session) => {
@@ -119,17 +137,17 @@ const validateAndFixData = (loadedData: any, user: User | null): AppData => {
                                      return {
                                          id: String(session.id),
                                          court: String(session.court || stage.court),
-                                         caseNumber: String(session.caseNumber || stage.caseNumber),
+                                         caseNumber: String(session.caseNumber || session.case_number || stage.caseNumber),
                                          date: reviveDate(session.date),
-                                         clientName: String(session.clientName || caseItem.clientName),
-                                         opponentName: String(session.opponentName || caseItem.opponentName),
-                                         postponementReason: session.postponementReason,
-                                         nextPostponementReason: session.nextPostponementReason,
-                                         isPostponed: !!session.isPostponed,
-                                         nextSessionDate: session.nextSessionDate ? reviveDate(session.nextSessionDate) : undefined,
+                                         clientName: String(session.clientName || session.client_name || caseItem.clientName),
+                                         opponentName: String(session.opponentName || session.opponent_name || caseItem.opponentName),
+                                         postponementReason: session.postponementReason || session.postponement_reason,
+                                         nextPostponementReason: session.nextPostponementReason || session.next_postponement_reason,
+                                         isPostponed: !!session.isPostponed || !!session.is_postponed,
+                                         nextSessionDate: reviveOptionalDate(session.nextSessionDate || session.next_session_date),
                                          assignee: session.assignee,
-                                         stageId: session.stageId,
-                                         stageDecisionDate: session.stageDecisionDate,
+                                         stageId: session.stageId || session.stage_id || stage.id,
+                                         stageDecisionDate: reviveOptionalDate(session.stageDecisionDate || session.stage_decision_date),
                                          updated_at: reviveDate(session.updated_at),
                                          user_id: clientUserId,
                                      };
@@ -140,18 +158,18 @@ const validateAndFixData = (loadedData: any, user: User | null): AppData => {
                  }),
              };
         }),
-        adminTasks: safeArray(loadedData.adminTasks, (task, index) => {
+        adminTasks: safeArray(loadedData.adminTasks || loadedData.admin_tasks, (task, index) => {
             if (!isValidObject(task) || !task.id) return undefined;
             return {
                 id: String(task.id),
                 task: String(task.task || ''),
-                dueDate: reviveDate(task.dueDate),
+                dueDate: reviveDate(task.dueDate || task.due_date),
                 completed: !!task.completed,
                 importance: ['normal', 'important', 'urgent'].includes(task.importance) ? task.importance : 'normal',
                 assignee: task.assignee,
                 location: task.location,
                 updated_at: reviveDate(task.updated_at),
-                orderIndex: typeof task.orderIndex === 'number' ? task.orderIndex : index,
+                orderIndex: typeof (task.orderIndex || task.order_index) === 'number' ? (task.orderIndex || task.order_index) : index,
             };
         }),
         appointments: safeArray(loadedData.appointments, (apt) => {
@@ -164,12 +182,12 @@ const validateAndFixData = (loadedData: any, user: User | null): AppData => {
                 importance: ['normal', 'important', 'urgent'].includes(apt.importance) ? apt.importance : 'normal',
                 completed: !!apt.completed,
                 notified: !!apt.notified,
-                reminderTimeInMinutes: Number(apt.reminderTimeInMinutes || 15),
+                reminderTimeInMinutes: Number(apt.reminderTimeInMinutes || apt.reminder_time_in_minutes || 15),
                 assignee: apt.assignee,
                 updated_at: reviveDate(apt.updated_at),
             };
         }),
-        accountingEntries: safeArray(loadedData.accountingEntries, (entry) => {
+        accountingEntries: safeArray(loadedData.accountingEntries || loadedData.accounting_entries, (entry) => {
             if (!isValidObject(entry) || !entry.id) return undefined;
             return {
                 id: String(entry.id),
@@ -177,9 +195,9 @@ const validateAndFixData = (loadedData: any, user: User | null): AppData => {
                 amount: Number(entry.amount || 0),
                 date: reviveDate(entry.date),
                 description: String(entry.description || ''),
-                clientId: String(entry.clientId || ''),
-                caseId: String(entry.caseId || ''),
-                clientName: String(entry.clientName || ''),
+                clientId: String(entry.clientId || entry.client_id || ''),
+                caseId: String(entry.caseId || entry.case_id || ''),
+                clientName: String(entry.clientName || entry.client_name || ''),
                 updated_at: reviveDate(entry.updated_at),
             };
         }),
@@ -187,12 +205,12 @@ const validateAndFixData = (loadedData: any, user: User | null): AppData => {
             if (!isValidObject(invoice) || !invoice.id) return undefined;
             return {
                 id: String(invoice.id),
-                clientId: String(invoice.clientId || ''),
-                clientName: String(invoice.clientName || ''),
-                caseId: invoice.caseId,
-                caseSubject: invoice.caseSubject,
-                issueDate: reviveDate(invoice.issueDate),
-                dueDate: reviveDate(invoice.dueDate),
+                clientId: String(invoice.clientId || invoice.client_id || ''),
+                clientName: String(invoice.clientName || invoice.client_name || ''),
+                caseId: invoice.caseId || invoice.case_id,
+                caseSubject: invoice.caseSubject || invoice.case_subject,
+                issueDate: reviveDate(invoice.issueDate || invoice.issue_date),
+                dueDate: reviveDate(invoice.dueDate || invoice.due_date),
                 items: safeArray(invoice.items, (item) => {
                     if (!isValidObject(item) || !item.id) return undefined;
                     return {
@@ -202,7 +220,7 @@ const validateAndFixData = (loadedData: any, user: User | null): AppData => {
                         updated_at: reviveDate(item.updated_at),
                     };
                 }),
-                taxRate: Number(invoice.taxRate || 0),
+                taxRate: Number(invoice.taxRate || invoice.tax_rate || 0),
                 discount: Number(invoice.discount || 0),
                 status: ['draft', 'sent', 'paid', 'overdue'].includes(invoice.status) ? invoice.status : 'draft',
                 notes: invoice.notes,
@@ -210,7 +228,7 @@ const validateAndFixData = (loadedData: any, user: User | null): AppData => {
             };
         }),
         assistants: validateAssistantsList(loadedData.assistants),
-        documents: safeArray(loadedData.documents, (doc) => validateDocuments(doc, userId)),
+        documents: safeArray(loadedData.documents || loadedData.case_documents, (doc) => validateDocuments(doc, userId)),
         profiles: safeArray(loadedData.profiles, (p) => {
             if (!isValidObject(p) || !p.id) return undefined;
             return {
@@ -225,13 +243,13 @@ const validateAndFixData = (loadedData: any, user: User | null): AppData => {
                 subscription_start_date: p.subscription_start_date || null,
                 subscription_end_date: p.subscription_end_date || null,
                 role: ['user', 'admin'].includes(p.role) ? p.role : 'user',
-                lawyer_id: p.lawyer_id || null, // New field
-                permissions: p.permissions || undefined, // New field
+                lawyer_id: p.lawyer_id || null, 
+                permissions: p.permissions || undefined, 
                 created_at: p.created_at,
                 updated_at: reviveDate(p.updated_at),
             };
         }),
-        siteFinances: safeArray(loadedData.siteFinances, (sf) => {
+        siteFinances: safeArray(loadedData.siteFinances || loadedData.site_finances, (sf) => {
             if (!isValidObject(sf) || !sf.id) return undefined;
             return {
                 id: Number(sf.id),
@@ -252,6 +270,7 @@ const validateAndFixData = (loadedData: any, user: User | null): AppData => {
 export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     const [data, setData] = React.useState<AppData>(getInitialData);
     const [deletedIds, setDeletedIds] = React.useState<DeletedIds>(getInitialDeletedIds);
+    // New State for locally excluded documents
     const [excludedDocIds, setExcludedDocIds] = React.useState<Set<string>>(new Set());
     const [isDirty, setDirty] = React.useState(false);
     const [syncStatus, setSyncStatus] = React.useState<SyncStatus>('loading');
@@ -261,48 +280,24 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     const [showUnpostponedSessionsModal, setShowUnpostponedSessionsModal] = React.useState(false);
     const [realtimeAlerts, setRealtimeAlerts] = React.useState<RealtimeAlert[]>([]);
     const [userApprovalAlerts, setUserApprovalAlerts] = React.useState<RealtimeAlert[]>([]);
-    
-    // Fix: Added updateSettings helper and initialized userSettings from localStorage to persist user preferences.
-    const [userSettings, setUserSettings] = React.useState<any>(() => {
-        if (typeof window !== 'undefined' && user?.id) {
-            const saved = localStorage.getItem(`lawyer_app_settings_${user.id}`);
-            if (saved) {
-                try {
-                    return JSON.parse(saved);
-                } catch (e) {
-                    return { isAutoSyncEnabled: true, isAutoBackupEnabled: true, adminTasksLayout: 'horizontal', locationOrder: [] };
-                }
-            }
-        }
-        return { isAutoSyncEnabled: true, isAutoBackupEnabled: true, adminTasksLayout: 'horizontal', locationOrder: [] };
-    });
-
-    // Fix: Defined updateSettings to update userSettings state and persist it to localStorage.
-    const updateSettings = React.useCallback((updater: any) => {
-        setUserSettings((prev: any) => {
-            const next = typeof updater === 'function' ? updater(prev) : updater;
-            if (user?.id) {
-                localStorage.setItem(`lawyer_app_settings_${user.id}`, JSON.stringify(next));
-            }
-            return next;
-        });
-    }, [user?.id]);
-
+    const [userSettings, setUserSettings] = React.useState<any>({ isAutoSyncEnabled: true, isAutoBackupEnabled: true, adminTasksLayout: 'horizontal', locationOrder: [] });
     const isOnline = useOnlineStatus();
     
     const userRef = React.useRef(user);
     userRef.current = user;
     const downloadQueueRef = React.useRef<Promise<void>>(Promise.resolve());
 
+    // --- EFFECTIVE USER ID LOGIC ---
     const effectiveUserId = React.useMemo(() => {
         if (!user) return null;
         const currentUserProfile = data.profiles.find(p => p.id === user.id);
         if (currentUserProfile && currentUserProfile.lawyer_id) {
-            return currentUserProfile.lawyer_id;
+            return currentUserProfile.lawyer_id; 
         }
-        return user.id;
+        return user.id; 
     }, [user, data.profiles]);
 
+    // Current user's permissions (if assistant)
     const currentUserPermissions: Permissions = React.useMemo(() => {
         if (!user) return defaultPermissions;
         const currentUserProfile = data.profiles.find(p => p.id === user.id);
@@ -340,6 +335,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         };
     }, [user, data.profiles]);
 
+    // Update Data: Use effectiveUserId for IDB key
     const updateData = React.useCallback((updater: React.SetStateAction<AppData>, options: { markDirty?: boolean } = { markDirty: true }) => {
         if (!userRef.current || !effectiveUserId) return;
         
@@ -360,6 +356,26 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         updateData(validated);
     }, [updateData]);
 
+    React.useEffect(() => {
+        const settingsKey = `userSettings_${user?.id}`;
+        try {
+            const storedSettings = localStorage.getItem(settingsKey);
+            if (storedSettings) {
+                setUserSettings(JSON.parse(storedSettings));
+            }
+        } catch (e) {
+            console.error("Failed to load user settings from localStorage", e);
+        }
+    }, [user?.id]);
+
+    const updateSettings = (updater: (prev: any) => any) => {
+        const newSettings = updater(userSettings);
+        setUserSettings(newSettings);
+        const settingsKey = `userSettings_${user?.id}`;
+        localStorage.setItem(settingsKey, JSON.stringify(newSettings));
+    };
+
+    // Auto-download missing files logic
     const downloadMissingFiles = React.useCallback(async (documents: CaseDocument[]) => {
         const pendingDocs = documents.filter(d => d.localState === 'pending_download');
         if (pendingDocs.length === 0) return;
@@ -370,7 +386,10 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
             const db = await getDb();
 
             for (const doc of pendingDocs) {
-                if (typeof navigator !== 'undefined' && !navigator.onLine) break;
+                if (typeof navigator !== 'undefined' && !navigator.onLine) {
+                    console.log("Device is offline, pausing downloads.");
+                    break;
+                }
 
                 try {
                     const existingFile = await db.get(DOCS_FILES_STORE_NAME, doc.id);
@@ -381,13 +400,16 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                         continue;
                     }
 
-                    if (!doc.storagePath) throw new Error(`Missing storage path for doc ${doc.id}`);
+                    if (!doc.storagePath) {
+                        throw new Error(`Missing storage path for doc ${doc.id}`);
+                    }
 
                     const downloadingDoc = { ...doc, localState: 'downloading' as const };
                     await db.put(DOCS_METADATA_STORE_NAME, downloadingDoc, doc.id);
                     updateData(prev => ({...prev, documents: prev.documents.map(d => d.id === doc.id ? downloadingDoc : d)}), { markDirty: false });
                     
                     const { data: blob, error } = await supabase.storage.from('documents').download(doc.storagePath);
+                    
                     if (error) throw error;
                     if (!blob) throw new Error("Downloaded blob is empty");
 
@@ -396,12 +418,38 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     
                     const completedDoc = { ...doc, localState: 'synced' as const };
                     await db.put(DOCS_METADATA_STORE_NAME, completedDoc, doc.id);
+                    
                     updateData(prev => ({...prev, documents: prev.documents.map(d => d.id === doc.id ? completedDoc : d)}), { markDirty: false });
 
                 } catch (e: any) {
-                    const errorMsg = String(e?.message || e);
-                    const isNetworkError = errorMsg.includes('Failed to fetch') || errorMsg.toLowerCase().includes('network');
+                    let errorMsg = 'Unknown error';
+                    try {
+                        if (typeof e === 'string') {
+                            errorMsg = e;
+                        } else if (e instanceof Error) {
+                            errorMsg = e.message;
+                        } else {
+                            const possibleMsg = (e as any)?.message || (e as any)?.error_description || (e as any)?.statusText;
+                            if (possibleMsg) {
+                                errorMsg = possibleMsg;
+                            } else {
+                                const json = JSON.stringify(e);
+                                if (json && json !== '{}') errorMsg = json;
+                                else errorMsg = String(e);
+                            }
+                        }
+                    } catch {
+                        errorMsg = String(e);
+                    }
+                    
+                    console.error(`Failed to auto-download doc ${doc.id}:`, errorMsg);
+
+                    const isNetworkError = errorMsg.includes('Failed to fetch') || 
+                                           errorMsg.toLowerCase().includes('network') ||
+                                           errorMsg.toLowerCase().includes('connection');
+
                     if (isNetworkError) {
+                        console.warn(`Network error for doc ${doc.id}, keeping as pending_download for retry.`);
                         const pendingDoc = { ...doc, localState: 'pending_download' as const };
                         await db.put(DOCS_METADATA_STORE_NAME, pendingDoc, doc.id);
                         updateData(prev => ({...prev, documents: prev.documents.map(d => d.id === doc.id ? pendingDoc : d)}), { markDirty: false });
@@ -415,6 +463,79 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         });
     }, [updateData]);
 
+    React.useEffect(() => {
+        if (!user || isAuthLoading) {
+            if (!isAuthLoading) setIsDataLoading(false);
+            return;
+        }
+        setIsDataLoading(true);
+        let cancelled = false;
+
+        const loadData = async () => {
+            try {
+                let ownerId = user.id;
+                const cachedOwnerId = localStorage.getItem(`lawyer_app_owner_id_${user.id}`);
+                if (cachedOwnerId) {
+                    ownerId = cachedOwnerId;
+                }
+
+                const supabase = getSupabaseClient();
+                const isOnlineNow = typeof navigator !== 'undefined' ? navigator.onLine : true;
+                if (isOnlineNow && supabase) {
+                    const { data: profile } = await supabase.from('profiles').select('lawyer_id').eq('id', user.id).single();
+                    if (profile && profile.lawyer_id) {
+                        ownerId = profile.lawyer_id;
+                        localStorage.setItem(`lawyer_app_owner_id_${user.id}`, ownerId);
+                    } else if (profile) {
+                        ownerId = user.id;
+                        localStorage.setItem(`lawyer_app_owner_id_${user.id}`, ownerId);
+                    }
+                }
+
+                const db = await getDb();
+                const [storedData, storedDeletedIds, localDocsMetadata, storedExcludedDocs] = await Promise.all([
+                    db.get(DATA_STORE_NAME, ownerId),
+                    db.get(DATA_STORE_NAME, `deletedIds_${ownerId}`),
+                    db.getAll(DOCS_METADATA_STORE_NAME),
+                    db.getAll(LOCAL_EXCLUDED_DOCS_STORE_NAME)
+                ]);
+                
+                if (cancelled) return;
+
+                const excludedIdsSet = new Set<string>((storedExcludedDocs || []).map((d: any) => d.id));
+                setExcludedDocIds(excludedIdsSet);
+
+                const validatedData = validateAndFixData(storedData, user);
+                const localDocsMetadataMap = new Map((localDocsMetadata as any[]).map((meta: any) => [meta.id, meta]));
+                const finalDocs = validatedData.documents.map(doc => {
+                    if (excludedIdsSet.has(doc.id)) return null;
+                    const localMeta: any = localDocsMetadataMap.get(doc.id);
+                    return { ...doc, localState: localMeta?.localState || doc.localState || 'pending_download' };
+                }).filter(doc => !!doc) as CaseDocument[];
+                
+                const finalData = { ...validatedData, documents: finalDocs };
+                
+                setData(finalData);
+                setDeletedIds(storedDeletedIds || getInitialDeletedIds());
+                setIsDataLoading(false);
+
+                if (isOnlineNow) {
+                    manualSync().catch(console.error);
+                    downloadMissingFiles(finalDocs);
+                } else {
+                    setSyncStatus('synced');
+                }
+            } catch (error) {
+                console.error('Failed to load data:', error);
+                setSyncStatus('error');
+                setLastSyncError('فشل تحميل البيانات المحلية.');
+                setIsDataLoading(false);
+            }
+        };
+        loadData();
+        return () => { cancelled = true; };
+    }, [user?.id, isAuthLoading]); 
+
     const handleSyncStatusChange = React.useCallback((status: SyncStatus, error: string | null) => {
         setSyncStatus(status);
         setLastSyncError(error);
@@ -426,23 +547,34 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
             const validatedMergedData = validateAndFixData(mergedData, userRef.current);
             const db = await getDb();
             const localDocsMetadata = await db.getAll(DOCS_METADATA_STORE_NAME);
+            
             const currentExcluded = await db.getAll(LOCAL_EXCLUDED_DOCS_STORE_NAME);
             const excludedIds = new Set(currentExcluded.map((e: any) => e.id));
 
             const finalDocs = safeArray(validatedMergedData.documents, (doc: any) => {
                 if (!doc || typeof doc !== 'object' || !doc.id) return undefined;
-                if (excludedIds.size > 0 && excludedIds.has(doc.id)) return undefined;
+                if (excludedIds.has(doc.id)) return undefined; 
+
                 const localMeta = (localDocsMetadata as any[]).find((meta: any) => meta.id === doc.id);
-                const mergedDoc = { ...doc, localState: localMeta?.localState || doc.localState || 'pending_download' };
+                const mergedDoc = {
+                    ...doc,
+                    localState: localMeta?.localState || doc.localState || 'pending_download'
+                };
                 return validateDocuments(mergedDoc, userRef.current?.id || '');
             });
 
             const finalData = { ...validatedMergedData, documents: finalDocs };
+
             await db.put(DATA_STORE_NAME, finalData, effectiveUserId);
             setData(finalData);
             setDirty(false);
-            if (isOnline) downloadMissingFiles(finalDocs);
+            
+            if (isOnline) {
+                downloadMissingFiles(finalDocs);
+            }
+
         } catch (e) {
+            console.error("Critical error in handleDataSynced:", e);
             handleSyncStatusChange('error', 'فشل تحديث البيانات المحلية بعد المزامنة.');
         }
     }, [userRef, effectiveUserId, handleSyncStatusChange, isOnline, downloadMissingFiles]);
@@ -471,98 +603,30 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         const store = tx.objectStore(DOCS_METADATA_STORE_NAME);
         for (const id of uploadedIds) {
             const doc = await store.get(id);
-            if (doc) { doc.localState = 'synced'; await store.put(doc, id); }
+            if (doc) {
+                doc.localState = 'synced';
+                await store.put(doc, id);
+            }
         }
         await tx.done;
-        updateData(prev => ({ ...prev, documents: prev.documents.map(d => uploadedIds.includes(d.id) ? { ...d, localState: 'synced' as const } : d) }), { markDirty: false });
+
+        updateData(prev => ({ 
+            ...prev, 
+            documents: prev.documents.map(d => uploadedIds.includes(d.id) ? { ...d, localState: 'synced' as const } : d) 
+        }), { markDirty: false });
     }, [updateData]);
 
     const { manualSync, fetchAndRefresh } = useSync({
-        user: userRef.current ? { ...userRef.current, id: effectiveUserId || userRef.current.id } as User : null,
-        localData: data, deletedIds, onDataSynced: handleDataSynced, onDeletionsSynced: handleDeletionsSynced, onSyncStatusChange: handleSyncStatusChange, onDocumentsUploaded: handleDocumentsUploaded, excludedDocIds, isOnline, isAuthLoading, syncStatus
+        user: userRef.current ? { ...userRef.current, id: effectiveUserId || userRef.current.id } as User : null, 
+        localData: data, 
+        deletedIds,
+        onDataSynced: handleDataSynced,
+        onDeletionsSynced: handleDeletionsSynced,
+        onSyncStatusChange: handleSyncStatusChange,
+        onDocumentsUploaded: handleDocumentsUploaded, 
+        excludedDocIds, 
+        isOnline, isAuthLoading, syncStatus
     });
-
-    React.useEffect(() => {
-        if (!user || isAuthLoading) {
-            if (!isAuthLoading) setIsDataLoading(false);
-            return;
-        }
-        setIsDataLoading(true);
-        let cancelled = false;
-
-        const loadData = async () => {
-            try {
-                // Determine owner ID from cache if possible
-                let ownerId = localStorage.getItem(`lawyer_app_owner_id_${user.id}`) || user.id;
-
-                // 1. FAST PATH: Read from IndexedDB immediately
-                const db = await getDb();
-                const [storedData, storedDeletedIds, localDocsMetadata, storedExcludedDocs] = await Promise.all([
-                    db.get(DATA_STORE_NAME, ownerId),
-                    db.get(DATA_STORE_NAME, `deletedIds_${ownerId}`),
-                    db.getAll(DOCS_METADATA_STORE_NAME),
-                    db.getAll(LOCAL_EXCLUDED_DOCS_STORE_NAME)
-                ]);
-                
-                if (cancelled) return;
-
-                const excludedIdsSet = new Set<string>((storedExcludedDocs || []).map((d: any) => d.id));
-                setExcludedDocIds(excludedIdsSet);
-
-                const validatedData = validateAndFixData(storedData, user);
-                const localDocsMetadataMap = new Map((localDocsMetadata as any[]).map((meta: any) => [meta.id, meta]));
-                const finalDocs = validatedData.documents.map(doc => {
-                    if (excludedIdsSet.has(doc.id)) return null;
-                    const localMeta: any = localDocsMetadataMap.get(doc.id);
-                    return { ...doc, localState: localMeta?.localState || doc.localState || 'pending_download' };
-                }).filter(doc => !!doc) as CaseDocument[];
-                
-                const finalData = { ...validatedData, documents: finalDocs };
-                
-                // 2. UNLOCK UI with local data (might be empty on first login)
-                setData(finalData);
-                setDeletedIds(storedDeletedIds || getInitialDeletedIds());
-                setIsDataLoading(false); // <--- UI is now usable
-
-                // 3. BACKGROUND WORK: Sync & Profile Verification
-                const supabase = getSupabaseClient();
-                const isOnlineNow = typeof navigator !== 'undefined' ? navigator.onLine : true;
-                
-                if (isOnlineNow && supabase) {
-                    Promise.resolve().then(async () => {
-                        try {
-                            // Check profile with timeout to update owner relation
-                            const profilePromise = supabase.from('profiles').select('lawyer_id').eq('id', user.id).single();
-                            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000));
-                            const profileResult: any = await Promise.race([profilePromise, timeoutPromise]).catch(() => null);
-                            
-                            if (profileResult?.data?.lawyer_id) {
-                                const newOwnerId = profileResult.data.lawyer_id;
-                                if (newOwnerId !== ownerId) {
-                                    localStorage.setItem(`lawyer_app_owner_id_${user.id}`, newOwnerId);
-                                    // If owner changed, we need a refresh
-                                    await manualSync();
-                                } else { await manualSync(); }
-                            } else { await manualSync(); }
-                            
-                            downloadMissingFiles(finalData.documents);
-                        } catch (e) {
-                            console.warn("Background sync failed:", e);
-                            setSyncStatus('error');
-                        }
-                    });
-                } else {
-                    setSyncStatus('synced');
-                }
-            } catch (error) {
-                console.error('Failed to load local data:', error);
-                setIsDataLoading(false);
-                setSyncStatus('error');
-            }
-        };
-        loadData();
-        return () => { cancelled = true; };
-    }, [user?.id, isAuthLoading]);
 
     React.useEffect(() => {
         if (isOnline && isDirty && userSettings.isAutoSyncEnabled && syncStatus !== 'syncing') {
@@ -570,6 +634,12 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
             return () => clearTimeout(handler);
         }
     }, [isOnline, isDirty, userSettings.isAutoSyncEnabled, syncStatus, manualSync]);
+
+    React.useEffect(() => {
+        if (isOnline && userSettings.isAutoSyncEnabled && syncStatus !== 'syncing' && syncStatus !== 'loading') {
+            manualSync();
+        }
+    }, [isOnline, userSettings.isAutoSyncEnabled, manualSync]); 
 
     const addRealtimeAlert = React.useCallback((message: string, type: 'sync' | 'userApproval' = 'sync') => {
         setRealtimeAlerts(prev => [...prev, { id: Date.now(), message, type }]);
@@ -598,7 +668,29 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         setFullData,
         allSessions: React.useMemo(() => data.clients.flatMap(c => c.cases.flatMap(cs => cs.stages.flatMap(st => st.sessions.map(s => ({...s, stageId: st.id, stageDecisionDate: st.decisionDate}))))), [data.clients]),
         unpostponedSessions: React.useMemo(() => {
-            return data.clients.flatMap(c => c.cases.flatMap(cs => cs.stages.flatMap(st => st.sessions.filter(s => !s.isPostponed && isBeforeToday(s.date) && !st.decisionDate).map(s => ({...s, stageId: st.id, stageDecisionDate: st.decisionDate})))));
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+
+            return data.clients.flatMap(c => 
+                c.cases.flatMap(cs => 
+                    cs.stages.flatMap(st => {
+                        if (st.decisionDate) return [];
+                        return st.sessions
+                            .filter(s => !s.isPostponed && isBeforeToday(s.date))
+                            .filter(s => {
+                                const hasLaterSession = st.sessions.some(otherS => 
+                                    new Date(otherS.date).getTime() > new Date(s.date).getTime()
+                                );
+                                return !hasLaterSession;
+                            })
+                            .map(s => ({
+                                ...s, 
+                                stageId: st.id, 
+                                stageDecisionDate: st.decisionDate
+                            }));
+                    })
+                )
+            );
         }, [data.clients]),
         syncStatus, manualSync, lastSyncError, isDirty, userId: user?.id, isDataLoading,
         effectiveUserId,
@@ -659,8 +751,12 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         },
         addDocuments: async (caseId: string, files: FileList) => {
              const currentUser = userRef.current;
-             if (!currentUser) throw new Error("يجب تسجيل الدخول لإضافة وثائق.");
+             if (!currentUser) {
+                 console.error("Cannot add documents: User not authenticated or session invalid.");
+                 throw new Error("يجب تسجيل الدخول لإضافة وثائق.");
+             }
              const ownerId = effectiveUserId || currentUser.id;
+
              const db = await getDb();
              const newDocs: CaseDocument[] = [];
              for (let i = 0; i < files.length; i++) {
@@ -696,6 +792,21 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     updateData(prev => ({...prev, documents: prev.documents.map(d => d.id === docId ? {...d, localState: 'synced'} : d)}), { markDirty: false });
                     return downloadedFile;
                 } catch (e: any) {
+                    let errorMsg = 'Unknown error';
+                    try {
+                        if (typeof e === 'string') {
+                            errorMsg = e;
+                        } else if (e instanceof Error) {
+                            errorMsg = e.message;
+                        } else {
+                            const json = JSON.stringify(e, Object.getOwnPropertyNames(e));
+                            if (json && json !== '{}') errorMsg = json;
+                            else errorMsg = String(e);
+                        }
+                    } catch {
+                        errorMsg = String(e);
+                    }
+                    console.error(`Failed to download doc ${doc.id}:`, e);
                     await db.put(DOCS_METADATA_STORE_NAME, { ...doc, localState: 'error' }, doc.id);
                     updateData(prev => ({...prev, documents: prev.documents.map(d => d.id === docId ? {...d, localState: 'error'} : d)}), { markDirty: false });
                 }
