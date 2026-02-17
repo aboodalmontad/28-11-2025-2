@@ -270,7 +270,6 @@ const validateAndFixData = (loadedData: any, user: User | null): AppData => {
 export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     const [data, setData] = React.useState<AppData>(getInitialData);
     const [deletedIds, setDeletedIds] = React.useState<DeletedIds>(getInitialDeletedIds);
-    // New State for locally excluded documents
     const [excludedDocIds, setExcludedDocIds] = React.useState<Set<string>>(new Set());
     const [isDirty, setDirty] = React.useState(false);
     const [syncStatus, setSyncStatus] = React.useState<SyncStatus>('loading');
@@ -297,7 +296,6 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         return user.id; 
     }, [user, data.profiles]);
 
-    // Current user's permissions (if assistant)
     const currentUserPermissions: Permissions = React.useMemo(() => {
         if (!user) return defaultPermissions;
         const currentUserProfile = data.profiles.find(p => p.id === user.id);
@@ -335,7 +333,6 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         };
     }, [user, data.profiles]);
 
-    // Update Data: Use effectiveUserId for IDB key
     const updateData = React.useCallback((updater: React.SetStateAction<AppData>, options: { markDirty?: boolean } = { markDirty: true }) => {
         if (!userRef.current || !effectiveUserId) return;
         
@@ -375,7 +372,6 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         localStorage.setItem(settingsKey, JSON.stringify(newSettings));
     };
 
-    // Auto-download missing files logic
     const downloadMissingFiles = React.useCallback(async (documents: CaseDocument[]) => {
         const pendingDocs = documents.filter(d => d.localState === 'pending_download');
         if (pendingDocs.length === 0) return;
@@ -617,7 +613,8 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     }, [updateData]);
 
     const { manualSync, fetchAndRefresh } = useSync({
-        user: userRef.current ? { ...userRef.current, id: effectiveUserId || userRef.current.id } as User : null, 
+        user: userRef.current, // Real User
+        effectiveUserId, // Owner
         localData: data, 
         deletedIds,
         onDataSynced: handleDataSynced,

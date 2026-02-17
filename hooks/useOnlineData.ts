@@ -1,3 +1,4 @@
+
 import { getSupabaseClient } from '../supabaseClient';
 import { Client, AdminTask, Appointment, AccountingEntry, Invoice, InvoiceItem, CaseDocument, Profile, SiteFinancialEntry, SyncDeletion } from '../types';
 // Fix: Use `import type` for User as it is used as a type, not a value. This resolves module resolution errors in some environments.
@@ -216,133 +217,166 @@ export const deleteDataFromSupabase = async (deletions: Partial<FlatData>, user:
     }
 };
 
-export const upsertDataToSupabase = async (data: Partial<FlatData>, user: User) => {
+/**
+ * Helper to safely format dates for DB
+ */
+const toISO = (d: any) => {
+    if (!d) return null;
+    try {
+        return new Date(d).toISOString();
+    } catch (e) {
+        return null;
+    }
+};
+
+/**
+ * Upserts data to Supabase.
+ * @param data Flat data to upsert.
+ * @param realUser The currently authenticated user (for profile updates).
+ * @param ownerId The ID of the user who owns the records (lawyer's ID).
+ */
+export const upsertDataToSupabase = async (data: Partial<FlatData>, realUser: User, ownerId: string) => {
     const supabase = getSupabaseClient();
     if (!supabase) throw new Error('Supabase client not available.');
 
-    const userId = user.id;
+    const authenticatedUserId = realUser.id;
+
+    // Determine current user's role and identity from local profile data to decide sync capabilities
+    const myProfile = data.profiles?.find(p => p.id === authenticatedUserId);
+    const isAdmin = myProfile?.role === 'admin';
+    const isLawyer = myProfile && !myProfile.lawyer_id;
 
     const dataToUpsert = {
         clients: data.clients?.map((c: any) => ({ 
             id: c.id, 
-            user_id: userId, 
+            user_id: ownerId, 
             name: c.name, 
             contact_info: c.contactInfo || c.contact_info,
-            updated_at: c.updated_at
+            updated_at: toISO(c.updated_at)
         })),
         cases: data.cases?.map((c: any) => ({ 
             id: c.id, 
-            user_id: userId, 
+            user_id: ownerId, 
             client_id: c.clientId || c.client_id, 
             subject: c.subject,
             client_name: c.clientName || c.client_name, 
             opponent_name: c.opponentName || c.opponent_name, 
             fee_agreement: c.feeAgreement || c.fee_agreement,
             status: c.status,
-            updated_at: c.updated_at
+            updated_at: toISO(c.updated_at)
         })),
         stages: data.stages?.map((s: any) => ({ 
             id: s.id, 
-            user_id: userId, 
+            user_id: ownerId, 
             case_id: s.caseId || s.case_id,
             court: s.court,
             case_number: s.caseNumber || s.case_number, 
-            first_session_date: s.firstSessionDate || s.first_session_date, 
-            decision_date: s.decisionDate || s.decision_date, 
+            first_session_date: toISO(s.firstSessionDate || s.first_session_date), 
+            decision_date: toISO(s.decisionDate || s.decision_date), 
             decision_number: s.decisionNumber !== undefined ? s.decisionNumber : s.decision_number, 
             decision_summary: s.decisionSummary !== undefined ? s.decisionSummary : s.decision_summary, 
             decision_notes: s.decisionNotes !== undefined ? s.decisionNotes : s.decision_notes,
-            updated_at: s.updated_at
+            updated_at: toISO(s.updated_at)
         })),
         sessions: data.sessions?.map((s: any) => ({
             id: s.id,
-            user_id: userId,
+            user_id: ownerId,
             stage_id: s.stageId || s.stage_id,
             court: s.court,
             case_number: s.caseNumber || s.case_number,
-            date: s.date,
+            date: toISO(s.date),
             client_name: s.clientName || s.client_name,
             opponent_name: s.opponentName || s.opponent_name,
             postponement_reason: s.postponementReason || s.postponement_reason,
             next_postponement_reason: s.nextPostponementReason || s.next_postponement_reason,
             is_postponed: s.isPostponed !== undefined ? s.isPostponed : s.is_postponed,
-            next_session_date: s.nextSessionDate || s.next_session_date,
+            next_session_date: toISO(s.nextSessionDate || s.next_session_date),
             assignee: s.assignee,
-            updated_at: s.updated_at
+            updated_at: toISO(s.updated_at)
         })),
         admin_tasks: data.admin_tasks?.map((t: any) => ({ 
             id: t.id, 
-            user_id: userId, 
+            user_id: ownerId, 
             task: t.task,
-            due_date: t.dueDate || t.due_date, 
+            due_date: toISO(t.dueDate || t.due_date), 
             completed: t.completed,
             importance: t.importance,
             assignee: t.assignee,
             location: t.location,
             order_index: t.orderIndex !== undefined ? t.orderIndex : t.order_index,
-            updated_at: t.updated_at
+            updated_at: toISO(t.updated_at)
         })),
         appointments: data.appointments?.map((a: any) => ({ 
             id: a.id, 
-            user_id: userId, 
+            user_id: ownerId, 
             title: a.title,
             time: a.time,
-            date: a.date,
+            date: toISO(a.date),
             importance: a.importance,
             completed: a.completed,
             notified: a.notified,
             reminder_time_in_minutes: a.reminderTimeInMinutes || a.reminder_time_in_minutes,
             assignee: a.assignee,
-            updated_at: a.updated_at
+            updated_at: toISO(a.updated_at)
         })),
         accounting_entries: data.accounting_entries?.map((e: any) => ({ 
             id: e.id, 
-            user_id: userId, 
+            user_id: ownerId, 
             type: e.type,
             amount: e.amount,
-            date: e.date,
+            date: toISO(e.date),
             description: e.description,
             client_id: e.clientId || e.client_id, 
             case_id: e.caseId || e.case_id, 
             client_name: e.clientName || e.client_name,
-            updated_at: e.updated_at
+            updated_at: toISO(e.updated_at)
         })),
-        assistants: data.assistants?.map(item => ({ name: item.name, user_id: userId })),
+        assistants: data.assistants?.map(item => ({ name: item.name, user_id: ownerId })),
         invoices: data.invoices?.map((i: any) => ({ 
             id: i.id, 
-            user_id: userId, 
+            user_id: ownerId, 
             client_id: i.clientId || i.client_id, 
             client_name: i.clientName || i.client_name, 
             case_id: i.caseId || i.case_id, 
             case_subject: i.caseSubject || i.case_subject, 
-            issue_date: i.issueDate || i.issue_date, 
-            due_date: i.dueDate || i.due_date, 
+            issue_date: toISO(i.issueDate || i.issue_date), 
+            due_date: toISO(i.dueDate || i.due_date), 
             tax_rate: i.taxRate !== undefined ? i.taxRate : i.tax_rate,
             discount: i.discount,
             status: i.status,
             notes: i.notes,
-            updated_at: i.updated_at
+            updated_at: toISO(i.updated_at)
         })),
         invoice_items: data.invoice_items?.map((item: any) => ({ 
             id: item.id, 
-            user_id: userId, 
+            user_id: ownerId, 
             invoice_id: item.invoiceId || item.invoice_id,
             description: item.description,
             amount: item.amount,
-            updated_at: item.updated_at
+            updated_at: toISO(item.updated_at)
         })),
         case_documents: data.case_documents?.map((d: any) => ({ 
             id: d.id, 
-            user_id: userId, 
+            user_id: ownerId, 
             case_id: d.caseId || d.case_id, 
             name: d.name,
             type: d.type,
             size: d.size,
-            added_at: d.addedAt || d.added_at, 
+            added_at: toISO(d.addedAt || d.added_at), 
             storage_path: d.storagePath || d.storage_path,
-            updated_at: d.updated_at
+            updated_at: toISO(d.updated_at)
         })),
-        profiles: data.profiles?.filter((p: any) => p.id === userId).map((p: any) => ({
+        // RLS FIX: 
+        // 1. Admin syncs all profiles.
+        // 2. Lawyer syncs own and assistants' profiles.
+        // 3. Assistants sync ONLY their own profile.
+        profiles: data.profiles?.filter((p: any) => {
+            if (!p) return false;
+            if (isAdmin) return true;
+            if (p.id === authenticatedUserId) return true;
+            if (isLawyer && p.lawyer_id === authenticatedUserId) return true;
+            return false;
+        }).map((p: any) => ({
             id: p.id,
             full_name: p.full_name,
             mobile_number: p.mobile_number,
@@ -354,7 +388,7 @@ export const upsertDataToSupabase = async (data: Partial<FlatData>, user: User) 
             role: p.role,
             lawyer_id: p.lawyer_id,
             permissions: p.permissions,
-            updated_at: p.updated_at
+            updated_at: toISO(p.updated_at)
         })),
         site_finances: data.site_finances?.map((sf: any) => ({ 
             id: sf.id,
@@ -366,7 +400,7 @@ export const upsertDataToSupabase = async (data: Partial<FlatData>, user: User) 
             payment_method: sf.payment_method,
             category: sf.category,
             profile_full_name: sf.profile_full_name,
-            updated_at: sf.updated_at
+            updated_at: toISO(sf.updated_at)
         })),
     };
     
@@ -443,7 +477,7 @@ export const transformRemoteToLocal = (remote: any): Partial<FlatData> => {
             nextPostponementReason: next_postponement_reason, 
             isPostponed: is_postponed, 
             nextSessionDate: next_session_date,
-            stage_id, case_number, client_name, opponent_name, postponement_reason, next_postponement_reason, is_postponed, next_session_date
+            stage_id, case_number, client_name, postponement_reason, next_postponement_reason, is_postponed, next_session_date
         })),
         admin_tasks: remote.admin_tasks?.map(({ due_date, order_index, ...r }: any) => ({ ...r, dueDate: due_date, orderIndex: order_index, due_date, order_index })),
         appointments: remote.appointments?.map(({ reminder_time_in_minutes, ...r }: any) => ({ ...r, reminderTimeInMinutes: reminder_time_in_minutes, reminder_time_in_minutes })),

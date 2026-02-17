@@ -1,4 +1,3 @@
-
 import * as React from 'react';
 // Fix: Use `import type` for User as it is used as a type, not a value. This resolves module resolution errors in some environments.
 import type { User } from '@supabase/supabase-js';
@@ -11,7 +10,8 @@ export type SyncStatus = 'loading' | 'syncing' | 'synced' | 'error' | 'unconfigu
 
 
 interface UseSyncProps {
-    user: User | null;
+    user: User | null; // Real authenticated user
+    effectiveUserId: string | null; // Owner of the data (lawyer)
     localData: AppData;
     deletedIds: DeletedIds;
     onDataSynced: (mergedData: AppData) => void;
@@ -127,7 +127,6 @@ const mergeForRefresh = <T extends { id: any; updated_at?: Date | string }>(loca
         if (existingItem) {
             const remoteDate = new Date(remoteItem.updated_at || 0).getTime();
             const localDate = new Date(existingItem.updated_at || 0).getTime();
-            // Use >= to allow local updates to persist if timestamps are equal (likely in same-device scenarios)
             if (remoteDate > localDate) finalItems.set(id, remoteItem);
         } else { finalItems.set(id, remoteItem); }
     }
@@ -246,14 +245,16 @@ const cleanupExpiredDocuments = async (remoteDocs: any[], supabase: any) => {
     }
 };
 
-export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletionsSynced, onSyncStatusChange, onDocumentsUploaded, excludedDocIds, isOnline, isAuthLoading, syncStatus }: UseSyncProps) => {
+export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSynced, onDeletionsSynced, onSyncStatusChange, onDocumentsUploaded, excludedDocIds, isOnline, isAuthLoading, syncStatus }: UseSyncProps) => {
     const userRef = React.useRef(user);
+    const ownerRef = React.useRef(effectiveUserId);
     const localDataRef = React.useRef(localData);
     const deletedIdsRef = React.useRef(deletedIds);
     const excludedDocIdsRef = React.useRef(excludedDocIds);
     const syncStatusRef = React.useRef(syncStatus);
 
     userRef.current = user;
+    ownerRef.current = effectiveUserId;
     localDataRef.current = localData;
     deletedIdsRef.current = deletedIds;
     excludedDocIdsRef.current = excludedDocIds;
@@ -264,8 +265,11 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
     const manualSync = React.useCallback(async () => {
         if (syncStatusRef.current === 'syncing') return;
         if (isAuthLoading) return;
-        const currentUser = userRef.current;
-        if (!isOnline || !currentUser) {
+        
+        const realUser = userRef.current;
+        const ownerId = ownerRef.current;
+        
+        if (!isOnline || !realUser || !ownerId) {
             setStatus('error', isOnline ? 'يجب تسجيل الدخول للمزامنة.' : 'يجب أن تكون متصلاً بالإنترنت للمزامنة.');
             return;
         }
@@ -378,7 +382,6 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
                     if (remoteItem) {
                         const localDate = new Date(localItem.updated_at || 0).getTime();
                         const remoteDate = new Date(remoteItem.updated_at || 0).getTime();
-                        // Changed to localDate >= remoteDate to ensure local decision wins
                         if (localDate >= remoteDate) {
                             itemsToUpsert.push(localItem);
                             finalMergedItems.set(id, localItem);
@@ -442,12 +445,13 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
 
             if (Object.values(flatDeletes).some(arr => arr && arr.length > 0)) {
                 setStatus('syncing', 'جاري حذف البيانات من السحابة...');
-                await deleteDataFromSupabase(flatDeletes, currentUser);
+                await deleteDataFromSupabase(flatDeletes, realUser);
                 successfulDeletions = { ...successfulDeletions, ...deletedIdsRef.current };
             }
 
             setStatus('syncing', 'جاري رفع البيانات إلى السحابة...');
-            const upsertedDataRaw = await upsertDataToSupabase(flatUpserts as FlatData, currentUser);
+            // RLS FIX: Pass realUser (auth) AND ownerId separately
+            const upsertedDataRaw = await upsertDataToSupabase(flatUpserts as FlatData, realUser, ownerId);
             const upsertedFlatData = transformRemoteToLocal(upsertedDataRaw);
             const upsertedDataMap = new Map();
             Object.values(upsertedFlatData).forEach(arr => (arr as any[])?.forEach(item => upsertedDataMap.set(item.id ?? item.name, item)));
