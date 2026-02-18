@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { createRoot } from 'react-dom/client';
-// Fix: Corrected the import path for the App component by removing the `.tsx` extension. This is standard practice and helps module resolvers correctly locate the file, resolving the "no default export" error.
-import App from './App';
+// Fix: Added .tsx extension for browser native ESM compatibility.
+import App from './App.tsx';
 
 // Listen for logout events from other tabs to ensure session state is synchronized.
 window.addEventListener('storage', (event) => {

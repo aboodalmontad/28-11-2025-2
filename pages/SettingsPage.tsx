@@ -1,11 +1,10 @@
-
 import * as React from 'react';
-import { TrashIcon, ExclamationTriangleIcon, CloudArrowUpIcon, ArrowPathIcon, PlusIcon, CheckCircleIcon, XCircleIcon, ArrowDownTrayIcon, ArrowUpTrayIcon, ShieldCheckIcon, UserGroupIcon } from '../components/icons';
-import { Client, AdminTask, Appointment, AccountingEntry } from '../types';
-import { APP_DATA_KEY } from '../hooks/useSupabaseData';
-import { useData } from '../context/DataContext';
+import { TrashIcon, ExclamationTriangleIcon, CloudArrowUpIcon, ArrowPathIcon, PlusIcon, CheckCircleIcon, XCircleIcon, ArrowDownTrayIcon, ArrowUpTrayIcon, ShieldCheckIcon, UserGroupIcon } from '../components/icons.tsx';
+import { Client, AdminTask, Appointment, AccountingEntry } from '../types.ts';
+import { APP_DATA_KEY } from '../hooks/useSupabaseData.ts';
+import { useData } from '../context/DataContext.tsx';
 import { openDB } from 'idb';
-import AssistantsManager from '../components/AssistantsManager';
+import AssistantsManager from '../components/AssistantsManager.tsx';
 
 interface SettingsPageProps {}
 
@@ -24,7 +23,6 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
         setTimeout(() => setFeedback(null), 4000);
     };
 
-    // ... (existing handlers: handleConfirmClearData, handleExportData, handleImportData, handleAddAssistant, handleDeleteAssistant, handleConfirmDeleteAssistant, handleInspectDb)
     const handleConfirmClearData = () => {
         try {
             const emptyData = { clients: [], adminTasks: [], appointments: [], accountingEntries: [], assistants: ['بدون تخصيص'] };
@@ -75,7 +73,6 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
                 <h2 className="text-xl font-bold text-gray-800 border-b pb-3">النسخ الاحتياطي</h2>
                 <div className="pt-2"><ToggleSwitch label="النسخ الاحتياطي اليومي التلقائي" enabled={isAutoBackupEnabled} onChange={setAutoBackupEnabled} /></div>
             </div>
-            {/* ... (Other sections: Layout, DB Inspect, Export/Import, Assistants List, Clear Data) ... */}
             <div className="bg-white p-6 rounded-lg shadow space-y-4"><h2 className="text-xl font-bold text-gray-800 border-b pb-3">تخطيط المهام</h2><div className="pt-2 flex gap-4"><button onClick={() => setAdminTasksLayout('horizontal')} className={`px-4 py-2 rounded ${adminTasksLayout === 'horizontal' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>أفقي</button><button onClick={() => setAdminTasksLayout('vertical')} className={`px-4 py-2 rounded ${adminTasksLayout === 'vertical' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>عمودي</button></div></div>
             <div className="bg-white p-6 rounded-lg shadow space-y-4"><h2 className="text-xl font-bold text-gray-800 border-b pb-3">فحص البيانات</h2><button onClick={handleInspectDb} className="px-4 py-2 bg-gray-600 text-white rounded">فحص</button>{dbStats && <pre className="mt-4 bg-gray-100 p-4 rounded text-xs">{dbStats}</pre>}</div>
             <div className="bg-white p-6 rounded-lg shadow space-y-4"><h2 className="text-xl font-bold text-gray-800 border-b pb-3">نقل البيانات</h2><div className="flex gap-4"><button onClick={handleExportData} className="px-4 py-2 bg-gray-600 text-white rounded">تصدير</button><label className="px-4 py-2 bg-gray-600 text-white rounded cursor-pointer">استيراد<input type="file" className="hidden" onChange={handleImportData}/></label></div></div>

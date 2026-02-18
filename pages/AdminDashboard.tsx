@@ -1,13 +1,12 @@
-
 import * as React from 'react';
-import AdminPage from './AdminPage';
-import { PowerIcon, UserGroupIcon, ChartPieIcon, Bars3Icon, XMarkIcon, CurrencyDollarIcon, Cog6ToothIcon, ExclamationTriangleIcon } from '../components/icons';
-import { useData } from '../context/DataContext';
-import AdminAnalyticsPage from './AdminAnalyticsPage';
-import SiteFinancesPage from './SiteFinancesPage';
-import AdminSettingsPage from './AdminSettingsPage';
-import SyncStatusIndicator from '../components/SyncStatusIndicator';
-import { useOnlineStatus } from '../hooks/useOnlineStatus';
+import AdminPage from './AdminPage.tsx';
+import { PowerIcon, UserGroupIcon, ChartPieIcon, Bars3Icon, XMarkIcon, CurrencyDollarIcon, Cog6ToothIcon, ExclamationTriangleIcon } from '../components/icons.tsx';
+import { useData } from '../context/DataContext.tsx';
+import AdminAnalyticsPage from './AdminAnalyticsPage.tsx';
+import SiteFinancesPage from './SiteFinancesPage.tsx';
+import AdminSettingsPage from './AdminSettingsPage.tsx';
+import SyncStatusIndicator from '../components/SyncStatusIndicator.tsx';
+import { useOnlineStatus } from '../hooks/useOnlineStatus.ts';
 
 interface AdminDashboardProps {
     onLogout: () => void;

@@ -16,11 +16,11 @@ async function build() {
         await esbuild.build({
             entryPoints: ['index.tsx'],
             bundle: true,
-            // Use outdir and splitting for proper dynamic imports handling
-            outdir: publicDir,
-            splitting: true,
+            // Single bundle file to prevent "Failed to fetch dynamically imported module" errors
+            outfile: path.join(publicDir, 'index.js'),
+            splitting: false, 
             jsx: 'automatic',
-            format: 'esm', // Output as an ES Module
+            format: 'esm',
             sourcemap: true,
             minify: true,
             target: 'es2020',
@@ -34,7 +34,7 @@ async function build() {
                 'recharts',
                 'idb',
                 'react-router-dom',
-                'react/*', // To handle react/jsx-runtime and other react sub-modules
+                'react/*', 
                 'docx-preview',
             ],
         });

@@ -1,11 +1,10 @@
-
 import * as React from 'react';
-import { getSupabaseClient } from '../supabaseClient';
-import { Profile } from '../types';
-import { formatDate, toInputDateString } from '../utils/dateUtils';
-import { CheckCircleIcon, NoSymbolIcon, PencilIcon, TrashIcon, ExclamationTriangleIcon, PhoneIcon, ShareIcon, ArrowPathIcon, ClipboardDocumentIcon, UserIcon, UserGroupIcon } from '../components/icons';
-import { useData } from '../context/DataContext';
-import UserDetailsModal from '../components/UserDetailsModal';
+import { getSupabaseClient } from '../supabaseClient.ts';
+import { Profile } from '../types.ts';
+import { formatDate, toInputDateString } from '../utils/dateUtils.ts';
+import { CheckCircleIcon, NoSymbolIcon, PencilIcon, TrashIcon, ExclamationTriangleIcon, PhoneIcon, ShareIcon, ArrowPathIcon, ClipboardDocumentIcon, UserIcon, UserGroupIcon } from '../components/icons.tsx';
+import { useData } from '../context/DataContext.tsx';
+import UserDetailsModal from '../components/UserDetailsModal.tsx';
 
 const formatSubscriptionDateRange = (user: Profile): string => {
     const { subscription_start_date, subscription_end_date } = user;
@@ -34,6 +33,7 @@ interface UserRowProps {
     onDelete: (user: Profile) => void;
     onToggleApproval: (user: Profile) => void;
     onToggleActive: (user: Profile) => void;
+    onToggleVerified?: (user: Profile) => void;
     onGenerateOtp: (user: Profile) => void;
     generatingOtpFor: string | null;
     currentAdminId: string | undefined;

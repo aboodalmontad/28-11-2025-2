@@ -1,13 +1,15 @@
+
 import * as React from 'react';
-import { Client, Session, AdminTask, Appointment, AccountingEntry, Case, Stage, Invoice, InvoiceItem, CaseDocument, AppData, DeletedIds, getInitialDeletedIds, Profile, SiteFinancialEntry, Permissions, defaultPermissions } from '../types';
-import { useOnlineStatus } from './useOnlineStatus';
+import { Client, Session, AdminTask, Appointment, AccountingEntry, Case, Stage, Invoice, InvoiceItem, CaseDocument, AppData, DeletedIds, getInitialDeletedIds, Profile, SiteFinancialEntry, Permissions, defaultPermissions } from '../types.ts';
+import { useOnlineStatus } from './useOnlineStatus.ts';
 // Fix: Use `import type` for User and RealtimeChannel as they are used as types, not a value.
 import type { User, RealtimeChannel } from '@supabase/supabase-js';
-import { useSync, SyncStatus as SyncStatusType } from './useSync';
-import { getSupabaseClient } from '../supabaseClient';
-import { isBeforeToday, toInputDateString } from '../utils/dateUtils';
-import { RealtimeAlert } from '../components/RealtimeNotifier';
-import { getDb, DATA_STORE_NAME, DOCS_FILES_STORE_NAME, DOCS_METADATA_STORE_NAME, LOCAL_EXCLUDED_DOCS_STORE_NAME } from '../utils/db';
+import { useSync, SyncStatus as SyncStatusType } from './useSync.ts';
+import { getSupabaseClient } from '../supabaseClient.ts';
+import { isBeforeToday, toInputDateString } from '../utils/dateUtils.ts';
+import { RealtimeAlert } from '../components/RealtimeNotifier.tsx';
+import { getDb, DATA_STORE_NAME, DOCS_FILES_STORE_NAME, DOCS_METADATA_STORE_NAME, LOCAL_EXCLUDED_DOCS_STORE_NAME } from '../utils/db.ts';
+import { isNetworkError, fetchDataFromSupabase, fetchDeletionsFromSupabase, fetchWithRetry } from './useOnlineData.ts';
 
 export const APP_DATA_KEY = 'lawyerBusinessManagementData';
 export type SyncStatus = SyncStatusType;
@@ -340,7 +342,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
             const newData = typeof updater === 'function' ? (updater as (prevState: AppData) => AppData)(currentData) : updater;
             getDb().then(db => {
                 db.put(DATA_STORE_NAME, newData, effectiveUserId);
-            });
+            }).catch(e => console.error("Failed to write to IDB", e));
             if (options.markDirty) {
                 setDirty(true);
             }
@@ -440,11 +442,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     
                     console.error(`Failed to auto-download doc ${doc.id}:`, errorMsg);
 
-                    const isNetworkError = errorMsg.includes('Failed to fetch') || 
-                                           errorMsg.toLowerCase().includes('network') ||
-                                           errorMsg.toLowerCase().includes('connection');
-
-                    if (isNetworkError) {
+                    if (isNetworkError(e)) {
                         console.warn(`Network error for doc ${doc.id}, keeping as pending_download for retry.`);
                         const pendingDoc = { ...doc, localState: 'pending_download' as const };
                         await db.put(DOCS_METADATA_STORE_NAME, pendingDoc, doc.id);
@@ -478,13 +476,21 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 const supabase = getSupabaseClient();
                 const isOnlineNow = typeof navigator !== 'undefined' ? navigator.onLine : true;
                 if (isOnlineNow && supabase) {
-                    const { data: profile } = await supabase.from('profiles').select('lawyer_id').eq('id', user.id).single();
-                    if (profile && profile.lawyer_id) {
-                        ownerId = profile.lawyer_id;
-                        localStorage.setItem(`lawyer_app_owner_id_${user.id}`, ownerId);
-                    } else if (profile) {
-                        ownerId = user.id;
-                        localStorage.setItem(`lawyer_app_owner_id_${user.id}`, ownerId);
+                    try {
+                        const res: any = await fetchWithRetry(() => 
+                            supabase!.from('profiles').select('lawyer_id').eq('id', user!.id).maybeSingle()
+                        );
+                        const profileData = res?.data;
+
+                        if (profileData && profileData.lawyer_id) {
+                            ownerId = profileData.lawyer_id;
+                            localStorage.setItem(`lawyer_app_owner_id_${user.id}`, ownerId);
+                        } else if (profileData) {
+                            ownerId = user.id;
+                            localStorage.setItem(`lawyer_app_owner_id_${user.id}`, ownerId);
+                        }
+                    } catch (profileFetchErr) {
+                        console.warn("Failed to fetch profile owner ID on startup (shaky network), using cached/fallback:", profileFetchErr);
                     }
                 }
 
@@ -513,8 +519,8 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 
                 setData(finalData);
                 setDeletedIds(storedDeletedIds || getInitialDeletedIds());
-                setIsDataLoading(false);
-
+                
+                // Initial background sync
                 if (isOnlineNow) {
                     manualSync().catch(console.error);
                     downloadMissingFiles(finalDocs);
@@ -524,8 +530,13 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
             } catch (error) {
                 console.error('Failed to load data:', error);
                 setSyncStatus('error');
-                setLastSyncError('فشل تحميل البيانات المحلية.');
-                setIsDataLoading(false);
+                let errorMsg = 'فشل تحميل البيانات.';
+                if (isNetworkError(error)) {
+                   errorMsg = 'فشل الاتصال بالخادم (Failed to fetch).';
+                }
+                setLastSyncError(errorMsg);
+            } finally {
+                if (!cancelled) setIsDataLoading(false);
             }
         };
         loadData();
@@ -589,27 +600,31 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         if (changed) {
             setDeletedIds(newDeletedIds);
             const db = await getDb();
-            await db.put(DATA_STORE_NAME, newDeletedIds, `deletedIds_${effectiveUserId}`);
+            await db.put(DATA_STORE_NAME, newDeletedIds, `deletedIds_${effectiveUserId}`).catch(() => {});
         }
     }, [deletedIds, effectiveUserId]);
 
     const handleDocumentsUploaded = React.useCallback(async (uploadedIds: string[]) => {
-        const db = await getDb();
-        const tx = db.transaction(DOCS_METADATA_STORE_NAME, 'readwrite');
-        const store = tx.objectStore(DOCS_METADATA_STORE_NAME);
-        for (const id of uploadedIds) {
-            const doc = await store.get(id);
-            if (doc) {
-                doc.localState = 'synced';
-                await store.put(doc, id);
+        try {
+            const db = await getDb();
+            const tx = db.transaction(DOCS_METADATA_STORE_NAME, 'readwrite');
+            const store = tx.objectStore(DOCS_METADATA_STORE_NAME);
+            for (const id of uploadedIds) {
+                const doc = await store.get(id);
+                if (doc) {
+                    doc.localState = 'synced';
+                    await store.put(doc, id);
+                }
             }
-        }
-        await tx.done;
+            await tx.done;
 
-        updateData(prev => ({ 
-            ...prev, 
-            documents: prev.documents.map(d => uploadedIds.includes(d.id) ? { ...d, localState: 'synced' as const } : d) 
-        }), { markDirty: false });
+            updateData(prev => ({ 
+                ...prev, 
+                documents: prev.documents.map(d => uploadedIds.includes(d.id) ? { ...d, localState: 'synced' as const } : d) 
+            }), { markDirty: false });
+        } catch (e) {
+            console.error("Failed to update uploaded docs in IDB", e);
+        }
     }, [updateData]);
 
     const { manualSync, fetchAndRefresh } = useSync({
@@ -647,7 +662,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         const db = await getDb();
         const newDeletedIds = { ...deletedIds, [entity]: [...deletedIds[entity], id] };
         setDeletedIds(newDeletedIds);
-        await db.put(DATA_STORE_NAME, newDeletedIds, `deletedIds_${effectiveUserId}`);
+        await db.put(DATA_STORE_NAME, newDeletedIds, `deletedIds_${effectiveUserId}`).catch(() => {});
         setDirty(true);
     };
 
@@ -727,7 +742,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                  const db = await getDb();
                  const newDeletedIds = { ...deletedIds, cases: [...deletedIds.cases, caseId], documents: [...deletedIds.documents, ...docIdsToDelete], documentPaths: [...deletedIds.documentPaths, ...docPathsToDelete] };
                  setDeletedIds(newDeletedIds);
-                 await db.put(DATA_STORE_NAME, newDeletedIds, `deletedIds_${effectiveUserId}`);
+                 await db.put(DATA_STORE_NAME, newDeletedIds, `deletedIds_${effectiveUserId}`).catch(() => {});
                  setDirty(true);
              }
         },
@@ -739,12 +754,16 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         deleteInvoice: (id: string) => { updateData(p => ({...p, invoices: p.invoices.filter(i => i.id !== id)})); createDeleteFunction('invoices')(id); },
         deleteAssistant: (name: string) => { updateData(p => ({...p, assistants: p.assistants.filter(a => a !== name)})); createDeleteFunction('assistants')(name); },
         deleteDocument: async (doc: CaseDocument) => {
-            const db = await getDb();
-            await db.delete(DOCS_FILES_STORE_NAME, doc.id);
-            await db.delete(DOCS_METADATA_STORE_NAME, doc.id);
-            await db.put(LOCAL_EXCLUDED_DOCS_STORE_NAME, { id: doc.id, excludedAt: new Date() }, doc.id);
-            setExcludedDocIds(prev => new Set(prev).add(doc.id));
-            updateData(p => ({ ...p, documents: p.documents.filter(d => d.id !== doc.id) }));
+            try {
+                const db = await getDb();
+                await db.delete(DOCS_FILES_STORE_NAME, doc.id);
+                await db.delete(DOCS_METADATA_STORE_NAME, doc.id);
+                await db.put(LOCAL_EXCLUDED_DOCS_STORE_NAME, { id: doc.id, excludedAt: new Date() }, doc.id);
+                setExcludedDocIds(prev => new Set(prev).add(doc.id));
+                updateData(p => ({ ...p, documents: p.documents.filter(d => d.id !== doc.id) }));
+            } catch (e) {
+                console.error("Failed to delete document from IDB", e);
+            }
         },
         addDocuments: async (caseId: string, files: FileList) => {
              const currentUser = userRef.current;
@@ -796,9 +815,14 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                         } else if (e instanceof Error) {
                             errorMsg = e.message;
                         } else {
-                            const json = JSON.stringify(e, Object.getOwnPropertyNames(e));
-                            if (json && json !== '{}') errorMsg = json;
-                            else errorMsg = String(e);
+                            const possibleMsg = (e as any)?.message || (e as any)?.error_description || (e as any)?.statusText;
+                            if (possibleMsg) {
+                                errorMsg = possibleMsg;
+                            } else {
+                                const json = JSON.stringify(e, Object.getOwnPropertyNames(e));
+                                if (json && json !== '{}') errorMsg = json;
+                                else errorMsg = String(e);
+                            }
                         }
                     } catch {
                         errorMsg = String(e);

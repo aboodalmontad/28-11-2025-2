@@ -4,6 +4,7 @@ import { getSupabaseClient } from '../supabaseClient';
 import { ExclamationCircleIcon, EyeIcon, EyeSlashIcon, ClipboardDocumentIcon, ClipboardDocumentCheckIcon, ArrowTopRightOnSquareIcon, CheckCircleIcon, UserGroupIcon, KeyIcon } from '../components/icons';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import type { User } from '@supabase/supabase-js';
+import { isNetworkError } from '../hooks/useOnlineData';
 
 interface AuthPageProps {
     onForceSetup: () => void;
@@ -147,7 +148,11 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                 setForgotPasswordStep('verify');
             }
         } catch (err: any) {
-            setError(err.message || "حدث خطأ أثناء إرسال الكود.");
+            if (isNetworkError(err)) {
+                setError("فشل الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.");
+            } else {
+                setError(err.message || "حدث خطأ أثناء إرسال الكود.");
+            }
         } finally {
             setLoading(false);
         }
@@ -184,7 +189,11 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                 throw new Error("رمز التحقق غير صحيح.");
             }
         } catch (err: any) {
-            setError(err.message || "فشل تغيير كلمة المرور.");
+            if (isNetworkError(err)) {
+                setError("فشل الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.");
+            } else {
+                setError(err.message || "فشل تغيير كلمة المرور.");
+            }
         } finally {
             setLoading(false);
         }
@@ -207,12 +216,19 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                     if (form.password) {
                         const phone = normalizeMobileToE164(form.mobile);
                         const email = `sy${phone!.substring(1)}@email.com`;
-                        const { data: signInData } = await supabase.auth.signInWithPassword({ email, password: form.password });
+                        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password: form.password });
+                        if (signInError) throw signInError;
                         if(signInData.user) onLoginSuccess(signInData.user);
                     } else { setAuthStep('login'); setOtpCode(''); }
                 }
             } else { throw new Error("رمز التحقق غير صحيح."); }
-        } catch (err: any) { setError(err.message); } finally { setLoading(false); }
+        } catch (err: any) {
+            if (isNetworkError(err)) {
+                setError("فشل الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.");
+            } else {
+                setError(err.message);
+            }
+        } finally { setLoading(false); }
     };
 
     const handleAuth = async (e: React.FormEvent) => {
@@ -238,7 +254,9 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                 const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password: form.password });
                 if (signInError) throw signInError;
                 if (signInData.user) {
-                    const { data: profile } = await supabase.from('profiles').select('mobile_verified, role, is_approved, lawyer_id').eq('id', signInData.user.id).single();
+                    const { data: profile, error: profileError } = await supabase.from('profiles').select('mobile_verified, role, is_approved, lawyer_id').eq('id', signInData.user.id).single();
+                    if (profileError) throw profileError;
+                    
                     if (profile && profile.mobile_verified === false && profile.role !== 'admin') {
                         setMessage("يرجى تأكيد رقم الجوال للمتابعة.");
                         setAuthStep('otp');
@@ -254,7 +272,11 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                     localStorage.setItem(LAST_USER_CREDENTIALS_CACHE_KEY, JSON.stringify({ mobile: form.mobile, password: form.password }));
                 }
             } catch (err: any) {
-                 setError(err.message || "فشل تسجيل الدخول.");
+                 if (isNetworkError(err)) {
+                     setError("فشل الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.");
+                 } else {
+                     setError(err.message || "فشل تسجيل الدخول.");
+                 }
             } finally { setLoading(false); }
         } else { // Sign up
             try {
@@ -282,7 +304,13 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                     setMessage(isAssistantSignup ? "تم إرسال طلب الانضمام. يرجى التواصل مع المحامي لتفعيل حسابك." : "تم إنشاء الحساب بنجاح.");
                     setAuthStep('otp');
                 }
-            } catch (err: any) { setError(err.message); } finally { setLoading(false); }
+            } catch (err: any) {
+                if (isNetworkError(err)) {
+                    setError("فشل الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.");
+                } else {
+                    setError(err.message);
+                }
+            } finally { setLoading(false); }
         }
     };
 

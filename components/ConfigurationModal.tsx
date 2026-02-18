@@ -21,8 +21,8 @@ const CopyButton: React.FC<{ textToCopy: string }> = ({ textToCopy }) => {
 
 const unifiedScript = `
 -- =================================================================
--- السكربت الشامل لإصلاح وإعداد قاعدة البيانات (النسخة الآمنة 2.2)
--- حل مشكلة RLS الشاملة للملفات الشخصية والمزامنة
+-- السكربت الشامل لإصلاح وإعداد قاعدة البيانات (النسخة الآمنة 2.5)
+-- حل مشكلة RLS للملفات الشخصية وتجنب أخطاء Realtime المتكررة
 -- =================================================================
 
 -- 1. تحديث جدول الملفات الشخصية (Profiles)
@@ -119,38 +119,6 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 GRANT EXECUTE ON FUNCTION public.verify_mobile_otp(text, text) TO anon, authenticated;
 
--- Function to handle password reset via OTP
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-
-CREATE OR REPLACE FUNCTION public.reset_password_with_otp(target_mobile text, code_to_check text, new_password text)
-RETURNS boolean AS $$
-DECLARE
-    target_profile record;
-BEGIN
-    SELECT * INTO target_profile FROM public.profiles WHERE mobile_number = target_mobile;
-    
-    IF target_profile IS NULL OR target_profile.otp_code IS NULL THEN
-        RETURN false;
-    END IF;
-
-    IF target_profile.otp_code = code_to_check THEN
-        -- Update Supabase Auth Password
-        UPDATE auth.users
-        SET encrypted_password = crypt(new_password, gen_salt('bf')),
-            updated_at = now()
-        WHERE id = target_profile.id;
-
-        -- Clear OTP
-        UPDATE public.profiles SET otp_code = null WHERE id = target_profile.id;
-        RETURN true;
-    ELSE
-        RETURN false;
-    END IF;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, auth, extensions;
-GRANT EXECUTE ON FUNCTION public.reset_password_with_otp(text, text, text) TO anon, authenticated;
-
-
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
 DECLARE
@@ -185,7 +153,7 @@ BEGIN
       new.created_at,
       false,
       found_lawyer_id,
-      CASE WHEN found_lawyer_id IS NOT NULL THEN false ELSE false END
+      false
     )
     ON CONFLICT (id) DO UPDATE SET
       full_name = EXCLUDED.full_name,
@@ -232,13 +200,10 @@ BEGIN
 END$$;
 
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
--- Fix: Robust RLS for profiles to support UPSERT by Owners, Lawyers (for assistants), and Admins.
+-- Fix: Robust RLS for profiles to support UPSERT.
+-- Users/Lawyers must be able to insert/update their own profile, and Lawyers can update their assistants.
 CREATE POLICY "Profiles Visibility" ON public.profiles FOR SELECT USING (auth.uid() = id OR lawyer_id = auth.uid() OR public.is_admin());
-CREATE POLICY "Profiles Insert" ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id OR public.is_admin());
--- The UPDATE policy MUST allow the lawyer to update their assistants to enable permission/approval syncing.
-CREATE POLICY "Profiles Update" ON public.profiles FOR UPDATE 
-USING (auth.uid() = id OR lawyer_id = auth.uid() OR public.is_admin()) 
-WITH CHECK (auth.uid() = id OR lawyer_id = auth.uid() OR public.is_admin());
+CREATE POLICY "Profiles UPSERT" ON public.profiles FOR ALL USING (auth.uid() = id OR lawyer_id = auth.uid() OR public.is_admin()) WITH CHECK (auth.uid() = id OR lawyer_id = auth.uid() OR public.is_admin());
 
 CREATE POLICY "Access Own Data" ON public.assistants FOR ALL USING (user_id = public.get_data_owner_id() OR public.is_admin());
 CREATE POLICY "Access Own Data" ON public.clients FOR ALL USING (user_id = public.get_data_owner_id() OR public.is_admin());
@@ -270,9 +235,10 @@ ALTER TABLE public.case_documents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.site_finances ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Admins manage finances" ON public.site_finances FOR ALL USING (public.is_admin());
 
--- 5. تفعيل Realtime
+-- 5. تفعيل Realtime (نسخة محسنة لتجنب خطأ FOR ALL TABLES)
 DO $$
 DECLARE
+    is_all_tables boolean;
     t text;
     target_tables text[] := ARRAY[
         'public.profiles', 'public.clients', 'public.cases', 
@@ -282,9 +248,27 @@ DECLARE
         'public.site_finances', 'public.case_documents', 'public.sync_deletions'
     ];
 BEGIN
-    FOR t IN SELECT unnest(target_tables) LOOP
-        BEGIN EXECUTE 'ALTER PUBLICATION supabase_realtime ADD TABLE ' || t; EXCEPTION WHEN duplicate_object THEN NULL; END;
-    END LOOP;
+    -- التحقق إذا كان النشر يشمل جميع الجداول تلقائياً
+    SELECT puballtables INTO is_all_tables FROM pg_publication WHERE pubname = 'supabase_realtime';
+    
+    IF is_all_tables IS NOT TRUE THEN
+        FOR t IN SELECT unnest(target_tables) LOOP
+            BEGIN 
+                EXECUTE 'ALTER PUBLICATION supabase_realtime ADD TABLE ' || t; 
+            EXCEPTION 
+                WHEN duplicate_object THEN NULL; 
+                WHEN undefined_table THEN NULL;
+                WHEN OTHERS THEN NULL;
+            END;
+        END LOOP;
+    END IF;
+EXCEPTION
+    WHEN undefined_object THEN
+        -- Create publication if it doesn't exist
+        CREATE PUBLICATION supabase_realtime;
+        FOR t IN SELECT unnest(target_tables) LOOP
+            EXECUTE 'ALTER PUBLICATION supabase_realtime ADD TABLE ' || t;
+        END LOOP;
 END $$;
 
 -- 6. Storage Bucket
@@ -301,44 +285,6 @@ SELECT
     'admin', true, true, true
 FROM auth.users au
 WHERE au.id NOT IN (SELECT id FROM public.profiles);
-
--- 8. Storage Policies (Safe Execution Block)
-DO $$
-BEGIN
-    BEGIN DROP POLICY IF EXISTS "Allow User Uploads" ON storage.objects; EXCEPTION WHEN OTHERS THEN NULL; END;
-    BEGIN DROP POLICY IF EXISTS "Allow User Downloads" ON storage.objects; EXCEPTION WHEN OTHERS THEN NULL; END;
-    BEGIN DROP POLICY IF EXISTS "Allow User Deletes" ON storage.objects; EXCEPTION WHEN OTHERS THEN NULL; END;
-    
-    BEGIN
-        CREATE POLICY "Allow User Uploads" ON storage.objects FOR INSERT TO authenticated WITH CHECK (
-            bucket_id = 'documents' AND (
-                (storage.foldername(name))[1] = auth.uid()::text OR
-                (storage.foldername(name))[1] = public.get_data_owner_id()::text OR
-                public.is_admin()
-            )
-        );
-    EXCEPTION WHEN OTHERS THEN NULL; END;
-
-    BEGIN
-        CREATE POLICY "Allow User Downloads" ON storage.objects FOR SELECT TO authenticated USING (
-            bucket_id = 'documents' AND (
-                (storage.foldername(name))[1] = auth.uid()::text OR
-                (storage.foldername(name))[1] = public.get_data_owner_id()::text OR
-                public.is_admin()
-            )
-        );
-    EXCEPTION WHEN OTHERS THEN NULL; END;
-
-    BEGIN
-        CREATE POLICY "Allow User Deletes" ON storage.objects FOR DELETE TO authenticated USING (
-            bucket_id = 'documents' AND (
-                (storage.foldername(name))[1] = auth.uid()::text OR
-                (storage.foldername(name))[1] = public.get_data_owner_id()::text OR
-                public.is_admin()
-            )
-        );
-    EXCEPTION WHEN OTHERS THEN NULL; END;
-END $$;
 `;
 
 interface ConfigurationModalProps {
@@ -362,7 +308,7 @@ const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ onRetry }) => {
                             </div>
                             <div className="ms-3">
                                 <p className="text-sm text-blue-700">
-                                    هذا التحديث ضروري لإصلاح خطأ RLS عند مزامنة الملف الشخصي وتحديث صلاحيات الجداول والتخزين.
+                                    هذا التحديث ضروري لإصلاح خطأ RLS وأخطاء النشر (Realtime). النسخة الحالية: 2.5.
                                 </p>
                             </div>
                         </div>
