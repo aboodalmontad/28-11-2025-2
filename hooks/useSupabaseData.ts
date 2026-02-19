@@ -553,16 +553,21 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         try {
             const validatedMergedData = validateAndFixData(mergedData, userRef.current);
             const db = await getDb();
-            const localDocsMetadata = await db.getAll(DOCS_METADATA_STORE_NAME);
+            let localDocsMetadata: any[] = [];
+            try {
+                localDocsMetadata = await db.getAll(DOCS_METADATA_STORE_NAME) || [];
+            } catch (e) {
+                console.warn("Failed to get local docs metadata, proceeding with empty list:", e);
+            }
             
-            const currentExcluded = await db.getAll(LOCAL_EXCLUDED_DOCS_STORE_NAME);
+            const currentExcluded = await db.getAll(LOCAL_EXCLUDED_DOCS_STORE_NAME).catch(() => []);
             const excludedIds = new Set(currentExcluded.map((e: any) => e.id));
 
             const finalDocs = safeArray(validatedMergedData.documents, (doc: any) => {
                 if (!doc || typeof doc !== 'object' || !doc.id) return undefined;
                 if (excludedIds.has(doc.id)) return undefined; 
 
-                const localMeta = (localDocsMetadata as any[]).find((meta: any) => meta.id === doc.id);
+                const localMeta = Array.isArray(localDocsMetadata) ? localDocsMetadata.find((meta: any) => meta.id === doc.id) : undefined;
                 const mergedDoc = {
                     ...doc,
                     localState: localMeta?.localState || doc.localState || 'pending_download'
@@ -572,7 +577,13 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
 
             const finalData = { ...validatedMergedData, documents: finalDocs };
 
-            await db.put(DATA_STORE_NAME, finalData, effectiveUserId);
+            try {
+                await db.put(DATA_STORE_NAME, finalData, effectiveUserId);
+            } catch (dbError: any) {
+                console.error("Failed to save data to IndexedDB:", dbError);
+                throw new Error(`فشل حفظ البيانات محلياً: ${dbError.message || dbError.name}`);
+            }
+
             setData(finalData);
             setDirty(false);
             
@@ -580,9 +591,9 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 downloadMissingFiles(finalDocs);
             }
 
-        } catch (e) {
+        } catch (e: any) {
             console.error("Critical error in handleDataSynced:", e);
-            handleSyncStatusChange('error', 'فشل تحديث البيانات المحلية بعد المزامنة.');
+            handleSyncStatusChange('error', `فشل تحديث البيانات المحلية بعد المزامنة: ${e.message || e}`);
         }
     }, [userRef, effectiveUserId, handleSyncStatusChange, isOnline, downloadMissingFiles]);
     
