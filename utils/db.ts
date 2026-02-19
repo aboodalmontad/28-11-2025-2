@@ -2,7 +2,7 @@
 import { openDB, IDBPDatabase } from 'idb';
 
 export const DB_NAME = 'LawyerAppData';
-export const DB_VERSION = 12; // Incremented version
+export const DB_VERSION = 14; // Incremented version to resolve mismatch
 export const DATA_STORE_NAME = 'appData';
 export const DOCS_FILES_STORE_NAME = 'caseDocumentFiles';
 export const DOCS_METADATA_STORE_NAME = 'caseDocumentMetadata';
