@@ -278,7 +278,9 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                 
                 if (error) {
                     const errorMessage = error.message.toLowerCase();
-                    if (errorMessage.includes("refresh token") || errorMessage.includes("not found")) {
+                    // Only log out for explicit auth errors
+                    if (errorMessage.includes("refresh token") || errorMessage.includes("not found") || errorMessage.includes("invalid claim")) {
+                        console.warn("Session invalid, logging out:", errorMessage);
                         localStorage.removeItem(LAST_USER_CACHE_KEY);
                         localStorage.removeItem(LAST_USER_CREDENTIALS_CACHE_KEY);
                         Object.keys(localStorage).forEach(key => {
@@ -288,7 +290,8 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                         setSession(null);
                         onRefresh(); 
                     } else {
-                         setSession(null);
+                         // For network errors or other temporary issues, DO NOT log out.
+                         console.warn("Session check failed with non-critical error, keeping local session:", errorMessage);
                     }
                 } else if (serverSession) {
                     setSession(serverSession);

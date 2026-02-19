@@ -244,7 +244,7 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
             setStatus('synced');
         } catch (err: any) {
             console.error("Sync Error:", err);
-            setStatus('error', isNetworkError(err) ? 'فشل الاتصال بالشبكة.' : err.message);
+            setStatus('error', isNetworkError(err) ? 'تعذر الاتصال بالخادم.' : err.message);
         }
     }, [isOnline, onDataSynced, onDeletionsSynced, isAuthLoading]);
 

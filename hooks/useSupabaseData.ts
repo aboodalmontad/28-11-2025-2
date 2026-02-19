@@ -532,7 +532,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 setSyncStatus('error');
                 let errorMsg = 'فشل تحميل البيانات.';
                 if (isNetworkError(error)) {
-                   errorMsg = 'فشل الاتصال بالخادم (Failed to fetch).';
+                   errorMsg = 'تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.';
                 }
                 setLastSyncError(errorMsg);
             } finally {

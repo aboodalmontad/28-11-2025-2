@@ -1,6 +1,6 @@
 
 // This version number is incremented to trigger the 'install' event and update the cache.
-const CACHE_NAME = 'lawyer-app-cache-v19-02-2026-full-offline-v6';
+const CACHE_NAME = 'lawyer-app-cache-v19-02-2026-full-offline-v8';
 
 // The list of URLs to cache explicitly (App Shell)
 const urlsToCache = [
@@ -10,11 +10,6 @@ const urlsToCache = [
   './icon.svg',
   'https://cdn.tailwindcss.com',
   'https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap',
-  // Google Fonts files
-  'https://fonts.gstatic.com/s/tajawal/v10/Iura6YBj_oCad4k1nzSBC45I.woff2',
-  'https://fonts.gstatic.com/s/tajawal/v10/Iura6YBj_oCad4k1nzGFC45I.woff2',
-  'https://fonts.gstatic.com/s/tajawal/v10/Iura6YBj_oCad4k1nzGVC45I.woff2',
-  'https://fonts.gstatic.com/s/tajawal/v10/Iura6YBj_oCad4k1nzGjC45I.woff2',
   // Dependencies
   'https://esm.sh/@google/genai@^1.20.0',
   'https://esm.sh/@supabase/supabase-js@^2.44.4',
@@ -24,8 +19,6 @@ const urlsToCache = [
   'https://esm.sh/recharts@^2.12.7',
   'https://esm.sh/idb@^8.0.0',
   'https://esm.sh/docx-preview@^0.1.20',
-  'https://esm.sh/pdfjs-dist@^4.4.178',
-  'https://esm.sh/pdfjs-dist@4.4.178/build/pdf.worker.mjs',
 ];
 
 self.addEventListener('install', event => {
@@ -33,9 +26,20 @@ self.addEventListener('install', event => {
   self.skipWaiting(); 
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then(cache => {
+      .then(async cache => {
         console.log('Service Worker: Caching app shell.');
-        return cache.addAll(urlsToCache);
+        // Try to cache all, but don't fail installation if non-critical assets fail
+        const cachePromises = urlsToCache.map(async url => {
+            try {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`Status ${response.status}`);
+                return cache.put(url, response);
+            } catch (error) {
+                console.warn(`Failed to cache ${url}:`, error);
+                // We don't throw here so other assets can still be cached
+            }
+        });
+        await Promise.all(cachePromises);
       })
       .catch(error => {
         console.error('Service Worker: Failed to cache assets during install:', error);
@@ -90,6 +94,12 @@ self.addEventListener('fetch', event => {
           }).catch(e => {
              // Network failed
              console.log('Network fetch failed for', event.request.url);
+             
+             // Fallback for navigation: return index.html if network fails and no cache match
+             if (event.request.mode === 'navigate') {
+                 return cache.match('./index.html');
+             }
+
              // If we don't have a cached response and network fails, we are in trouble for new files.
              // But for existing ones, we fall through to return cachedResponse.
              if (!cachedResponse) throw e;
@@ -117,6 +127,10 @@ self.addEventListener('fetch', event => {
           cache.put(event.request, responseToCache);
         });
         return networkResponse;
+      }).catch(error => {
+          // Suppress "Failed to fetch" errors for non-essential assets to keep console clean
+          console.warn('Fetch failed for asset, returning 404:', event.request.url);
+          return new Response('Asset not found', { status: 404, statusText: 'Not Found' });
       });
     })
   );
