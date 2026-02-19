@@ -75,6 +75,15 @@ if (container) {
       <AppWrapper />
     </React.StrictMode>
   );
+  
+  // Explicitly remove the loader after a short delay to ensure React has taken over
+  setTimeout(() => {
+      const loader = document.getElementById('initial-loader');
+      if (loader) {
+          loader.style.opacity = '0';
+          setTimeout(() => loader.remove(), 500);
+      }
+  }, 100);
 } else {
     console.error('Failed to find the root element');
 }

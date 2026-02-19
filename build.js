@@ -3,7 +3,7 @@ const esbuild = require('esbuild');
 const fs = require('fs-extra');
 const path = require('path');
 
-const publicDir = 'public';
+const publicDir = 'dist';
 
 async function build() {
     try {

@@ -245,7 +245,12 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     const data = useSupabaseData(session?.user ?? null, isAuthLoading);
 
     React.useEffect(() => {
-        const { data: { subscription } } = supabase!.auth.onAuthStateChange((event, newSession) => {
+        if (!supabase) {
+            console.error("Supabase client is null. Cannot subscribe to auth changes.");
+            return;
+        }
+
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
             if (event === 'SIGNED_OUT') {
                 setSession(null);
                 setIsAuthLoading(false);
@@ -263,13 +268,13 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
         });
         
         const checkSession = async () => {
-             if (!isOnline) {
+             if (!isOnline || !supabase) {
                  setIsAuthLoading(false);
                  return;
              }
 
              try {
-                const { data: { session: serverSession }, error } = await supabase!.auth.getSession();
+                const { data: { session: serverSession }, error } = await supabase.auth.getSession();
                 
                 if (error) {
                     const errorMessage = error.message.toLowerCase();
@@ -301,7 +306,9 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
         };
 
         checkSession();
-        return () => subscription.unsubscribe();
+        return () => {
+            if (subscription) subscription.unsubscribe();
+        };
     }, [supabase, onRefresh, isOnline]);
 
     React.useEffect(() => {

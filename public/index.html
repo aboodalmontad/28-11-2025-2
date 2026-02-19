@@ -78,9 +78,34 @@
 </script>
   </head>
   <body class="bg-gray-100">
-    <div id="initial-loader">
+    <div id="initial-loader" style="flex-direction: column;">
         <div class="spinner"></div>
+        <div id="error-message" style="display:none; color:#ef4444; margin-top:20px; text-align:center; font-weight:bold; padding: 20px;"></div>
     </div>
+    <script>
+        window.onerror = function(message, source, lineno, colno, error) {
+            var loader = document.getElementById('initial-loader');
+            var spinner = loader.querySelector('.spinner');
+            var errorDiv = document.getElementById('error-message');
+            if (loader && errorDiv) {
+                if (spinner) spinner.style.display = 'none';
+                errorDiv.style.display = 'block';
+                errorDiv.innerText = 'حدث خطأ غير متوقع:\n' + message;
+                console.error('Global Error:', error);
+            }
+        };
+        window.onunhandledrejection = function(event) {
+             var loader = document.getElementById('initial-loader');
+            var spinner = loader.querySelector('.spinner');
+            var errorDiv = document.getElementById('error-message');
+            if (loader && errorDiv) {
+                if (spinner) spinner.style.display = 'none';
+                errorDiv.style.display = 'block';
+                errorDiv.innerText = 'حدث خطأ غير متوقع (Promise):\n' + event.reason;
+                console.error('Unhandled Rejection:', event.reason);
+            }
+        };
+    </script>
     <!-- The root element for React -->
     <div id="root"></div>
     <!-- The main script for the application -->
