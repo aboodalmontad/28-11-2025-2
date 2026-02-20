@@ -65,7 +65,7 @@ const Navbar: React.FC<{
                     <div className="flex flex-col items-start sm:flex-row sm:items-baseline gap-0 sm:gap-2">
                         <h1 className="text-xl font-bold text-gray-800">مكتب المحامي</h1>
                         <div className="flex items-center gap-1 text-xs text-gray-500">
-                            <span>الإصدار: 19-2-2026</span>
+                            <span>الإصدار: 20-02-2026</span>
                             {profile && (
                                 <>
                                     <span className="mx-1 text-gray-300">|</span>
@@ -252,6 +252,8 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
             if (event === 'SIGNED_OUT') {
+                // Only clear session if we are sure it's a deliberate sign out or permanent failure.
+                // If we are currently syncing or have a local session, we might want to be more cautious.
                 setSession(null);
                 setIsAuthLoading(false);
                 localStorage.removeItem(LAST_USER_CACHE_KEY);
@@ -278,7 +280,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                 
                 if (error) {
                     const errorMessage = error.message.toLowerCase();
-                    // Only log out for explicit auth errors
+                    // Only log out for explicit, permanent auth errors
                     if (errorMessage.includes("refresh token") || errorMessage.includes("not found") || errorMessage.includes("invalid claim")) {
                         console.warn("Session invalid, logging out:", errorMessage);
                         localStorage.removeItem(LAST_USER_CACHE_KEY);
@@ -296,10 +298,13 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                 } else if (serverSession) {
                     setSession(serverSession);
                     localStorage.setItem(LAST_USER_CACHE_KEY, JSON.stringify(serverSession.user));
-                } else if (session) {
-                    // This case handles project deletion or session mismatch
-                    setSession(null);
-                    localStorage.removeItem(LAST_USER_CACHE_KEY);
+                } else {
+                    // If serverSession is null, it might be a transient issue during sync or refresh.
+                    // We DON'T log out here immediately if we already have a session state.
+                    // Instead, we let the data requests fail with 401 if the session is truly gone.
+                    if (session) {
+                        console.warn("serverSession is null but local session exists. Keeping local session for now.");
+                    }
                 }
              } catch (err) {
                  console.warn("Unexpected error during session check:", err);

@@ -1,6 +1,6 @@
 
 // This version number is incremented to trigger the 'install' event and update the cache.
-const CACHE_NAME = 'lawyer-app-cache-v19-02-2026-full-offline-v9';
+const CACHE_NAME = 'lawyer-app-cache-v20-02-2026-full-offline-v10';
 
 // The list of URLs to cache explicitly (App Shell)
 const urlsToCache = [
@@ -42,7 +42,7 @@ self.addEventListener('install', event => {
         await Promise.all(cachePromises);
       })
       .catch(error => {
-        console.error('Service Worker: Failed to cache assets during install:', error);
+        console.warn('Service Worker: Failed to cache assets during install:', error);
       })
   );
 });
@@ -93,16 +93,19 @@ self.addEventListener('fetch', event => {
             return networkResponse;
           }).catch(e => {
              // Network failed
-             console.log('Network fetch failed for', event.request.url);
+             console.warn('Network fetch failed for', event.request.url, '(offline)');
              
              // Fallback for navigation: return index.html if network fails and no cache match
              if (event.request.mode === 'navigate') {
-                 return cache.match('./index.html');
+                 return cache.match('/index.html');
              }
 
-             // If we don't have a cached response and network fails, we are in trouble for new files.
-             // But for existing ones, we fall through to return cachedResponse.
-             if (!cachedResponse) throw e;
+             // If we don't have a cached response and network fails, return a 404 instead of throwing
+             // to keep the console clean of "Failed to fetch" errors.
+             if (!cachedResponse) {
+                 return new Response('Network error and no cache available', { status: 503, statusText: 'Service Unavailable' });
+             }
+             return cachedResponse;
           });
 
           return cachedResponse || fetchPromise;

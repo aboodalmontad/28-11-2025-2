@@ -440,7 +440,11 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                         errorMsg = String(e);
                     }
                     
-                    console.error(`Failed to auto-download doc ${doc.id}:`, errorMsg);
+                    if (!isNetworkError(e)) {
+                        console.error(`Failed to auto-download doc ${doc.id}:`, errorMsg);
+                    } else {
+                        console.warn(`Failed to auto-download doc ${doc.id} due to network error (offline).`);
+                    }
 
                     if (isNetworkError(e)) {
                         console.warn(`Network error for doc ${doc.id}, keeping as pending_download for retry.`);
@@ -522,7 +526,9 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 
                 // Initial background sync
                 if (isOnlineNow) {
-                    manualSync().catch(console.error);
+                    manualSync().catch(err => {
+                        if (!isNetworkError(err)) console.error("Initial sync failed:", err);
+                    });
                     downloadMissingFiles(finalDocs);
                 } else {
                     setSyncStatus('synced');

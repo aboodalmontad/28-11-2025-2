@@ -96,7 +96,11 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onOpenConfig }) =
 
             showFeedback('تم تنزيل النسخة الاحتياطية بنجاح.', 'success');
         } catch (error: any) {
-            console.error("Backup failed:", error);
+            if (!isNetworkError(error)) {
+                console.error("Backup failed:", error);
+            } else {
+                console.warn("Backup failed due to network error (offline).");
+            }
             showFeedback(`فشل النسخ الاحتياطي: ${getFriendlyErrorMessage(error)}`, 'error');
         } finally {
             setIsProcessing(false);
@@ -120,7 +124,11 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onOpenConfig }) =
                 const data = JSON.parse(text) as Partial<FlatData>;
                 await restoreDataToSupabase(data);
             } catch (error: any) {
-                console.error("Restore failed:", error);
+                if (!isNetworkError(error)) {
+                    console.error("Restore failed:", error);
+                } else {
+                    console.warn("Restore failed due to network error (offline).");
+                }
                 showFeedback(`فشل الاستعادة: ${getFriendlyErrorMessage(error)}`, 'error');
                 setIsProcessing(false);
                 setProgress(null);
@@ -181,7 +189,11 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onOpenConfig }) =
                 const { error } = await supabase.from(table).upsert(chunk);
                 
                 if (error) {
-                    console.error(`Error restoring ${table} chunk ${i}:`, error);
+                    if (!isNetworkError(error)) {
+                        console.error(`Error restoring ${table} chunk ${i}:`, error);
+                    } else {
+                        console.warn(`Error restoring ${table} chunk ${i} due to network error (offline).`);
+                    }
                     throw new Error(`Error in table ${table}: ${getFriendlyErrorMessage(error)}`);
                 }
 

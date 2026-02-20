@@ -183,7 +183,11 @@ const AdminPage: React.FC = () => {
                  // Refresh data to confirm changes from server
                  fetchAndRefresh(); 
              } catch (err: any) {
-                 console.error("Failed to update user in DB:", err);
+                 if (!isNetworkError(err)) {
+                     console.error("Failed to update user in DB:", err);
+                 } else {
+                     console.warn("Failed to update user in DB due to network error (offline).");
+                 }
                  alert("فشل تحديث البيانات في قاعدة البيانات: " + getFriendlyErrorMessage(err));
                  // Revert optimistic update by refreshing
                  fetchAndRefresh();
@@ -206,6 +210,11 @@ const AdminPage: React.FC = () => {
             setUsers(prevUsers => prevUsers.filter(u => u.id !== userToDeleteId));
             
         } catch (err: any) {
+            if (!isNetworkError(err)) {
+                console.error("Failed to delete user:", err);
+            } else {
+                console.warn("Failed to delete user due to network error (offline).");
+            }
             setError("فشل حذف المستخدم: " + getFriendlyErrorMessage(err));
         } finally {
             setUserToDelete(null);
@@ -222,7 +231,11 @@ const AdminPage: React.FC = () => {
             if (error) throw error;
             fetchAndRefresh();
          } catch(err: any) {
-             console.error("Failed to toggle approval:", err);
+             if (!isNetworkError(err)) {
+                 console.error("Failed to toggle approval:", err);
+             } else {
+                 console.warn("Failed to toggle approval due to network error (offline).");
+             }
              fetchAndRefresh();
          }
     }
@@ -237,7 +250,11 @@ const AdminPage: React.FC = () => {
             if (error) throw error;
             fetchAndRefresh();
          } catch(err: any) {
-             console.error("Failed to toggle active status:", err);
+             if (!isNetworkError(err)) {
+                 console.error("Failed to toggle active status:", err);
+             } else {
+                 console.warn("Failed to toggle active status due to network error (offline).");
+             }
              fetchAndRefresh();
          }
     }
@@ -263,7 +280,11 @@ const AdminPage: React.FC = () => {
                 window.open(url, '_blank');
             }
         } catch (err: any) {
-            console.error("Error generating OTP:", err);
+            if (!isNetworkError(err)) {
+                console.error("Error generating OTP:", err);
+            } else {
+                console.warn("Error generating OTP due to network error (offline).");
+            }
             alert("فشل توليد كود التحقق: " + getFriendlyErrorMessage(err));
         } finally {
             setGeneratingOtpFor(null);
