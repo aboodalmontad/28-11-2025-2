@@ -4,6 +4,7 @@ import { useData } from '../context/DataContext';
 import { CaseDocument } from '../types';
 import { DocumentArrowUpIcon, TrashIcon, DocumentTextIcon, XMarkIcon, ExclamationTriangleIcon, ArrowPathIcon, CameraIcon, CloudArrowUpIcon, CloudArrowDownIcon, CheckCircleIcon, ExclamationCircleIcon, ArrowDownTrayIcon, MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon, ArrowsPointingOutIcon, ArrowTopRightOnSquareIcon } from './icons';
 import { renderAsync } from 'docx-preview';
+import { getFriendlyErrorMessage } from '../hooks/useOnlineData';
 
 interface CaseDocumentsProps {
     caseId: string;
@@ -545,7 +546,7 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
                     fileInputRef.current.value = '';
                 }
             } catch (err: any) {
-                alert(`فشل في إضافة الوثائق: ${err.message}`);
+                alert(`فشل في إضافة الوثائق: ${getFriendlyErrorMessage(err)}`);
             }
         }
     };
@@ -579,7 +580,7 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
             try {
                 await deleteDocument(docToDelete);
             } catch (err: any) {
-                alert(`فشل في حذف الوثيقة: ${err.message}`);
+                alert(`فشل في حذف الوثيقة: ${getFriendlyErrorMessage(err)}`);
             }
         }
         setIsDeleteModalOpen(false);
@@ -592,7 +593,7 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
         try {
             await addDocuments(caseId, fileList.files);
         } catch (err: any) {
-            alert(`فشل في إضافة الوثيقة الملتقطة: ${err.message}`);
+            alert(`فشل في إضافة الوثيقة الملتقطة: ${getFriendlyErrorMessage(err)}`);
         }
         setIsCameraOpen(false);
     };

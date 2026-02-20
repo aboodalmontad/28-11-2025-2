@@ -1,6 +1,6 @@
 {
   "name": "lawyer-business-management-vercel",
-  "version": "1.0.5",
+  "version": "1.0.7",
   "private": true,
   "scripts": {
     "build": "node build.js",

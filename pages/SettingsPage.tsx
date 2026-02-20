@@ -5,6 +5,7 @@ import { APP_DATA_KEY } from '../hooks/useSupabaseData.ts';
 import { useData } from '../context/DataContext.tsx';
 import { openDB } from 'idb';
 import AssistantsManager from '../components/AssistantsManager.tsx';
+import { getFriendlyErrorMessage } from '../hooks/useOnlineData.ts';
 
 interface SettingsPageProps {}
 
@@ -28,20 +29,20 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
             const emptyData = { clients: [], adminTasks: [], appointments: [], accountingEntries: [], assistants: ['بدون تخصيص'] };
             setFullData(emptyData);
             showFeedback('تم مسح جميع البيانات بنجاح.', 'success');
-        } catch (error) { showFeedback('حدث خطأ أثناء مسح البيانات.', 'error'); }
+        } catch (error) { showFeedback(`حدث خطأ أثناء مسح البيانات: ${getFriendlyErrorMessage(error)}`, 'error'); }
         setIsConfirmModalOpen(false);
     };
     const handleExportData = () => { if (exportData()) { showFeedback('تم تصدير البيانات بنجاح.', 'success'); } else { showFeedback('فشل تصدير البيانات.', 'error'); } };
     const handleImportData = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0]; if (!file) return;
         const reader = new FileReader();
-        reader.onload = (e) => { try { const text = e.target?.result; if (typeof text !== 'string') throw new Error("File could not be read."); const data = JSON.parse(text); setFullData(data); showFeedback('تم استيراد البيانات بنجاح.', 'success'); } catch (error) { showFeedback('فشل استيراد البيانات.', 'error'); } };
+        reader.onload = (e) => { try { const text = e.target?.result; if (typeof text !== 'string') throw new Error("File could not be read."); const data = JSON.parse(text); setFullData(data); showFeedback('تم استيراد البيانات بنجاح.', 'success'); } catch (error) { showFeedback(`فشل استيراد البيانات: ${getFriendlyErrorMessage(error)}`, 'error'); } };
         reader.readAsText(file);
     };
     const handleAddAssistant = (e: React.FormEvent) => { e.preventDefault(); if (newAssistant && !assistants.includes(newAssistant) && newAssistant !== 'بدون تخصيص') { setAssistants(prev => [...prev, newAssistant.trim()]); setNewAssistant(''); } };
     const handleDeleteAssistant = (name: string) => { if (name !== 'بدون تخصيص') { setAssistantToDelete(name); setIsDeleteAssistantModalOpen(true); } };
     const handleConfirmDeleteAssistant = () => { if (assistantToDelete) { deleteAssistant(assistantToDelete); showFeedback(`تم حذف المساعد "${assistantToDelete}" بنجاح.`, 'success'); } setIsDeleteAssistantModalOpen(false); setAssistantToDelete(null); };
-    const handleInspectDb = async () => { setDbStats('جاري الفحص...'); try { const db = await openDB('LawyerAppData', 2); let stats = ''; const stores = ['appData', 'caseDocumentMetadata', 'caseDocumentFiles']; for (const s of stores) { if (db.objectStoreNames.contains(s)) { const count = await db.count(s); stats += `- ${s}: ${count} سجل\n`; } } setDbStats(stats); } catch (e:any) { setDbStats('فشل: ' + e.message); } };
+    const handleInspectDb = async () => { setDbStats('جاري الفحص...'); try { const db = await openDB('LawyerAppData', 2); let stats = ''; const stores = ['appData', 'caseDocumentMetadata', 'caseDocumentFiles']; for (const s of stores) { if (db.objectStoreNames.contains(s)) { const count = await db.count(s); stats += `- ${s}: ${count} سجل\n`; } } setDbStats(stats); } catch (e:any) { setDbStats('فشل: ' + getFriendlyErrorMessage(e)); } };
 
     const ToggleSwitch: React.FC<{ enabled: boolean; onChange: (enabled: boolean) => void; label: string }> = ({ enabled, onChange, label }) => (
         <div className="flex items-center">

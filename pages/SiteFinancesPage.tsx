@@ -6,7 +6,7 @@ import { formatDate, toInputDateString } from '../utils/dateUtils';
 import { PlusIcon, PencilIcon, TrashIcon, ExclamationTriangleIcon } from '../components/icons';
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useData } from '../context/DataContext';
-import { isNetworkError, fetchWithRetry } from '../hooks/useOnlineData.ts';
+import { isNetworkError, fetchWithRetry, getFriendlyErrorMessage } from '../hooks/useOnlineData.ts';
 
 const StatCard: React.FC<{ title: string; value: string; className?: string }> = ({ title, value, className = '' }) => (
     <div className={`p-6 rounded-lg shadow ${className}`}>
@@ -68,13 +68,7 @@ const SiteFinancesPage: React.FC = () => {
                     .eq('id', formData.user_id));
 
             } catch (err: any) {
-                let errorMessage = "فشل تحديث الاشتراك.";
-                if (isNetworkError(err)) {
-                    errorMessage += " يرجى التحقق من اتصالك بالإنترنت.";
-                } else {
-                    errorMessage += ` السبب: ${err.message}`;
-                }
-                setError(errorMessage);
+                setError(getFriendlyErrorMessage(err, 'فشل تحديث الاشتراك.'));
             }
         }
         

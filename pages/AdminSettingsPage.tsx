@@ -3,7 +3,7 @@ import * as React from 'react';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { MusicalNoteIcon, PlayCircleIcon, TrashIcon, ArrowUpTrayIcon, ServerIcon, CloudArrowDownIcon, CloudArrowUpIcon, CheckCircleIcon, ExclamationTriangleIcon, ArrowPathIcon } from '../components/icons';
 import { defaultUserApprovalSoundBase64 } from '../components/RealtimeNotifier';
-import { fetchDataFromSupabase, FlatData } from '../hooks/useOnlineData'; // Import fetcher
+import { fetchDataFromSupabase, FlatData, getFriendlyErrorMessage } from '../hooks/useOnlineData'; // Import fetcher
 import { getSupabaseClient } from '../supabaseClient'; // Import client
 
 const USER_APPROVAL_SOUND_KEY = 'customUserApprovalSound';
@@ -97,7 +97,7 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onOpenConfig }) =
             showFeedback('تم تنزيل النسخة الاحتياطية بنجاح.', 'success');
         } catch (error: any) {
             console.error("Backup failed:", error);
-            showFeedback(`فشل النسخ الاحتياطي: ${error.message}`, 'error');
+            showFeedback(`فشل النسخ الاحتياطي: ${getFriendlyErrorMessage(error)}`, 'error');
         } finally {
             setIsProcessing(false);
         }
@@ -121,7 +121,7 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onOpenConfig }) =
                 await restoreDataToSupabase(data);
             } catch (error: any) {
                 console.error("Restore failed:", error);
-                showFeedback(`فشل الاستعادة: ${error.message}`, 'error');
+                showFeedback(`فشل الاستعادة: ${getFriendlyErrorMessage(error)}`, 'error');
                 setIsProcessing(false);
                 setProgress(null);
             }
@@ -182,7 +182,7 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onOpenConfig }) =
                 
                 if (error) {
                     console.error(`Error restoring ${table} chunk ${i}:`, error);
-                    throw new Error(`Error in table ${table}: ${error.message}`);
+                    throw new Error(`Error in table ${table}: ${getFriendlyErrorMessage(error)}`);
                 }
 
                 processedRecords += chunk.length;

@@ -9,7 +9,7 @@ import { getSupabaseClient } from '../supabaseClient.ts';
 import { isBeforeToday, toInputDateString } from '../utils/dateUtils.ts';
 import { RealtimeAlert } from '../components/RealtimeNotifier.tsx';
 import { getDb, DATA_STORE_NAME, DOCS_FILES_STORE_NAME, DOCS_METADATA_STORE_NAME, LOCAL_EXCLUDED_DOCS_STORE_NAME } from '../utils/db.ts';
-import { isNetworkError, fetchDataFromSupabase, fetchDeletionsFromSupabase, fetchWithRetry } from './useOnlineData.ts';
+import { isNetworkError, fetchDataFromSupabase, fetchDeletionsFromSupabase, fetchWithRetry, getFriendlyErrorMessage } from './useOnlineData.ts';
 
 export const APP_DATA_KEY = 'lawyerBusinessManagementData';
 export type SyncStatus = SyncStatusType;
@@ -528,12 +528,13 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     setSyncStatus('synced');
                 }
             } catch (error) {
-                console.error('Failed to load data:', error);
-                setSyncStatus('error');
-                let errorMsg = 'فشل تحميل البيانات.';
-                if (isNetworkError(error)) {
-                   errorMsg = 'تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.';
+                if (!isNetworkError(error)) {
+                    console.error('Failed to load data:', error);
+                } else {
+                    console.warn("Failed to load data due to network error (offline).");
                 }
+                setSyncStatus('error');
+                const errorMsg = getFriendlyErrorMessage(error, 'فشل تحميل البيانات.');
                 setLastSyncError(errorMsg);
             } finally {
                 if (!cancelled) setIsDataLoading(false);
@@ -592,8 +593,12 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
             }
 
         } catch (e: any) {
-            console.error("Critical error in handleDataSynced:", e);
-            handleSyncStatusChange('error', `فشل تحديث البيانات المحلية بعد المزامنة: ${e.message || e}`);
+            if (!isNetworkError(e)) {
+                console.error("Critical error in handleDataSynced:", e);
+            } else {
+                console.warn("handleDataSynced failed due to network error (offline).");
+            }
+            handleSyncStatusChange('error', `فشل تحديث البيانات المحلية بعد المزامنة: ${getFriendlyErrorMessage(e)}`);
         }
     }, [userRef, effectiveUserId, handleSyncStatusChange, isOnline, downloadMissingFiles]);
     

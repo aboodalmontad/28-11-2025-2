@@ -34,6 +34,13 @@ export const isNetworkError = (err: any): boolean => {
     );
 };
 
+export const getFriendlyErrorMessage = (err: any, defaultMessage: string = 'حدث خطأ غير متوقع.'): string => {
+    if (isNetworkError(err)) {
+        return 'تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.';
+    }
+    return err?.message || defaultMessage;
+};
+
 export const fetchWithRetry = async <T>(fn: () => Promise<T>, retries = 3, delay = 1000): Promise<T> => {
     try {
         const result = await fn();
@@ -69,7 +76,7 @@ export const checkSupabaseSchema = async () => {
         }
         return { success: true, message: '' };
     } catch (err: any) {
-        return { success: false, message: isNetworkError(err) ? 'فشل الاتصال بالشبكة (Failed to fetch).' : 'قاعدة البيانات غير مستجيبة.' };
+        return { success: false, message: isNetworkError(err) ? 'تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.' : 'قاعدة البيانات غير مستجيبة.' };
     }
 };
 

@@ -9,6 +9,7 @@ import { printElement } from '../utils/printUtils.ts';
 import { MenuItem } from '../components/ContextMenu.tsx';
 import { useDebounce } from '../hooks/useDebounce.ts';
 import { useData } from '../context/DataContext.tsx';
+import { getFriendlyErrorMessage } from '../hooks/useOnlineData.ts';
 
 interface ClientsPageProps {
     onOpenAdminTaskModal: (initialData?: any) => void;
@@ -189,7 +190,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ showContextMenu, onOpenAdminT
         if (type === 'client') {
             const clientName = formData.name?.trim();
             if (!clientName) {
-                alert("اسم الموكل مطلوب.");
+                alert(getFriendlyErrorMessage(new Error("اسم الموكل مطلوب.")));
                 return;
             }
             
@@ -198,7 +199,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ showContextMenu, onOpenAdminT
 
             if (foundClient) {
                 if (!isEditing || (isEditing && context?.item?.id !== foundClient.id)) {
-                    alert(`تنبيه: الموكل "${clientName}" موجود بالفعل.`);
+                    alert(getFriendlyErrorMessage(new Error(`تنبيه: الموكل "${clientName}" موجود بالفعل.`)));
                     return;
                 }
             }
@@ -325,7 +326,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ showContextMenu, onOpenAdminT
                  const sessionData = { ...formData };
                  const parsedDate = parseInputDateString(sessionData.date);
                  if (!parsedDate) {
-                     alert("تاريخ الجلسة غير صالح.");
+                     alert(getFriendlyErrorMessage(new Error("تاريخ الجلسة غير صالح.")));
                      return;
                  }
                  sessionData.date = parsedDate;

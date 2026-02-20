@@ -4,7 +4,7 @@ import { getSupabaseClient } from '../supabaseClient';
 import { ExclamationCircleIcon, EyeIcon, EyeSlashIcon, ClipboardDocumentIcon, ClipboardDocumentCheckIcon, ArrowTopRightOnSquareIcon, CheckCircleIcon, UserGroupIcon, KeyIcon } from '../components/icons';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import type { User } from '@supabase/supabase-js';
-import { isNetworkError } from '../hooks/useOnlineData';
+import { isNetworkError, getFriendlyErrorMessage } from '../hooks/useOnlineData';
 
 interface AuthPageProps {
     onForceSetup: () => void;
@@ -148,11 +148,7 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                 setForgotPasswordStep('verify');
             }
         } catch (err: any) {
-            if (isNetworkError(err)) {
-                setError("فشل الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.");
-            } else {
-                setError(err.message || "حدث خطأ أثناء إرسال الكود.");
-            }
+            setError(getFriendlyErrorMessage(err, "حدث خطأ أثناء إرسال الكود."));
         } finally {
             setLoading(false);
         }
@@ -189,11 +185,7 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                 throw new Error("رمز التحقق غير صحيح.");
             }
         } catch (err: any) {
-            if (isNetworkError(err)) {
-                setError("فشل الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.");
-            } else {
-                setError(err.message || "فشل تغيير كلمة المرور.");
-            }
+            setError(getFriendlyErrorMessage(err, "فشل تغيير كلمة المرور."));
         } finally {
             setLoading(false);
         }
@@ -223,11 +215,7 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                 }
             } else { throw new Error("رمز التحقق غير صحيح."); }
         } catch (err: any) {
-            if (isNetworkError(err)) {
-                setError("فشل الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.");
-            } else {
-                setError(err.message);
-            }
+            setError(getFriendlyErrorMessage(err));
         } finally { setLoading(false); }
     };
 
@@ -272,11 +260,7 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                     localStorage.setItem(LAST_USER_CREDENTIALS_CACHE_KEY, JSON.stringify({ mobile: form.mobile, password: form.password }));
                 }
             } catch (err: any) {
-                 if (isNetworkError(err)) {
-                     setError("فشل الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.");
-                 } else {
-                     setError(err.message || "فشل تسجيل الدخول.");
-                 }
+                 setError(getFriendlyErrorMessage(err, "فشل تسجيل الدخول."));
             } finally { setLoading(false); }
         } else { // Sign up
             try {
@@ -305,11 +289,7 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                     setAuthStep('otp');
                 }
             } catch (err: any) {
-                if (isNetworkError(err)) {
-                    setError("فشل الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.");
-                } else {
-                    setError(err.message);
-                }
+                setError(getFriendlyErrorMessage(err));
             } finally { setLoading(false); }
         }
     };
@@ -426,7 +406,7 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                 </div>
                 
                 <div className="mt-8 text-center">
-                    <p className="text-xs text-gray-400 mb-1">الإصدار: 15-12-2025</p>
+                    <p className="text-xs text-gray-400 mb-1">الإصدار: 20-02-2026</p>
                     <p className="text-xs text-gray-400">جميع حقوق الملكية محفوظة لشركة الحلول التقنية © {new Date().getFullYear()}</p>
                 </div>
             </div>

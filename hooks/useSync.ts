@@ -1,6 +1,6 @@
 import * as React from 'react';
 import type { User } from '@supabase/supabase-js';
-import { checkSupabaseSchema, fetchDataFromSupabase, upsertDataToSupabase, FlatData, deleteDataFromSupabase, transformRemoteToLocal, fetchDeletionsFromSupabase, isNetworkError, fetchWithRetry } from './useOnlineData.ts';
+import { checkSupabaseSchema, fetchDataFromSupabase, upsertDataToSupabase, FlatData, deleteDataFromSupabase, transformRemoteToLocal, fetchDeletionsFromSupabase, isNetworkError, fetchWithRetry, getFriendlyErrorMessage } from './useOnlineData.ts';
 import { getSupabaseClient } from '../supabaseClient.ts';
 import { Client, Case, Stage, Session, CaseDocument, AppData, DeletedIds, getInitialDeletedIds, SyncDeletion } from '../types.ts';
 import { getDb, DOCS_FILES_STORE_NAME } from '../utils/db.ts';
@@ -243,8 +243,12 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
             onDeletionsSynced(deletedIdsRef.current);
             setStatus('synced');
         } catch (err: any) {
-            console.error("Sync Error:", err);
-            setStatus('error', isNetworkError(err) ? 'تعذر الاتصال بالخادم.' : err.message);
+            if (!isNetworkError(err)) {
+                console.error("Sync Error:", err);
+            } else {
+                console.warn("Sync failed due to network error (offline).");
+            }
+            setStatus('error', getFriendlyErrorMessage(err, 'تعذر الاتصال بالخادم.'));
         }
     }, [isOnline, onDataSynced, onDeletionsSynced, isAuthLoading]);
 

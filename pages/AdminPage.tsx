@@ -5,6 +5,7 @@ import { formatDate, toInputDateString } from '../utils/dateUtils.ts';
 import { CheckCircleIcon, NoSymbolIcon, PencilIcon, TrashIcon, ExclamationTriangleIcon, PhoneIcon, ShareIcon, ArrowPathIcon, ClipboardDocumentIcon, UserIcon, UserGroupIcon } from '../components/icons.tsx';
 import { useData } from '../context/DataContext.tsx';
 import UserDetailsModal from '../components/UserDetailsModal.tsx';
+import { getFriendlyErrorMessage } from '../hooks/useOnlineData.ts';
 
 const formatSubscriptionDateRange = (user: Profile): string => {
     const { subscription_start_date, subscription_end_date } = user;
@@ -183,7 +184,7 @@ const AdminPage: React.FC = () => {
                  fetchAndRefresh(); 
              } catch (err: any) {
                  console.error("Failed to update user in DB:", err);
-                 alert("فشل تحديث البيانات في قاعدة البيانات: " + err.message);
+                 alert("فشل تحديث البيانات في قاعدة البيانات: " + getFriendlyErrorMessage(err));
                  // Revert optimistic update by refreshing
                  fetchAndRefresh();
              }
@@ -205,7 +206,7 @@ const AdminPage: React.FC = () => {
             setUsers(prevUsers => prevUsers.filter(u => u.id !== userToDeleteId));
             
         } catch (err: any) {
-            setError("فشل حذف المستخدم: " + err.message);
+            setError("فشل حذف المستخدم: " + getFriendlyErrorMessage(err));
         } finally {
             setUserToDelete(null);
         }
@@ -263,7 +264,7 @@ const AdminPage: React.FC = () => {
             }
         } catch (err: any) {
             console.error("Error generating OTP:", err);
-            alert("فشل توليد كود التحقق: " + err.message);
+            alert("فشل توليد كود التحقق: " + getFriendlyErrorMessage(err));
         } finally {
             setGeneratingOtpFor(null);
         }
