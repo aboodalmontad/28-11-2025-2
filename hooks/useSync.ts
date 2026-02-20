@@ -181,7 +181,7 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
             }
 
             const [remoteDataRaw, remoteDeletions] = await Promise.all([
-                fetchWithRetry(() => fetchDataFromSupabase()),
+                fetchWithRetry(() => fetchDataFromSupabase(ownerId)),
                 fetchWithRetry(() => fetchDeletionsFromSupabase())
             ]);
 

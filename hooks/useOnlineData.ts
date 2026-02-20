@@ -80,7 +80,7 @@ export const checkSupabaseSchema = async () => {
     }
 };
 
-export const fetchDataFromSupabase = async (): Promise<Partial<FlatData>> => {
+export const fetchDataFromSupabase = async (ownerId: string): Promise<Partial<FlatData>> => {
     const supabase = getSupabaseClient();
     if (!supabase) throw new Error('Supabase client not available.');
 
@@ -95,7 +95,16 @@ export const fetchDataFromSupabase = async (): Promise<Partial<FlatData>> => {
     // We execute fetches in parallel but catch errors individually so one failing table doesn't block the app
     const fetchPromises = tables.map(async (table) => {
         try {
-            const { data: tableData, error } = await supabase.from(table).select('*');
+            let query = supabase.from(table).select('*');
+            
+            // Filter by user_id for all tables except profiles (which uses id)
+            if (table === 'profiles') {
+                query = query.or(`id.eq.${ownerId},lawyer_id.eq.${ownerId}`);
+            } else {
+                query = query.eq('user_id', ownerId);
+            }
+
+            const { data: tableData, error } = await query;
             if (error) {
                 // Critical tables should throw, non-critical can just return empty
                 if (['profiles', 'clients', 'cases'].includes(table)) throw error;

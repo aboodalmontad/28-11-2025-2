@@ -673,6 +673,31 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         if (isOnline && userSettings.isAutoSyncEnabled && syncStatus !== 'syncing' && syncStatus !== 'loading') {
             manualSync();
         }
+
+        // Periodic sync every 2 minutes to pull changes from other users
+        let interval: number | undefined;
+        if (isOnline && userSettings.isAutoSyncEnabled) {
+            interval = window.setInterval(() => {
+                if (syncStatus !== 'syncing') {
+                    console.log("Periodic background sync...");
+                    manualSync();
+                }
+            }, 120000); // 2 minutes
+        }
+
+        // Sync when window regains focus
+        const handleFocus = () => {
+            if (isOnline && userSettings.isAutoSyncEnabled && syncStatus !== 'syncing') {
+                console.log("Window focused, triggering sync...");
+                manualSync();
+            }
+        };
+        window.addEventListener('focus', handleFocus);
+
+        return () => {
+            if (interval) clearInterval(interval);
+            window.removeEventListener('focus', handleFocus);
+        };
     }, [isOnline, userSettings.isAutoSyncEnabled, manualSync]); 
 
     const addRealtimeAlert = React.useCallback((message: string, type: 'sync' | 'userApproval' = 'sync') => {
