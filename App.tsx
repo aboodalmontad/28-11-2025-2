@@ -254,6 +254,48 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
             if (event === 'SIGNED_OUT') {
                 // Only clear session if we are sure it's a deliberate sign out or permanent failure.
                 // If we are currently syncing or have a local session, we might want to be more cautious.
+                
+                // Check if this was an explicit logout from this tab or another tab
+                const isExplicitLogout = localStorage.getItem('lawyerAppLoggedOut') === 'true';
+                
+                if (!isExplicitLogout) {
+                    // If not explicit, it might be a transient network error triggering SIGNED_OUT.
+                    // We verify by checking the session again.
+                    
+                    // If we are offline, we definitely don't trust a SIGNED_OUT event from Supabase
+                    if (!navigator.onLine) {
+                        console.warn("Received SIGNED_OUT while offline. Ignoring to preserve local session.");
+                        return;
+                    }
+
+                    supabase.auth.getSession().then(({ data: { session: verifiedSession }, error }) => {
+                        if (error) {
+                            const errMsg = error.message.toLowerCase();
+                            // If it's a network error, ignore the SIGNED_OUT event
+                            if (errMsg.includes("fetch") || errMsg.includes("network") || errMsg.includes("connection")) {
+                                console.warn("Session verification failed with network error, keeping local session.");
+                                return;
+                            }
+                        }
+
+                        if (!verifiedSession) {
+                            console.warn("Session truly lost after verification, logging out.");
+                            setSession(null);
+                            setIsAuthLoading(false);
+                            localStorage.removeItem(LAST_USER_CACHE_KEY);
+                            localStorage.removeItem(LAST_USER_CREDENTIALS_CACHE_KEY);
+                            localStorage.setItem('lawyerAppLoggedOut', 'true');
+                        } else {
+                            console.log("SIGNED_OUT event was a false alarm, session still exists.");
+                            setSession(verifiedSession);
+                        }
+                    }).catch((err) => {
+                        console.warn("Error during session verification:", err);
+                        // On unexpected error, we stay logged in if we have a session
+                    });
+                    return;
+                }
+
                 setSession(null);
                 setIsAuthLoading(false);
                 localStorage.removeItem(LAST_USER_CACHE_KEY);
@@ -368,6 +410,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     
     const handleLogout = async () => {
         try {
+            localStorage.setItem('lawyerAppLoggedOut', 'true');
             localStorage.removeItem(LAST_USER_CACHE_KEY);
             localStorage.removeItem(LAST_USER_CREDENTIALS_CACHE_KEY);
             Object.keys(localStorage).forEach(key => {
@@ -487,10 +530,18 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     if (data.isDataLoading && session && !data.lastSyncError) return <FullScreenLoader text="جاري جلب بيانات المكتب..." />;
 
     const handleLoginSuccess = (user: User, isOfflineLogin: boolean = false) => {
-        if (!isOfflineLogin) localStorage.setItem(LAST_USER_CACHE_KEY, JSON.stringify(user));
+        localStorage.setItem(LAST_USER_CACHE_KEY, JSON.stringify(user));
         if (isOfflineLogin) {
-             setSession({ access_token: "off", refresh_token: "off", expires_in: 86400, token_type: "bearer", user } as AuthSession);
+             setSession({ 
+                 access_token: "offline_access_token", 
+                 refresh_token: "offline_refresh_token", 
+                 expires_in: 86400, 
+                 token_type: "bearer", 
+                 user 
+             } as AuthSession);
+             setIsAuthLoading(false);
         }
+        // For online login, onAuthStateChange will handle setSession
     };
 
     if (data.syncStatus === 'unconfigured' || data.syncStatus === 'uninitialized') return <ConfigurationModal onRetry={data.manualSync} />;

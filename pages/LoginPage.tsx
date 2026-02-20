@@ -239,6 +239,24 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
     
         if (authStep === 'login') {
             try {
+                if (!isOnline) {
+                    // Offline login attempt
+                    const cachedCredsRaw = localStorage.getItem(LAST_USER_CREDENTIALS_CACHE_KEY);
+                    if (cachedCredsRaw) {
+                        const cachedCreds = JSON.parse(cachedCredsRaw);
+                        if (cachedCreds.mobile === form.mobile && cachedCreds.password === form.password) {
+                            const lastUserRaw = localStorage.getItem('lawyerAppLastUser');
+                            if (lastUserRaw) {
+                                const user = JSON.parse(lastUserRaw) as User;
+                                setMessage("تم تسجيل الدخول في وضع عدم الاتصال.");
+                                setTimeout(() => onLoginSuccess(user, true), 1000);
+                                return;
+                            }
+                        }
+                    }
+                    throw new Error("لا يمكن تسجيل الدخول لأول مرة بدون اتصال بالإنترنت، أو بيانات الاعتماد غير صحيحة.");
+                }
+
                 const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password: form.password });
                 if (signInError) throw signInError;
                 if (signInData.user) {
@@ -258,6 +276,8 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                          return;
                     }
                     localStorage.setItem(LAST_USER_CREDENTIALS_CACHE_KEY, JSON.stringify({ mobile: form.mobile, password: form.password }));
+                    localStorage.setItem('lawyerAppLastUser', JSON.stringify(signInData.user));
+                    onLoginSuccess(signInData.user);
                 }
             } catch (err: any) {
                  setError(getFriendlyErrorMessage(err, "فشل تسجيل الدخول."));
