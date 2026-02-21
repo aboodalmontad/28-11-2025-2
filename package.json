@@ -5,7 +5,7 @@
   "scripts": {
     "build": "node build.js",
     "start": "serve -s dist -l 3000",
-    "dev": "serve -s dist -l 3000"
+    "dev": "node build.js && serve -s dist -l 3000"
   },
   "devDependencies": {
     "esbuild": "^0.21.4",

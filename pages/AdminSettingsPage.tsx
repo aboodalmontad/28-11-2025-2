@@ -3,7 +3,7 @@ import * as React from 'react';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { MusicalNoteIcon, PlayCircleIcon, TrashIcon, ArrowUpTrayIcon, ServerIcon, CloudArrowDownIcon, CloudArrowUpIcon, CheckCircleIcon, ExclamationTriangleIcon, ArrowPathIcon } from '../components/icons';
 import { defaultUserApprovalSoundBase64 } from '../components/RealtimeNotifier';
-import { fetchDataFromSupabase, FlatData, getFriendlyErrorMessage } from '../hooks/useOnlineData'; // Import fetcher
+import { fetchDataFromSupabase, FlatData, getFriendlyErrorMessage, fetchWithRetry, isNetworkError } from '../hooks/useOnlineData'; // Import fetcher
 import { getSupabaseClient } from '../supabaseClient'; // Import client
 
 const USER_APPROVAL_SOUND_KEY = 'customUserApprovalSound';
@@ -78,7 +78,7 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onOpenConfig }) =
         showFeedback('جاري تحضير النسخة الاحتياطية من السحابة... يرجى الانتظار.', 'info');
         
         try {
-            const data = await fetchDataFromSupabase();
+            const data = await fetchWithRetry(() => fetchDataFromSupabase());
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
             const filename = `lawyer_system_full_backup_${timestamp}.json`;
             
@@ -186,7 +186,7 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onOpenConfig }) =
                 // Sanitize data if needed (e.g. remove extra props not in DB schema if any)
                 // For direct DB restore, we assume the backup matches the schema.
                 
-                const { error } = await supabase.from(table).upsert(chunk);
+                const { error } = await fetchWithRetry(() => supabase.from(table).upsert(chunk));
                 
                 if (error) {
                     if (!isNetworkError(error)) {

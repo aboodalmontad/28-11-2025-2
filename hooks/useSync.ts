@@ -30,7 +30,7 @@ const flattenData = (data: AppData): FlatData => {
 
     return {
         clients: data.clients.map(({ cases, ...client }) => client),
-        cases: cases.map(({ stages, ...caseItem }) => caseItem),
+        cases: cases.map(({ stages, feeAgreement, ...caseItem }) => ({ ...caseItem, fee_agreement: feeAgreement })),
         stages: stages.map(({ sessions, ...stage }) => stage),
         sessions,
         admin_tasks: data.adminTasks,
@@ -149,29 +149,37 @@ const applyDeletionsToLocal = (localFlatData: FlatData, deletions: SyncDeletion[
     };
 };
 
+let isSyncLocked = false;
+
 export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSynced, onDeletionsSynced, onSyncStatusChange, onDocumentsUploaded, excludedDocIds, isOnline, isAuthLoading, syncStatus }: UseSyncProps) => {
     const userRef = React.useRef(user);
     const ownerRef = React.useRef(effectiveUserId);
     const localDataRef = React.useRef(localData);
     const deletedIdsRef = React.useRef(deletedIds);
     const excludedDocIdsRef = React.useRef(excludedDocIds);
-    const syncStatusRef = React.useRef(syncStatus);
+    const onDataSyncedRef = React.useRef(onDataSynced);
+    const onDeletionsSyncedRef = React.useRef(onDeletionsSynced);
+    const onSyncStatusChangeRef = React.useRef(onSyncStatusChange);
 
     userRef.current = user;
     ownerRef.current = effectiveUserId;
     localDataRef.current = localData;
     deletedIdsRef.current = deletedIds;
     excludedDocIdsRef.current = excludedDocIds;
-    syncStatusRef.current = syncStatus;
+    onDataSyncedRef.current = onDataSynced;
+    onDeletionsSyncedRef.current = onDeletionsSynced;
+    onSyncStatusChangeRef.current = onSyncStatusChange;
 
-    const setStatus = (status: SyncStatus, error: string | null = null) => { onSyncStatusChange(status, error); };
+
+    const setStatus = (status: SyncStatus, error: string | null = null) => { onSyncStatusChangeRef.current(status, error); };
 
     const manualSync = React.useCallback(async () => {
-        if (syncStatusRef.current === 'syncing' || isAuthLoading) return;
+        if (isSyncLocked || isAuthLoading) return;
         const realUser = userRef.current;
         const ownerId = ownerRef.current;
         if (!isOnline || !realUser || !ownerId) return;
 
+        isSyncLocked = true;
         setStatus('syncing', 'جاري المزامنة...');
         try {
             const schemaCheck = await fetchWithRetry(() => checkSupabaseSchema());
@@ -202,7 +210,7 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
                     const id = localItem.id ?? localItem.name;
                     const remoteItem = remoteMap.get(id);
                     // Fix: Cast localItem and remoteItem to any to safely access updated_at which may not exist on all entity types (like assistants)
-                    if (!remoteItem || new Date((localItem as any).updated_at || 0).getTime() >= new Date((remoteItem as any).updated_at || 0).getTime()) {
+                    if (!remoteItem || new Date((localItem as any).updated_at || 0).getTime() > new Date((remoteItem as any).updated_at || 0).getTime()) {
                         itemsToUpsert.push(localItem);
                         finalMergedItems.set(id, localItem);
                     } else {
@@ -239,18 +247,22 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
             const upsertedDataRaw = await fetchWithRetry(() => upsertDataToSupabase(flatUpserts as FlatData, realUser, ownerId));
             const finalMergedData = constructData(mergedFlatData as FlatData);
             
-            onDataSynced(finalMergedData);
-            onDeletionsSynced(deletedIdsRef.current);
-            setStatus('synced');
+            await onDataSyncedRef.current(finalMergedData);
+            await onDeletionsSyncedRef.current(deletedIdsRef.current);
+            // Small delay to ensure state updates (like setDirty) are processed
+            setTimeout(() => setStatus('synced'), 100);
         } catch (err: any) {
+            console.error("Manual Sync Error Details:", err);
             if (!isNetworkError(err)) {
-                console.error("Sync Error:", err);
+                setStatus('error', `فشل المزامنة: ${err.message || 'خطأ غير معروف'}`);
             } else {
                 console.warn("Sync failed due to network error (offline).");
+                setStatus('error', 'تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.');
             }
-            setStatus('error', getFriendlyErrorMessage(err, 'تعذر الاتصال بالخادم.'));
+        } finally {
+            isSyncLocked = false;
         }
-    }, [isOnline, onDataSynced, onDeletionsSynced, isAuthLoading]);
+    }, [isOnline, isAuthLoading]);
 
     // Fix: manualSync and fetchAndRefresh are often used interchangeably in the UI. 
     // fetchAndRefresh logic is inherently handled by manualSync (full bi-directional sync).

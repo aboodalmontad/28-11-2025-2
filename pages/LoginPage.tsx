@@ -4,7 +4,7 @@ import { getSupabaseClient } from '../supabaseClient';
 import { ExclamationCircleIcon, EyeIcon, EyeSlashIcon, ClipboardDocumentIcon, ClipboardDocumentCheckIcon, ArrowTopRightOnSquareIcon, CheckCircleIcon, UserGroupIcon, KeyIcon } from '../components/icons';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import type { User } from '@supabase/supabase-js';
-import { isNetworkError, getFriendlyErrorMessage } from '../hooks/useOnlineData';
+import { isNetworkError, getFriendlyErrorMessage, fetchWithRetry } from '../hooks/useOnlineData';
 
 interface AuthPageProps {
     onForceSetup: () => void;
@@ -124,16 +124,16 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
 
         try {
             // 1. Check if user exists first (optional, but good UX)
-            const { data: exists } = await supabase.rpc('check_if_mobile_exists', { mobile_to_check: normalizedMobile });
+            const { data: exists } = await fetchWithRetry(() => supabase.rpc('check_if_mobile_exists', { mobile_to_check: normalizedMobile }));
             if (!exists) {
                 throw new Error("رقم الجوال غير مسجل.");
             }
 
             // 2. Generate OTP
-            const { data: userWithOtp, error: findUserError } = await supabase.from('profiles').select('id').eq('mobile_number', normalizedMobile).single();
+            const { data: userWithOtp, error: findUserError } = await fetchWithRetry(() => supabase.from('profiles').select('id').eq('mobile_number', normalizedMobile).single());
             if (findUserError || !userWithOtp) throw new Error("تعذر العثور على المستخدم.");
 
-            const { data: code, error: otpError } = await supabase.rpc('generate_mobile_otp', { target_user_id: userWithOtp.id });
+            const { data: code, error: otpError } = await fetchWithRetry(() => supabase.rpc('generate_mobile_otp', { target_user_id: userWithOtp.id }));
             if (otpError) throw otpError;
 
             // 3. Send via WhatsApp (Simulation)
@@ -166,11 +166,11 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
         if (!supabase) { setError("Supabase client is not available."); setLoading(false); return; }
 
         try {
-            const { data: success, error: rpcError } = await supabase.rpc('reset_password_with_otp', {
+            const { data: success, error: rpcError } = await fetchWithRetry(() => supabase.rpc('reset_password_with_otp', {
                 target_mobile: normalizedMobile,
                 code_to_check: otpCode.trim(),
                 new_password: newPassword
-            });
+            }));
 
             if (rpcError) throw rpcError;
 
@@ -199,7 +199,7 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
             if (!supabase) throw new Error("Client not initialized");
             const normalizedMobile = normalizeMobileForDB(form.mobile);
             if (!normalizedMobile) throw new Error("رقم الجوال غير صالح.");
-            const { data: isVerified, error: rpcError } = await supabase.rpc('verify_mobile_otp', { target_mobile: normalizedMobile, code_to_check: otpCode.trim() });
+            const { data: isVerified, error: rpcError } = await fetchWithRetry(() => supabase.rpc('verify_mobile_otp', { target_mobile: normalizedMobile, code_to_check: otpCode.trim() }));
             if (rpcError) throw rpcError;
             if (isVerified) {
                 if (onVerificationSuccess) onVerificationSuccess();
@@ -208,7 +208,7 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                     if (form.password) {
                         const phone = normalizeMobileToE164(form.mobile);
                         const email = `sy${phone!.substring(1)}@email.com`;
-                        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password: form.password });
+                        const { data: signInData, error: signInError } = await fetchWithRetry(() => supabase.auth.signInWithPassword({ email, password: form.password }));
                         if (signInError) throw signInError;
                         if(signInData.user) onLoginSuccess(signInData.user);
                     } else { setAuthStep('login'); setOtpCode(''); }
@@ -257,10 +257,12 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                     throw new Error("لا يمكن تسجيل الدخول لأول مرة بدون اتصال بالإنترنت، أو بيانات الاعتماد غير صحيحة.");
                 }
 
-                const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password: form.password });
+                const { data: signInData, error: signInError } = await fetchWithRetry(() => supabase.auth.signInWithPassword({ email, password: form.password }));
                 if (signInError) throw signInError;
                 if (signInData.user) {
-                    const { data: profile, error: profileError } = await supabase.from('profiles').select('mobile_verified, role, is_approved, lawyer_id').eq('id', signInData.user.id).single();
+                    const { data: profile, error: profileError } = await fetchWithRetry(() => 
+                        supabase.from('profiles').select('mobile_verified, role, is_approved, lawyer_id').eq('id', signInData.user.id).single()
+                    );
                     if (profileError) throw profileError;
                     
                     if (profile && profile.mobile_verified === false && profile.role !== 'admin') {
@@ -296,15 +298,15 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                     metaData.lawyer_mobile_number = normalizedLawyerMobile;
                 }
     
-                const { data, error: signUpError } = await supabase.auth.signUp({
+                const { data, error: signUpError } = await fetchWithRetry(() => supabase.auth.signUp({
                     email,
                     password: form.password,
                     options: { data: metaData }
-                });
+                }));
     
                 if (signUpError) throw signUpError;
                 if (data.user) {
-                    try { await supabase.rpc('generate_mobile_otp', { target_user_id: data.user.id }); } catch (e) {}
+                    try { await fetchWithRetry(() => supabase.rpc('generate_mobile_otp', { target_user_id: data.user.id })); } catch (e) {}
                     setMessage(isAssistantSignup ? "تم إرسال طلب الانضمام. يرجى التواصل مع المحامي لتفعيل حسابك." : "تم إنشاء الحساب بنجاح.");
                     setAuthStep('otp');
                 }
@@ -426,7 +428,7 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                 </div>
                 
                 <div className="mt-8 text-center">
-                    <p className="text-xs text-gray-400 mb-1">الإصدار: 20-02-2026</p>
+                    <p className="text-xs text-gray-400 mb-1">الإصدار: 21-02-2026</p>
                     <p className="text-xs text-gray-400">جميع حقوق الملكية محفوظة لشركة الحلول التقنية © {new Date().getFullYear()}</p>
                 </div>
             </div>

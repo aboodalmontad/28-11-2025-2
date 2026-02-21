@@ -26,7 +26,34 @@ export function getSupabaseClient(): SupabaseClient | null {
 
     // Create a new client instance.
     try {
-        supabase = createClient(supabaseUrl, supabaseAnonKey);
+        supabase = createClient(supabaseUrl, supabaseAnonKey, {
+            auth: {
+                persistSession: true,
+                autoRefreshToken: true,
+                detectSessionInUrl: true,
+                flowType: 'pkce',
+                storageKey: 'lawyer-app-auth-token',
+                storage: {
+                    getItem: (key) => {
+                        if (typeof window === 'undefined') return null;
+                        return window.localStorage.getItem(key);
+                    },
+                    setItem: (key, value) => {
+                        if (typeof window === 'undefined') return;
+                        window.localStorage.setItem(key, value);
+                    },
+                    removeItem: (key) => {
+                        if (typeof window === 'undefined') return;
+                        window.localStorage.removeItem(key);
+                    },
+                },
+                // Disable Navigator LockManager to prevent timeouts in iframe/sandboxed environments
+                lockType: 'custom',
+                async acquireLock() {
+                    return () => {}; // Return a dummy release function
+                },
+            }
+        });
         return supabase;
     } catch (error) {
         console.error("Error creating Supabase client:", error);

@@ -57,6 +57,13 @@ const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({ status, lastE
             className: 'text-red-500',
             title: `فشل المزامنة: ${lastError}`
         };
+    } else if (status === 'synced' && !isDirty) {
+        displayStatus = {
+            icon: <CheckCircleIcon className="w-5 h-5 text-green-500" />,
+            text: 'تمت المزامنة',
+            className: 'text-green-500',
+            title: 'جميع بياناتك محدثة.'
+        };
     } else if (isDirty) {
          displayStatus = {
             icon: <ArrowPathIcon className="w-5 h-5 text-yellow-600" />,
@@ -67,7 +74,7 @@ const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({ status, lastE
     } else {
         displayStatus = {
             icon: <CheckCircleIcon className="w-5 h-5 text-green-500" />,
-            text: 'متزامن',
+            text: 'تمت المزامنة',
             className: 'text-green-500',
             title: 'جميع بياناتك محدثة.'
         };

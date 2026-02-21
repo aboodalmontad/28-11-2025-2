@@ -5,7 +5,7 @@ import { formatDate, toInputDateString } from '../utils/dateUtils.ts';
 import { CheckCircleIcon, NoSymbolIcon, PencilIcon, TrashIcon, ExclamationTriangleIcon, PhoneIcon, ShareIcon, ArrowPathIcon, ClipboardDocumentIcon, UserIcon, UserGroupIcon } from '../components/icons.tsx';
 import { useData } from '../context/DataContext.tsx';
 import UserDetailsModal from '../components/UserDetailsModal.tsx';
-import { getFriendlyErrorMessage } from '../hooks/useOnlineData.ts';
+import { getFriendlyErrorMessage, fetchWithRetry, isNetworkError } from '../hooks/useOnlineData.ts';
 
 const formatSubscriptionDateRange = (user: Profile): string => {
     const { subscription_start_date, subscription_end_date } = user;
@@ -169,7 +169,7 @@ const AdminPage: React.FC = () => {
         // If using real backend, you would make the API call here
         if (supabase) {
              try {
-                 const { error } = await supabase.from('profiles').update({
+                 const { error } = await fetchWithRetry(() => supabase.from('profiles').update({
                      full_name: editingUser.full_name,
                      mobile_number: editingUser.mobile_number,
                      subscription_start_date: editingUser.subscription_start_date,
@@ -177,7 +177,7 @@ const AdminPage: React.FC = () => {
                      is_approved: editingUser.is_approved,
                      is_active: editingUser.is_active,
                      mobile_verified: editingUser.mobile_verified
-                 }).eq('id', editingUser.id);
+                 }).eq('id', editingUser.id));
                  if (error) throw error;
                  
                  // Refresh data to confirm changes from server
@@ -202,9 +202,9 @@ const AdminPage: React.FC = () => {
         const userToDeleteId = userToDelete.id;
     
         try {
-            const { error: rpcError } = await supabase.rpc('delete_user', {
+            const { error: rpcError } = await fetchWithRetry(() => supabase.rpc('delete_user', {
                 user_id_to_delete: userToDeleteId
-            });
+            }));
     
             if (rpcError) throw rpcError;
             setUsers(prevUsers => prevUsers.filter(u => u.id !== userToDeleteId));
@@ -227,7 +227,7 @@ const AdminPage: React.FC = () => {
          setUsers(prev => prev.map(u => u.id === user.id ? updatedUser : u));
          
          try {
-            const { error } = await supabase.from('profiles').update({ is_approved: updatedUser.is_approved }).eq('id', user.id);
+            const { error } = await fetchWithRetry(() => supabase.from('profiles').update({ is_approved: updatedUser.is_approved }).eq('id', user.id));
             if (error) throw error;
             fetchAndRefresh();
          } catch(err: any) {
@@ -246,7 +246,7 @@ const AdminPage: React.FC = () => {
          setUsers(prev => prev.map(u => u.id === user.id ? updatedUser : u));
          
          try {
-            const { error } = await supabase.from('profiles').update({ is_active: updatedUser.is_active }).eq('id', user.id);
+            const { error } = await fetchWithRetry(() => supabase.from('profiles').update({ is_active: updatedUser.is_active }).eq('id', user.id));
             if (error) throw error;
             fetchAndRefresh();
          } catch(err: any) {
@@ -263,9 +263,9 @@ const AdminPage: React.FC = () => {
         if (!supabase) return;
         setGeneratingOtpFor(user.id);
         try {
-            const { data: code, error } = await supabase.rpc('generate_mobile_otp', {
+            const { data: code, error } = await fetchWithRetry(() => supabase.rpc('generate_mobile_otp', {
                 target_user_id: user.id
-            });
+            }));
 
             if (error) throw error;
 

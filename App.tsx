@@ -65,7 +65,7 @@ const Navbar: React.FC<{
                     <div className="flex flex-col items-start sm:flex-row sm:items-baseline gap-0 sm:gap-2">
                         <h1 className="text-xl font-bold text-gray-800">مكتب المحامي</h1>
                         <div className="flex items-center gap-1 text-xs text-gray-500">
-                            <span>الإصدار: 20-02-2026</span>
+                            <span>الإصدار: 21-02-2026</span>
                             {profile && (
                                 <>
                                     <span className="mx-1 text-gray-300">|</span>
@@ -200,28 +200,8 @@ const FullScreenLoader: React.FC<{ text?: string; subtext?: string; children?: R
 );
 
 const App: React.FC<AppProps> = ({ onRefresh }) => {
-    const [session, setSession] = React.useState<AuthSession | null>(() => {
-        if (typeof window !== 'undefined') {
-            try {
-                const lastUserRaw = localStorage.getItem(LAST_USER_CACHE_KEY);
-                if (lastUserRaw) {
-                    const user = JSON.parse(lastUserRaw) as User;
-                    return {
-                        access_token: "optimistic_access_token",
-                        refresh_token: "optimistic_refresh_token",
-                        expires_in: 86400,
-                        token_type: "bearer",
-                        user: user
-                    } as AuthSession;
-                }
-            } catch (e) {
-                console.error("Failed to parse cached user session:", e);
-            }
-        }
-        return null;
-    });
-
-    const [isAuthLoading, setIsAuthLoading] = React.useState(!session);
+    const [session, setSession] = React.useState<AuthSession | null>(null);
+    const [isAuthLoading, setIsAuthLoading] = React.useState(true);
     const [profile, setProfile] = React.useState<Profile | null>(null);
     const [currentPage, setCurrentPage] = React.useState<Page>('home');
     const [isAdminTaskModalOpen, setIsAdminTaskModalOpen] = React.useState(false);
@@ -250,112 +230,17 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
             return;
         }
 
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
-            if (event === 'SIGNED_OUT') {
-                // Only clear session if we are sure it's a deliberate sign out or permanent failure.
-                // If we are currently syncing or have a local session, we might want to be more cautious.
-                
-                // Check if this was an explicit logout from this tab or another tab
-                const isExplicitLogout = localStorage.getItem('lawyerAppLoggedOut') === 'true';
-                
-                if (!isExplicitLogout) {
-                    // If not explicit, it might be a transient network error triggering SIGNED_OUT.
-                    // We verify by checking the session again.
-                    
-                    // If we are offline, we definitely don't trust a SIGNED_OUT event from Supabase
-                    if (!navigator.onLine) {
-                        console.warn("Received SIGNED_OUT while offline. Ignoring to preserve local session.");
-                        return;
-                    }
-
-                    supabase.auth.getSession().then(({ data: { session: verifiedSession }, error }) => {
-                        if (error) {
-                            const errMsg = error.message.toLowerCase();
-                            // If it's a network error, ignore the SIGNED_OUT event
-                            if (errMsg.includes("fetch") || errMsg.includes("network") || errMsg.includes("connection")) {
-                                console.warn("Session verification failed with network error, keeping local session.");
-                                return;
-                            }
-                        }
-
-                        if (!verifiedSession) {
-                            console.warn("Session truly lost after verification, logging out.");
-                            setSession(null);
-                            setIsAuthLoading(false);
-                            localStorage.removeItem(LAST_USER_CACHE_KEY);
-                            localStorage.removeItem(LAST_USER_CREDENTIALS_CACHE_KEY);
-                            localStorage.setItem('lawyerAppLoggedOut', 'true');
-                        } else {
-                            console.log("SIGNED_OUT event was a false alarm, session still exists.");
-                            setSession(verifiedSession);
-                        }
-                    }).catch((err) => {
-                        console.warn("Error during session verification:", err);
-                        // On unexpected error, we stay logged in if we have a session
-                    });
-                    return;
-                }
-
-                setSession(null);
-                setIsAuthLoading(false);
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            setSession(session);
+            setIsAuthLoading(false);
+            if (session) {
+                localStorage.setItem(LAST_USER_CACHE_KEY, JSON.stringify(session.user));
+            } else {
                 localStorage.removeItem(LAST_USER_CACHE_KEY);
                 localStorage.removeItem(LAST_USER_CREDENTIALS_CACHE_KEY);
-                localStorage.setItem('lawyerAppLoggedOut', 'true');
-            } else if (newSession) {
-                setSession(newSession);
-                setIsAuthLoading(false);
-                localStorage.setItem(LAST_USER_CACHE_KEY, JSON.stringify(newSession.user));
-                localStorage.removeItem('lawyerAppLoggedOut');
-            } else {
-                setIsAuthLoading(false);
             }
         });
-        
-        const checkSession = async () => {
-             if (!isOnline || !supabase) {
-                 setIsAuthLoading(false);
-                 return;
-             }
 
-             try {
-                const { data: { session: serverSession }, error } = await supabase.auth.getSession();
-                
-                if (error) {
-                    const errorMessage = error.message.toLowerCase();
-                    // Only log out for explicit, permanent auth errors
-                    if (errorMessage.includes("refresh token") || errorMessage.includes("not found") || errorMessage.includes("invalid claim")) {
-                        console.warn("Session invalid, logging out:", errorMessage);
-                        localStorage.removeItem(LAST_USER_CACHE_KEY);
-                        localStorage.removeItem(LAST_USER_CREDENTIALS_CACHE_KEY);
-                        Object.keys(localStorage).forEach(key => {
-                            if (key.startsWith('sb-')) localStorage.removeItem(key);
-                        });
-                        await supabase!.auth.signOut().catch(() => {}); 
-                        setSession(null);
-                        onRefresh(); 
-                    } else {
-                         // For network errors or other temporary issues, DO NOT log out.
-                         console.warn("Session check failed with non-critical error, keeping local session:", errorMessage);
-                    }
-                } else if (serverSession) {
-                    setSession(serverSession);
-                    localStorage.setItem(LAST_USER_CACHE_KEY, JSON.stringify(serverSession.user));
-                } else {
-                    // If serverSession is null, it might be a transient issue during sync or refresh.
-                    // We DON'T log out here immediately if we already have a session state.
-                    // Instead, we let the data requests fail with 401 if the session is truly gone.
-                    if (session) {
-                        console.warn("serverSession is null but local session exists. Keeping local session for now.");
-                    }
-                }
-             } catch (err) {
-                 console.warn("Unexpected error during session check:", err);
-             } finally {
-                 setIsAuthLoading(false);
-             }
-        };
-
-        checkSession();
         return () => {
             if (subscription) subscription.unsubscribe();
         };
