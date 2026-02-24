@@ -142,13 +142,13 @@ export const fetchDataFromSupabase = async (ownerId: string): Promise<Partial<Fl
 
                 const { data: tableData, error } = await fetchWithRetry(fetchFn);
                 if (error) {
-                    if (['profiles', 'clients', 'cases'].includes(table)) throw error;
+                    if (['profiles', 'clients', 'cases', 'admin_tasks'].includes(table)) throw error;
                     console.warn(`Non-critical table fetch failed: ${table}`, error);
                     return [];
                 }
                 return tableData || [];
             } catch (e) {
-                if (['profiles', 'clients', 'cases'].includes(table)) throw e;
+                if (['profiles', 'clients', 'cases', 'admin_tasks'].includes(table)) throw e;
                 return [];
             }
         });
@@ -203,7 +203,7 @@ export const upsertDataToSupabase = async (data: Partial<FlatData>, realUser: Us
         const { error }: any = await fetchWithRetry(async () => await supabase.from(table).upsert(formatted));
         if (error) {
             console.error(`Upsert failed for table ${table}:`, error);
-            if (['profiles', 'clients', 'cases'].includes(table)) throw error;
+            if (['profiles', 'clients', 'cases', 'admin_tasks'].includes(table)) throw error;
         }
     }));
 
