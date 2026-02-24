@@ -3,7 +3,7 @@ import * as React from 'react';
 import { useData } from '../context/DataContext';
 import { CaseDocument } from '../types';
 import { DocumentArrowUpIcon, TrashIcon, DocumentTextIcon, XMarkIcon, ExclamationTriangleIcon, ArrowPathIcon, CameraIcon, CloudArrowUpIcon, CloudArrowDownIcon, CheckCircleIcon, ExclamationCircleIcon, ArrowDownTrayIcon, MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon, ArrowsPointingOutIcon, ArrowTopRightOnSquareIcon } from './icons';
-import { renderAsync } from 'docx-preview';
+import * as docx from 'docx-preview';
 import { getFriendlyErrorMessage } from '../hooks/useOnlineData';
 
 interface CaseDocumentsProps {
@@ -131,7 +131,7 @@ const DocxPreview: React.FC<{ file: File; name: string }> = ({ file, name }) => 
             return;
         }
 
-        renderAsync(file, previewerRef.current)
+        docx.renderAsync(file, previewerRef.current)
             .then(() => {
                 setIsLoading(false);
             })
