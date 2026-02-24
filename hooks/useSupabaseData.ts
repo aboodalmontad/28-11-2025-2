@@ -508,17 +508,19 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     ownerId = cachedOwnerId;
                 }
 
+                let fetchedProfileData: any = null;
+
                 if (isOnlineNow && supabase) {
                     try {
                         const res: any = await fetchWithRetry(async () => 
-                            await supabase!.from('profiles').select('lawyer_id').eq('id', user!.id).maybeSingle()
+                            await supabase!.from('profiles').select('*').eq('id', user!.id).maybeSingle()
                         );
-                        const profileData = res?.data;
+                        fetchedProfileData = res?.data;
 
-                        if (profileData && profileData.lawyer_id) {
-                            ownerId = profileData.lawyer_id;
+                        if (fetchedProfileData && fetchedProfileData.lawyer_id) {
+                            ownerId = fetchedProfileData.lawyer_id;
                             localStorage.setItem(`lawyer_app_owner_id_${user.id}`, ownerId);
-                        } else if (profileData) {
+                        } else if (fetchedProfileData) {
                             ownerId = user.id;
                             localStorage.setItem(`lawyer_app_owner_id_${user.id}`, ownerId);
                         }
@@ -541,6 +543,34 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 setExcludedDocIds(excludedIdsSet);
 
                 const validatedData = validateAndFixData(storedData, user);
+
+                // Merge fetched profile data to ensure effectiveUserId is correct immediately
+                if (fetchedProfileData) {
+                    const existingProfileIndex = validatedData.profiles.findIndex(p => p.id === user.id);
+                    const newProfile = {
+                        id: String(fetchedProfileData.id),
+                        full_name: String(fetchedProfileData.full_name || ''),
+                        mobile_number: String(fetchedProfileData.mobile_number || ''),
+                        is_approved: !!fetchedProfileData.is_approved,
+                        is_active: fetchedProfileData.is_active !== false,
+                        mobile_verified: !!fetchedProfileData.mobile_verified,
+                        otp_code: fetchedProfileData.otp_code,
+                        otp_expires_at: fetchedProfileData.otp_expires_at,
+                        subscription_start_date: fetchedProfileData.subscription_start_date || null,
+                        subscription_end_date: fetchedProfileData.subscription_end_date || null,
+                        role: ['user', 'admin'].includes(fetchedProfileData.role) ? fetchedProfileData.role : 'user',
+                        lawyer_id: fetchedProfileData.lawyer_id || null, 
+                        permissions: fetchedProfileData.permissions || undefined, 
+                        created_at: fetchedProfileData.created_at,
+                        updated_at: reviveDate(fetchedProfileData.updated_at),
+                    };
+
+                    if (existingProfileIndex >= 0) {
+                        validatedData.profiles[existingProfileIndex] = { ...validatedData.profiles[existingProfileIndex], ...newProfile };
+                    } else {
+                        validatedData.profiles.push(newProfile as Profile);
+                    }
+                }
                 const localDocsMetadataMap = new Map((localDocsMetadata as any[]).map((meta: any) => [meta.id, meta]));
                 const finalDocs = validatedData.documents.map(doc => {
                     if (excludedIdsSet.has(doc.id)) return null;
@@ -743,9 +773,21 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     (payload: any) => {
                         // Only trigger sync if the change belongs to our office
                         const record = payload.new as any || payload.old as any;
-                        const recordUserId = record?.user_id || record?.id || record?.lawyer_id;
+                        let shouldSync = false;
+
+                        if (payload.table === 'profiles') {
+                             // Sync if the profile is ME, or the profile belongs to my OFFICE (lawyer_id == effectiveUserId), or the profile IS the lawyer (id == effectiveUserId)
+                             if (record.id === user.id || record.lawyer_id === effectiveUserId || record.id === effectiveUserId) {
+                                 shouldSync = true;
+                             }
+                        } else {
+                             // For other tables, check user_id
+                             if (record.user_id === effectiveUserId) {
+                                 shouldSync = true;
+                             }
+                        }
                         
-                        if (recordUserId === effectiveUserId) {
+                        if (shouldSync) {
                             console.log('Realtime update detected for office:', payload.table, payload.eventType);
                             
                             // Show a notification for remote updates

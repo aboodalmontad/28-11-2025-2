@@ -186,9 +186,13 @@ export const upsertDataToSupabase = async (data: Partial<FlatData>, realUser: Us
             const { feeAgreement, ...rest } = item as any;
             const newItem: any = {
                 ...rest,
-                user_id: ownerId,
                 updated_at: item.updated_at ? new Date(item.updated_at).toISOString() : new Date().toISOString(),
             };
+
+            if (table !== 'profiles') {
+                newItem.user_id = ownerId;
+            }
+
             if (feeAgreement !== undefined) {
                 newItem.fee_agreement = feeAgreement;
             }
