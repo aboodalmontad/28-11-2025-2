@@ -257,20 +257,34 @@ ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Profiles Visibility" ON public.profiles FOR SELECT USING (auth.uid() = id OR lawyer_id = auth.uid() OR public.is_admin());
 CREATE POLICY "Profiles UPSERT" ON public.profiles FOR ALL USING (auth.uid() = id OR lawyer_id = auth.uid() OR public.is_admin()) WITH CHECK (auth.uid() = id OR lawyer_id = auth.uid() OR public.is_admin());
 
-CREATE POLICY "Access Own Data" ON public.assistants FOR ALL USING (user_id = public.get_data_owner_id() OR public.is_admin());
-CREATE POLICY "Access Own Data" ON public.clients FOR ALL USING (user_id = public.get_data_owner_id() OR public.is_admin());
-CREATE POLICY "Access Own Data" ON public.cases FOR ALL USING (user_id = public.get_data_owner_id() OR public.is_admin());
-CREATE POLICY "Access Own Data" ON public.stages FOR ALL USING (user_id = public.get_data_owner_id() OR public.is_admin());
-CREATE POLICY "Access Own Data" ON public.sessions FOR ALL USING (user_id = public.get_data_owner_id() OR public.is_admin());
-CREATE POLICY "Access Own Data" ON public.admin_tasks FOR ALL USING (user_id = public.get_data_owner_id() OR public.is_admin());
-CREATE POLICY "Access Own Data" ON public.appointments FOR ALL USING (user_id = public.get_data_owner_id() OR public.is_admin());
-CREATE POLICY "Access Own Data" ON public.accounting_entries FOR ALL USING (user_id = public.get_data_owner_id() OR public.is_admin());
-CREATE POLICY "Access Own Data" ON public.invoices FOR ALL USING (user_id = public.get_data_owner_id() OR public.is_admin());
-CREATE POLICY "Access Own Data" ON public.invoice_items FOR ALL USING (user_id = public.get_data_owner_id() OR public.is_admin());
-CREATE POLICY "Access Own Data" ON public.case_documents FOR ALL USING (user_id = public.get_data_owner_id() OR public.is_admin());
+-- Unified Policy for Data Tables:
+-- Allow access if:
+-- 1. The user owns the data (user_id = auth.uid())
+-- 2. The user is an assistant linked to the owner (user_id = lawyer_id)
+-- 3. The user is an admin
+CREATE POLICY "Unified Access Policy" ON public.assistants FOR ALL USING (
+    user_id = auth.uid() OR 
+    user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR 
+    public.is_admin()
+) WITH CHECK (
+    user_id = auth.uid() OR 
+    user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR 
+    public.is_admin()
+);
+
+CREATE POLICY "Unified Access Policy" ON public.clients FOR ALL USING (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin()) WITH CHECK (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin());
+CREATE POLICY "Unified Access Policy" ON public.cases FOR ALL USING (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin()) WITH CHECK (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin());
+CREATE POLICY "Unified Access Policy" ON public.stages FOR ALL USING (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin()) WITH CHECK (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin());
+CREATE POLICY "Unified Access Policy" ON public.sessions FOR ALL USING (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin()) WITH CHECK (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin());
+CREATE POLICY "Unified Access Policy" ON public.admin_tasks FOR ALL USING (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin()) WITH CHECK (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin());
+CREATE POLICY "Unified Access Policy" ON public.appointments FOR ALL USING (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin()) WITH CHECK (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin());
+CREATE POLICY "Unified Access Policy" ON public.accounting_entries FOR ALL USING (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin()) WITH CHECK (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin());
+CREATE POLICY "Unified Access Policy" ON public.invoices FOR ALL USING (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin()) WITH CHECK (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin());
+CREATE POLICY "Unified Access Policy" ON public.invoice_items FOR ALL USING (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin()) WITH CHECK (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin());
+CREATE POLICY "Unified Access Policy" ON public.case_documents FOR ALL USING (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin()) WITH CHECK (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin());
 
 ALTER TABLE public.sync_deletions ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Access Own Deletions" ON public.sync_deletions FOR ALL USING (user_id = public.get_data_owner_id() OR public.is_admin());
+CREATE POLICY "Unified Access Policy" ON public.sync_deletions FOR ALL USING (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin()) WITH CHECK (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin());
 
 ALTER TABLE public.assistants ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.clients ENABLE ROW LEVEL SECURITY;
