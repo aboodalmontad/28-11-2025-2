@@ -1,5 +1,5 @@
 // Fix: Use `import type` for SupabaseClient as it is used as a type, not a value. This resolves module resolution errors in some environments.
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient, AuthError } from '@supabase/supabase-js';
 
 // Hardcoded Supabase credentials provided by the user.
 const supabaseUrl = "https://gvafdhyudvdymletqjee.supabase.co";
@@ -7,57 +7,79 @@ const supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
 
 // Singleton instance of the Supabase client.
 let supabase: SupabaseClient | null = null;
+let clientPromise: Promise<SupabaseClient | null> | null = null;
 
 /**
  * Creates or retrieves a singleton Supabase client instance using hardcoded credentials.
  * @returns A Supabase client instance. Returns null if initialization fails.
  */
-export function getSupabaseClient(): SupabaseClient | null {
-    // If the client is already initialized, return it.
-    if (supabase) {
-        return supabase;
-    }
-    
-    // If hardcoded credentials are not valid, return null.
-    if (!supabaseUrl || !supabaseAnonKey) {
-        console.error("Supabase credentials are not defined in the code.");
-        return null;
+export async function getSupabaseClient(): Promise<SupabaseClient | null> {
+    if (clientPromise) {
+        return clientPromise;
     }
 
-    // Create a new client instance.
-    try {
-        supabase = createClient(supabaseUrl, supabaseAnonKey, {
-            auth: {
-                persistSession: true,
-                autoRefreshToken: true,
-                detectSessionInUrl: true,
-                flowType: 'pkce',
-                storageKey: 'lawyer-app-auth-token',
-                storage: {
-                    getItem: (key) => {
-                        if (typeof window === 'undefined') return null;
-                        return window.localStorage.getItem(key);
-                    },
-                    setItem: (key, value) => {
-                        if (typeof window === 'undefined') return;
-                        window.localStorage.setItem(key, value);
-                    },
-                    removeItem: (key) => {
-                        if (typeof window === 'undefined') return;
-                        window.localStorage.removeItem(key);
-                    },
-                },
-                // Disable Navigator LockManager to prevent timeouts in iframe/sandboxed environments
-                lockType: 'custom',
-                async acquireLock() {
-                    return () => {}; // Return a dummy release function
-                },
+    clientPromise = (async () => {
+        if (supabase) {
+            // Check if the current session is still valid
+            if (!supabase.auth) {
+                console.warn("Supabase auth not available on existing client, re-initializing.");
+                supabase = null;
+            } else {
+                const { data: { session }, error } = await supabase.auth.getSession();
+                if (error || !session) {
+                    console.warn("Supabase session invalid or expired, re-initializing client.", error);
+                    supabase = null; // Force re-initialization
+                } else {
+                    return supabase;
+                }
             }
-        });
-        return supabase;
-    } catch (error) {
-        console.error("Error creating Supabase client:", error);
-        supabase = null; // Ensure supabase is null on failure
-        return null;
-    }
+        }
+        
+        // If hardcoded credentials are not valid, return null.
+        if (!supabaseUrl || !supabaseAnonKey) {
+            console.error("Supabase credentials are not defined in the code.");
+            return null;
+        }
+
+        // Create a new client instance.
+        try {
+            supabase = createClient(supabaseUrl, supabaseAnonKey, {
+                auth: {
+                    persistSession: true,
+                    autoRefreshToken: true,
+                    storageKey: 'lawyer-app-auth-token',
+                    storage: {
+                        getItem: (key: string) => {
+                            if (typeof window === 'undefined') return null;
+                            return window.localStorage.getItem(key);
+                        },
+                        setItem: (key: string, value: string) => {
+                            if (typeof window === 'undefined') return;
+                            window.localStorage.setItem(key, value);
+                        },
+                        removeItem: (key: string) => {
+                            if (typeof window === 'undefined') return;
+                            window.localStorage.removeItem(key);
+                        },
+                    },
+                }
+            });
+            return supabase;
+        } catch (error) {
+            console.error("Error creating Supabase client:", error);
+            supabase = null; // Ensure supabase is null on failure
+            return null;
+        }
+    })();
+
+    return clientPromise;
+}
+
+/**
+ * Synchronously retrieves the singleton Supabase client instance.
+ * Note: This may return null if the client hasn't been initialized yet via getSupabaseClient().
+ * @returns The Supabase client instance or null.
+ */
+export function getSupabaseClientSync(): SupabaseClient | null {
+    return supabase;
 }

@@ -1,5 +1,6 @@
 
 import * as React from 'react';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseClient } from '../supabaseClient';
 import { SiteFinancialEntry, Profile } from '../types';
 import { formatDate, toInputDateString } from '../utils/dateUtils';
@@ -38,7 +39,15 @@ const SiteFinancesPage: React.FC = () => {
     const [entryToDelete, setEntryToDelete] = React.useState<SiteFinancialEntry | null>(null);
     const [activeTab, setActiveTab] = React.useState<'entries' | 'reports'>('entries');
 
-    const supabase = getSupabaseClient();
+    const [supabase, setSupabase] = React.useState<SupabaseClient | null>(null);
+
+    React.useEffect(() => {
+        const initializeSupabase = async () => {
+            const client = await getSupabaseClient();
+            setSupabase(client);
+        };
+        initializeSupabase();
+    }, []); // Run once on mount
 
     const handleOpenModal = (entry?: SiteFinancialEntry) => setModal({ isOpen: true, data: entry });
     const handleCloseModal = () => setModal({ isOpen: false });
@@ -59,7 +68,7 @@ const SiteFinancesPage: React.FC = () => {
         // Fix: Use fetchWithRetry and isNetworkError for the profile update as well.
         if (isSubscriptionRenewal && formData.user_id && formData.new_subscription_start && formData.new_subscription_end) {
             try {
-                await fetchWithRetry(() => supabase!
+                await fetchWithRetry(async () => await supabase!
                     .from('profiles')
                     .update({
                         subscription_start_date: formData.new_subscription_start,

@@ -1,5 +1,6 @@
 
 import * as React from 'react';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { Profile, Permissions, defaultPermissions } from '../types';
 import { useData } from '../context/DataContext';
 import { getSupabaseClient } from '../supabaseClient';
@@ -120,7 +121,15 @@ const AssistantsManager: React.FC<AssistantsManagerProps> = ({ onClose }) => {
     const [assistants, setAssistants] = React.useState<Profile[]>([]);
     const [editingAssistant, setEditingAssistant] = React.useState<Profile | null>(null);
     const [tempPermissions, setTempPermissions] = React.useState<Permissions>(defaultPermissions);
-    const supabase = getSupabaseClient();
+    const [supabase, setSupabase] = React.useState<SupabaseClient | null>(null);
+
+    React.useEffect(() => {
+        const initializeSupabase = async () => {
+            const client = await getSupabaseClient();
+            setSupabase(client);
+        };
+        initializeSupabase();
+    }, []); // Run once on mount
 
     React.useEffect(() => {
         // Filter profiles to find users where lawyer_id == current user's ID
@@ -133,10 +142,10 @@ const AssistantsManager: React.FC<AssistantsManagerProps> = ({ onClose }) => {
         if (!supabase) return;
         
         try {
-            const { error } = await fetchWithRetry(() => supabase.from('profiles').update(updates).eq('id', assistant.id));
+            const { error }: any = await fetchWithRetry(async () => await supabase.from('profiles').update(updates).eq('id', assistant.id));
             if (error) throw error;
 
-            setProfiles(prev => prev.map(p => p.id === assistant.id ? { ...p, ...updates } : p));
+            setProfiles((prev: Profile[]) => prev.map(p => p.id === assistant.id ? { ...p, ...updates } : p));
             if (editingAssistant?.id === assistant.id) setEditingAssistant(null);
         } catch (err: any) {
             alert("فشل تحديث بيانات المساعد: " + getFriendlyErrorMessage(err));
@@ -159,9 +168,9 @@ const AssistantsManager: React.FC<AssistantsManagerProps> = ({ onClose }) => {
         if (window.confirm("هل أنت متأكد من حذف هذا المساعد؟ سيتم إلغاء ارتباطه بحسابك.")) {
              if (!supabase) return;
              try {
-                 const { error } = await fetchWithRetry(() => supabase.from('profiles').update({ lawyer_id: null, permissions: null }).eq('id', id));
+                 const { error }: any = await fetchWithRetry(async () => await supabase.from('profiles').update({ lawyer_id: null, permissions: null }).eq('id', id));
                  if (error) throw error;
-                 setProfiles(prev => prev.filter(p => p.id !== id)); // Remove from local view immediately
+                 setProfiles((prev: Profile[]) => prev.filter(p => p.id !== id)); // Remove from local view immediately
              } catch (err: any) {
                  alert("فشل حذف المساعد: " + getFriendlyErrorMessage(err));
              }

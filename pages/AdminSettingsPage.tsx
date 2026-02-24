@@ -5,6 +5,7 @@ import { MusicalNoteIcon, PlayCircleIcon, TrashIcon, ArrowUpTrayIcon, ServerIcon
 import { defaultUserApprovalSoundBase64 } from '../components/RealtimeNotifier';
 import { fetchDataFromSupabase, FlatData, getFriendlyErrorMessage, fetchWithRetry, isNetworkError } from '../hooks/useOnlineData'; // Import fetcher
 import { getSupabaseClient } from '../supabaseClient'; // Import client
+import { useData } from '../context/DataContext';
 
 const USER_APPROVAL_SOUND_KEY = 'customUserApprovalSound';
 
@@ -13,6 +14,7 @@ interface AdminSettingsPageProps {
 }
 
 const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onOpenConfig }) => {
+    const { userId } = useData();
     const [customSound, setCustomSound] = useLocalStorage<string | null>(USER_APPROVAL_SOUND_KEY, null);
     const [feedback, setFeedback] = React.useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
     const [isProcessing, setIsProcessing] = React.useState(false);
@@ -78,7 +80,8 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onOpenConfig }) =
         showFeedback('جاري تحضير النسخة الاحتياطية من السحابة... يرجى الانتظار.', 'info');
         
         try {
-            const data = await fetchWithRetry(() => fetchDataFromSupabase());
+            if (!userId) throw new Error("User ID not available.");
+            const data = await fetchWithRetry(() => fetchDataFromSupabase(userId));
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
             const filename = `lawyer_system_full_backup_${timestamp}.json`;
             
@@ -139,7 +142,7 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onOpenConfig }) =
     };
 
     const restoreDataToSupabase = async (data: Partial<FlatData>) => {
-        const supabase = getSupabaseClient();
+        const supabase = await getSupabaseClient();
         if (!supabase) throw new Error("Supabase client not available");
 
         setIsProcessing(true);
@@ -186,7 +189,7 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onOpenConfig }) =
                 // Sanitize data if needed (e.g. remove extra props not in DB schema if any)
                 // For direct DB restore, we assume the backup matches the schema.
                 
-                const { error } = await fetchWithRetry(() => supabase.from(table).upsert(chunk));
+                const { error }: any = await fetchWithRetry(async () => await supabase.from(table).upsert(chunk));
                 
                 if (error) {
                     if (!isNetworkError(error)) {

@@ -67,12 +67,12 @@ export const getFriendlyErrorMessage = (err: any, defaultMessage: string = 'حد
     return err?.message || defaultMessage;
 };
 
-export const fetchWithRetry = async <T>(fn: () => Promise<T>, retries = 3, delay = 1000): Promise<T> => {
+export const fetchWithRetry = async <T>(fn: () => Promise<T>, retries = 5, delay = 1000): Promise<T> => {
     const timeout = (ms: number) => new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), ms));
     
     try {
-        // Add a 90-second timeout to each attempt
-        const result = await Promise.race([fn(), timeout(90000)]) as T;
+        // Increase timeout to 150 seconds for slower connections
+        const result = await Promise.race([fn(), timeout(150000)]) as T;
         
         if (result && typeof result === 'object' && (result as any).error) {
             const err = (result as any).error;
@@ -96,10 +96,10 @@ export const fetchWithRetry = async <T>(fn: () => Promise<T>, retries = 3, delay
 };
 
 export const checkSupabaseSchema = async () => {
-    const supabase = getSupabaseClient();
+    const supabase = await getSupabaseClient();
     if (!supabase) return { success: false, message: 'Supabase غير مهيأ.' };
     try {
-        const { error } = await supabase.from('profiles').select('id', { head: true });
+        const { error }: any = await supabase.from('profiles').select('id', { head: true });
         if (error) {
             if (isNetworkError(error)) throw error;
             // If it's a "table doesn't exist" or similar error, the schema needs setup
@@ -112,59 +112,61 @@ export const checkSupabaseSchema = async () => {
 };
 
 export const fetchDataFromSupabase = async (ownerId: string): Promise<Partial<FlatData>> => {
-    const supabase = getSupabaseClient();
+    const supabase = await getSupabaseClient();
     if (!supabase) throw new Error('Supabase client not available.');
 
     const tables = [
-        'clients', 'admin_tasks', 'appointments', 'accounting_entries', 
-        'assistants', 'invoices', 'cases', 'stages', 'sessions', 
-        'invoice_items', 'case_documents', 'profiles', 'site_finances'
+        'profiles', 'clients', 'cases', 'stages', 'sessions',
+        'admin_tasks', 'appointments', 'accounting_entries', 
+        'assistants', 'invoices', 'invoice_items', 'case_documents', 'site_finances'
     ];
 
     const data: any = {};
     
-    // We execute fetches in parallel but catch errors individually so one failing table doesn't block the app
-    const fetchPromises = tables.map(async (table) => {
-        try {
-            const fetchFn = async () => {
-                let query = supabase.from(table).select('*');
-                
-                // Filter by user_id for all tables except profiles (which uses id)
-                if (table === 'profiles') {
-                    query = query.or(`id.eq.${ownerId},lawyer_id.eq.${ownerId}`);
-                } else {
-                    query = query.eq('user_id', ownerId);
-                }
-                return query;
-            };
+    // Fetch in smaller batches to avoid overwhelming the connection and causing timeouts
+    const batchSize = 3;
+    for (let i = 0; i < tables.length; i += batchSize) {
+        const batch = tables.slice(i, i + batchSize);
+        const batchPromises = batch.map(async (table) => {
+            try {
+                const fetchFn = async () => {
+                    let query = supabase.from(table).select('*');
+                    
+                    if (table === 'profiles') {
+                        query = query.or(`id.eq.${ownerId},lawyer_id.eq.${ownerId}`);
+                    } else {
+                        query = query.eq('user_id', ownerId);
+                    }
+                    return query;
+                };
 
-            const { data: tableData, error } = await fetchWithRetry(fetchFn);
-            if (error) {
-                // Critical tables should throw, non-critical can just return empty
-                if (['profiles', 'clients', 'cases'].includes(table)) throw error;
-                console.warn(`Non-critical table fetch failed: ${table}`, error);
+                const { data: tableData, error } = await fetchWithRetry(fetchFn);
+                if (error) {
+                    if (['profiles', 'clients', 'cases'].includes(table)) throw error;
+                    console.warn(`Non-critical table fetch failed: ${table}`, error);
+                    return [];
+                }
+                return tableData || [];
+            } catch (e) {
+                if (['profiles', 'clients', 'cases'].includes(table)) throw e;
                 return [];
             }
-            return tableData || [];
-        } catch (e) {
-            if (['profiles', 'clients', 'cases'].includes(table)) throw e;
-            return [];
-        }
-    });
+        });
 
-    const results = await Promise.all(fetchPromises);
-    tables.forEach((t, i) => {
-        data[t] = results[i];
-    });
+        const results = await Promise.all(batchPromises);
+        batch.forEach((t, j) => {
+            data[t] = results[j];
+        });
+    }
     
     return data;
 };
 
 export const fetchDeletionsFromSupabase = async (): Promise<SyncDeletion[]> => {
-    const supabase = getSupabaseClient();
+    const supabase = await getSupabaseClient();
     if (!supabase) return [];
     try {
-        const { data, error } = await fetchWithRetry(() => supabase
+        const { data, error }: any = await fetchWithRetry(async () => await supabase!
             .from('sync_deletions')
             .select('*')
             .gte('deleted_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()));
@@ -174,7 +176,7 @@ export const fetchDeletionsFromSupabase = async (): Promise<SyncDeletion[]> => {
 };
 
 export const upsertDataToSupabase = async (data: Partial<FlatData>, realUser: User, ownerId: string) => {
-    const supabase = getSupabaseClient();
+    const supabase = await getSupabaseClient();
     if (!supabase) throw new Error('Supabase client not available.');
 
     const results = await Promise.allSettled(Object.entries(data).map(async ([table, items]) => {
@@ -194,7 +196,7 @@ export const upsertDataToSupabase = async (data: Partial<FlatData>, realUser: Us
             return newItem;
         });
         
-        const { error } = await fetchWithRetry(() => supabase.from(table).upsert(formatted));
+        const { error }: any = await fetchWithRetry(async () => await supabase.from(table).upsert(formatted));
         if (error) {
             console.error(`Upsert failed for table ${table}:`, error);
             if (['profiles', 'clients', 'cases'].includes(table)) throw error;
@@ -210,13 +212,13 @@ export const upsertDataToSupabase = async (data: Partial<FlatData>, realUser: Us
 };
 
 export const deleteDataFromSupabase = async (deletions: Partial<FlatData>, user: User) => {
-    const supabase = getSupabaseClient();
+    const supabase = await getSupabaseClient();
     if (!supabase) throw new Error('Supabase client not available.');
     
     for (const [table, items] of Object.entries(deletions)) {
         if (items && items.length > 0) {
             const ids = (items as any[]).map(i => i.id || i.name);
-            await fetchWithRetry(() => supabase.from(table).delete().in(table === 'assistants' ? 'name' : 'id', ids));
+            await fetchWithRetry(async () => await supabase.from(table).delete().in(table === 'assistants' ? 'name' : 'id', ids));
         }
     }
 };

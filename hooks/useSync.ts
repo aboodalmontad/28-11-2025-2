@@ -97,17 +97,32 @@ const constructData = (flatData: Partial<FlatData>): AppData => {
     };
 };
 
-const mergeForRefresh = <T extends { id: any; updated_at?: Date | string }>(local: T[], remote: T[]): T[] => {
-    const finalItems = new Map<any, T>();
-    for (const localItem of local) { finalItems.set(localItem.id ?? (localItem as any).name, localItem); }
+const mergeForRefresh = <T extends { id?: any; name?: string; updated_at?: Date | string }>(local: T[], remote: T[]): T[] => {
+    const finalItems = new Map<string, T>();
+    
+    const getId = (item: T) => item.id ?? item.name;
+
+    for (const localItem of local) {
+        const id = getId(localItem);
+        if (id !== undefined) {
+            finalItems.set(String(id), localItem);
+        }
+    }
+
     for (const remoteItem of remote) {
-        const id = remoteItem.id ?? (remoteItem as any).name;
-        const existingItem = finalItems.get(id);
+        const id = getId(remoteItem);
+        if (id === undefined) continue; // Skip items without a valid ID or name
+
+        const existingItem = finalItems.get(String(id));
         if (existingItem) {
             const remoteDate = new Date(remoteItem.updated_at || 0).getTime();
             const localDate = new Date(existingItem.updated_at || 0).getTime();
-            if (remoteDate > localDate) finalItems.set(id, remoteItem);
-        } else { finalItems.set(id, remoteItem); }
+            if (remoteDate > localDate) {
+                finalItems.set(String(id), remoteItem);
+            }
+        } else {
+            finalItems.set(String(id), remoteItem);
+        }
     }
     return Array.from(finalItems.values());
 };
@@ -202,27 +217,16 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
             for (const key of Object.keys(localFlatData) as (keyof FlatData)[]) {
                 const localItems = (localFlatData as any)[key] || [];
                 const remoteItems = (remoteFlatData as any)[key] || [];
-                const remoteMap = new Map(remoteItems.map((i: any) => [i.id ?? i.name, i]));
-                const finalMergedItems = new Map<string, any>();
-                const itemsToUpsert: any[] = [];
+                const mergedItems = mergeForRefresh(localItems, remoteItems);
+                (mergedFlatData as any)[key] = mergedItems;
 
-                for (const localItem of localItems) {
+                // Determine items to upsert: those that are in local and newer than remote, or only in local
+                const itemsToUpsert = localItems.filter((localItem: any) => {
                     const id = localItem.id ?? localItem.name;
-                    const remoteItem = remoteMap.get(id);
-                    // Fix: Cast localItem and remoteItem to any to safely access updated_at which may not exist on all entity types (like assistants)
-                    if (!remoteItem || new Date((localItem as any).updated_at || 0).getTime() > new Date((remoteItem as any).updated_at || 0).getTime()) {
-                        itemsToUpsert.push(localItem);
-                        finalMergedItems.set(id, localItem);
-                    } else {
-                        finalMergedItems.set(id, remoteItem);
-                    }
-                }
-                for (const remoteItem of remoteItems) {
-                    const id = remoteItem.id ?? remoteItem.name;
-                    if (!finalMergedItems.has(id)) finalMergedItems.set(id, remoteItem);
-                }
+                    const remoteItem = remoteItems.find((r: any) => (r.id ?? r.name) === id);
+                    return !remoteItem || new Date(localItem.updated_at || 0).getTime() > new Date(remoteItem.updated_at || 0).getTime();
+                });
                 (flatUpserts as any)[key] = itemsToUpsert;
-                (mergedFlatData as any)[key] = Array.from(finalMergedItems.values());
             }
 
             const flatDeletes: Partial<FlatData> = {

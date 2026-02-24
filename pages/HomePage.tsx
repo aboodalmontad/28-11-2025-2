@@ -426,7 +426,7 @@ const HomePage: React.FC<HomePageProps> = ({
         }, {} as Record<string, AdminTask[]>);
     }, [adminTasks, activeTaskTab, debouncedAdminTaskSearch]);
     
-    React.useEffect(() => { const allKnownLocations = new Set(Object.keys(groupedTasks)); const currentSavedOrder = savedLocationOrder || []; const ordered = currentSavedOrder.filter(loc => allKnownLocations.has(loc)); const orderedSet = new Set(ordered); let changed = false; allKnownLocations.forEach(loc => { if (!orderedSet.has(loc)) { ordered.push(loc); changed = true; } }); if (changed || ordered.length !== currentSavedOrder.length) { setSavedLocationOrder(ordered); } setLocationOrder(ordered); }, [groupedTasks, savedLocationOrder, setSavedLocationOrder]);
+    React.useEffect(() => { const allKnownLocations = new Set(Object.keys(groupedTasks)); const currentSavedOrder = savedLocationOrder || []; const ordered = currentSavedOrder.filter((loc: string) => allKnownLocations.has(loc)); const orderedSet = new Set(ordered); let changed = false; allKnownLocations.forEach((loc: string) => { if (!orderedSet.has(loc)) { ordered.push(loc); changed = true; } }); if (changed || ordered.length !== currentSavedOrder.length) { setSavedLocationOrder(ordered); } setLocationOrder(ordered); }, [groupedTasks, savedLocationOrder, setSavedLocationOrder]);
     React.useEffect(() => { if (activeLocationTab && locationOrder.includes(activeLocationTab)) { return; } if (locationOrder.length > 0) { setActiveLocationTab(locationOrder[0]); } else { setActiveLocationTab(''); } }, [locationOrder, activeLocationTab]);
 
     const handleDateSelect = (date: Date) => { setSelectedDate(date); setViewMode('daily'); };

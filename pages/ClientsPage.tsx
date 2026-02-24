@@ -125,7 +125,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ showContextMenu, onOpenAdminT
         const isCheckbox = type === 'checkbox';
         // @ts-ignore
         const val = isCheckbox ? e.target.checked : value;
-        setFormData(prev => ({ ...prev, [name]: val }));
+        setFormData((prev: any) => ({ ...prev, [name]: val }));
     };
     
     const handleImportContact = async () => {

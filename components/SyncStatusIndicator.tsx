@@ -9,10 +9,11 @@ interface SyncStatusIndicatorProps {
     isOnline: boolean;
     onManualSync: () => void;
     isAutoSyncEnabled: boolean;
+    lastSyncedAt: Date | null;
     className?: string;
 }
 
-const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({ status, lastError, isDirty, isOnline, onManualSync, isAutoSyncEnabled, className = "" }) => {
+const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({ status, lastError, isDirty, isOnline, onManualSync, isAutoSyncEnabled, lastSyncedAt, className = "" }) => {
     
     let displayStatus;
     if (!isOnline) {
@@ -82,16 +83,27 @@ const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({ status, lastE
 
     const canSyncManually = isOnline && status !== 'syncing' && status !== 'loading' && status !== 'unconfigured' && status !== 'uninitialized';
 
+    const formatLastSynced = (date: Date) => {
+        return date.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+    };
+
     return (
-        <button
-            onClick={canSyncManually ? onManualSync : undefined}
-            disabled={!canSyncManually}
-            className={`flex items-center gap-2 text-sm font-semibold p-2 rounded-lg ${canSyncManually ? 'cursor-pointer hover:bg-gray-100' : 'cursor-default'} ${className}`}
-            title={displayStatus.title}
-        >
-            {displayStatus.icon}
-            <span className={`${displayStatus.className} hidden sm:inline`}>{displayStatus.text}</span>
-        </button>
+        <div className="flex flex-col items-end">
+            <button
+                onClick={canSyncManually ? onManualSync : undefined}
+                disabled={!canSyncManually}
+                className={`flex items-center gap-2 text-sm font-semibold p-2 rounded-lg ${canSyncManually ? 'cursor-pointer hover:bg-gray-100' : 'cursor-default'} ${className}`}
+                title={displayStatus.title}
+            >
+                {displayStatus.icon}
+                <span className={`${displayStatus.className} hidden sm:inline`}>{displayStatus.text}</span>
+            </button>
+            {lastSyncedAt && (
+                <span className="text-[10px] text-gray-400 -mt-1 px-2 hidden sm:block">
+                    آخر مزامنة: {formatLastSynced(lastSyncedAt)}
+                </span>
+            )}
+        </div>
     );
 };
 

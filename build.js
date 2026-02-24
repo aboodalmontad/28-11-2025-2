@@ -33,14 +33,13 @@ async function build() {
                 '@google/genai',
                 'recharts',
                 'idb',
-                'react-router-dom',
                 'react/*', 
                 'docx-preview',
             ],
         });
 
         // 3. Copy static assets to public directory
-        const staticAssets = ['index.html', 'manifest.json', 'icon.svg', 'sw.js'];
+        const staticAssets = ['index.html', 'manifest.json', 'icon.svg', 'sw.js', 'serve.json'];
         await Promise.all(
             staticAssets.map(asset => {
                 if (fs.existsSync(asset)) {

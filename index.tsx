@@ -16,33 +16,24 @@ window.addEventListener('storage', (event) => {
 
 // Register Service Worker for offline capabilities
 if ('serviceWorker' in navigator) {
-  // This listener handles messages from the service worker.
-  // When a new service worker is activated, it sends a 'RELOAD_PAGE_NOW' message
-  // to all clients, forcing them to reload to get the latest version. This is more
-  // reliable than the 'controllerchange' event.
   navigator.serviceWorker.addEventListener('message', event => {
     if (event.data && event.data.type === 'RELOAD_PAGE_NOW') {
       window.location.reload();
     }
   });
 
-
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js')
       .then(registration => {
         console.log('ServiceWorker registration successful with scope: ', registration.scope);
         
-        // Function to check for updates
         const checkForUpdate = () => {
             console.log('Checking for service worker update...');
             registration.update();
         };
 
-        // 1. Proactively check for an updated service worker on every page load.
         checkForUpdate();
         
-        // 2. Set up a periodic check for updates (e.g., every hour)
-        // This ensures long-running tabs also get updates.
         setInterval(checkForUpdate, 60 * 60 * 1000); // 1 hour
       })
       .catch(error => {

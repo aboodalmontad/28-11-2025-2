@@ -1,5 +1,6 @@
 
 import * as React from 'react';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseClient } from '../supabaseClient';
 import { ExclamationCircleIcon, EyeIcon, EyeSlashIcon, ClipboardDocumentIcon, ClipboardDocumentCheckIcon, ArrowTopRightOnSquareIcon, CheckCircleIcon, UserGroupIcon, KeyIcon } from '../components/icons';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
@@ -67,7 +68,15 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
         }
     }, [currentMobile]);
 
-    const supabase = getSupabaseClient();
+    const [supabase, setSupabase] = React.useState<SupabaseClient | null>(null);
+
+    React.useEffect(() => {
+        const initializeSupabase = async () => {
+            const client = await getSupabaseClient();
+            setSupabase(client);
+        };
+        initializeSupabase();
+    }, []); // Run once on mount
 
     const toggleView = (e: React.MouseEvent) => {
         e.preventDefault();
@@ -124,16 +133,16 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
 
         try {
             // 1. Check if user exists first (optional, but good UX)
-            const { data: exists } = await fetchWithRetry(() => supabase.rpc('check_if_mobile_exists', { mobile_to_check: normalizedMobile }));
+            const { data: exists }: any = await fetchWithRetry(async () => await supabase.rpc('check_if_mobile_exists', { mobile_to_check: normalizedMobile }));
             if (!exists) {
                 throw new Error("رقم الجوال غير مسجل.");
             }
 
             // 2. Generate OTP
-            const { data: userWithOtp, error: findUserError } = await fetchWithRetry(() => supabase.from('profiles').select('id').eq('mobile_number', normalizedMobile).single());
+            const { data: userWithOtp, error: findUserError }: any = await fetchWithRetry(async () => await supabase.from('profiles').select('id').eq('mobile_number', normalizedMobile).single());
             if (findUserError || !userWithOtp) throw new Error("تعذر العثور على المستخدم.");
 
-            const { data: code, error: otpError } = await fetchWithRetry(() => supabase.rpc('generate_mobile_otp', { target_user_id: userWithOtp.id }));
+            const { data: code, error: otpError }: any = await fetchWithRetry(async () => await supabase.rpc('generate_mobile_otp', { target_user_id: userWithOtp.id }));
             if (otpError) throw otpError;
 
             // 3. Send via WhatsApp (Simulation)
@@ -166,7 +175,7 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
         if (!supabase) { setError("Supabase client is not available."); setLoading(false); return; }
 
         try {
-            const { data: success, error: rpcError } = await fetchWithRetry(() => supabase.rpc('reset_password_with_otp', {
+            const { data: success, error: rpcError }: any = await fetchWithRetry(async () => await supabase.rpc('reset_password_with_otp', {
                 target_mobile: normalizedMobile,
                 code_to_check: otpCode.trim(),
                 new_password: newPassword
@@ -199,7 +208,7 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
             if (!supabase) throw new Error("Client not initialized");
             const normalizedMobile = normalizeMobileForDB(form.mobile);
             if (!normalizedMobile) throw new Error("رقم الجوال غير صالح.");
-            const { data: isVerified, error: rpcError } = await fetchWithRetry(() => supabase.rpc('verify_mobile_otp', { target_mobile: normalizedMobile, code_to_check: otpCode.trim() }));
+            const { data: isVerified, error: rpcError }: any = await fetchWithRetry(async () => await supabase.rpc('verify_mobile_otp', { target_mobile: normalizedMobile, code_to_check: otpCode.trim() }));
             if (rpcError) throw rpcError;
             if (isVerified) {
                 if (onVerificationSuccess) onVerificationSuccess();
@@ -208,7 +217,9 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                     if (form.password) {
                         const phone = normalizeMobileToE164(form.mobile);
                         const email = `sy${phone!.substring(1)}@email.com`;
-                        const { data: signInData, error: signInError } = await fetchWithRetry(() => supabase.auth.signInWithPassword({ email, password: form.password }));
+                        const auth = supabase?.auth;
+                        if (!auth) throw new Error("Auth service not available");
+                        const { data: signInData, error: signInError }: any = await fetchWithRetry(async () => await auth.signInWithPassword({ email, password: form.password }));
                         if (signInError) throw signInError;
                         if(signInData.user) onLoginSuccess(signInData.user);
                     } else { setAuthStep('login'); setOtpCode(''); }
@@ -239,7 +250,35 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
     
         if (authStep === 'login') {
             try {
-                if (!isOnline) {
+                // Try online login first if possible, fallback to offline only if explicitly offline and cached
+                if (isOnline) {
+                    const auth = supabase?.auth;
+                    if (!auth) throw new Error("Auth service not available");
+                    const { data: signInData, error: signInError }: any = await fetchWithRetry(async () => await auth.signInWithPassword({ email, password: form.password }));
+                    if (signInError) throw signInError;
+                    if (signInData.user) {
+                        const { data: profile, error: profileError }: any = await fetchWithRetry(async () => 
+                            await supabase.from('profiles').select('mobile_verified, role, is_approved, lawyer_id').eq('id', signInData.user.id).single()
+                        );
+                        if (profileError) throw profileError;
+                        
+                        if (profile && profile.mobile_verified === false && profile.role !== 'admin') {
+                            setMessage("يرجى تأكيد رقم الجوال للمتابعة.");
+                            setAuthStep('otp');
+                            setLoading(false);
+                            return;
+                        }
+                        if (profile && profile.lawyer_id && !profile.is_approved) {
+                             setError("حسابك بانتظار موافقة المحامي الرئيسي.");
+                             setLoading(false);
+                             await auth.signOut();
+                             return;
+                        }
+                        localStorage.setItem(LAST_USER_CREDENTIALS_CACHE_KEY, JSON.stringify({ mobile: form.mobile, password: form.password }));
+                        localStorage.setItem('lawyerAppLastUser', JSON.stringify(signInData.user));
+                        onLoginSuccess(signInData.user);
+                    }
+                } else {
                     // Offline login attempt
                     const cachedCredsRaw = localStorage.getItem(LAST_USER_CREDENTIALS_CACHE_KEY);
                     if (cachedCredsRaw) {
@@ -254,32 +293,7 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                             }
                         }
                     }
-                    throw new Error("لا يمكن تسجيل الدخول لأول مرة بدون اتصال بالإنترنت، أو بيانات الاعتماد غير صحيحة.");
-                }
-
-                const { data: signInData, error: signInError } = await fetchWithRetry(() => supabase.auth.signInWithPassword({ email, password: form.password }));
-                if (signInError) throw signInError;
-                if (signInData.user) {
-                    const { data: profile, error: profileError } = await fetchWithRetry(() => 
-                        supabase.from('profiles').select('mobile_verified, role, is_approved, lawyer_id').eq('id', signInData.user.id).single()
-                    );
-                    if (profileError) throw profileError;
-                    
-                    if (profile && profile.mobile_verified === false && profile.role !== 'admin') {
-                        setMessage("يرجى تأكيد رقم الجوال للمتابعة.");
-                        setAuthStep('otp');
-                        setLoading(false);
-                        return;
-                    }
-                    if (profile && profile.lawyer_id && !profile.is_approved) {
-                         setError("حسابك بانتظار موافقة المحامي الرئيسي.");
-                         setLoading(false);
-                         await supabase.auth.signOut();
-                         return;
-                    }
-                    localStorage.setItem(LAST_USER_CREDENTIALS_CACHE_KEY, JSON.stringify({ mobile: form.mobile, password: form.password }));
-                    localStorage.setItem('lawyerAppLastUser', JSON.stringify(signInData.user));
-                    onLoginSuccess(signInData.user);
+                    throw new Error("أنت غير متصل بالإنترنت، ولا توجد بيانات دخول محفوظة لهذا الحساب.");
                 }
             } catch (err: any) {
                  setError(getFriendlyErrorMessage(err, "فشل تسجيل الدخول."));
@@ -298,7 +312,9 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                     metaData.lawyer_mobile_number = normalizedLawyerMobile;
                 }
     
-                const { data, error: signUpError } = await fetchWithRetry(() => supabase.auth.signUp({
+                const auth = supabase?.auth;
+                if (!auth) throw new Error("Auth service not available");
+                const { data, error: signUpError }: any = await fetchWithRetry(async () => await auth.signUp({
                     email,
                     password: form.password,
                     options: { data: metaData }
@@ -306,7 +322,7 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
     
                 if (signUpError) throw signUpError;
                 if (data.user) {
-                    try { await fetchWithRetry(() => supabase.rpc('generate_mobile_otp', { target_user_id: data.user.id })); } catch (e) {}
+                    try { await fetchWithRetry(async () => await supabase.rpc('generate_mobile_otp', { target_user_id: data.user.id })); } catch (e) {}
                     setMessage(isAssistantSignup ? "تم إرسال طلب الانضمام. يرجى التواصل مع المحامي لتفعيل حسابك." : "تم إنشاء الحساب بنجاح.");
                     setAuthStep('otp');
                 }

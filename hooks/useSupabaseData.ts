@@ -276,6 +276,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     const [isDirty, setDirty] = React.useState(false);
     const [syncStatus, setSyncStatus] = React.useState<SyncStatus>('loading');
     const [lastSyncError, setLastSyncError] = React.useState<string | null>(null);
+    const [lastSyncedAt, setLastSyncedAt] = React.useState<Date | null>(null);
     const [isDataLoading, setIsDataLoading] = React.useState(true);
     const [triggeredAlerts, setTriggeredAlerts] = React.useState<Appointment[]>([]);
     const [showUnpostponedSessionsModal, setShowUnpostponedSessionsModal] = React.useState(false);
@@ -288,9 +289,21 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     userRef.current = user;
     const syncStatusRef = React.useRef<SyncStatus>(syncStatus);
     syncStatusRef.current = syncStatus;
+    const isSyncingRef = React.useRef(false);
+    const pendingSyncRef = React.useRef(false);
     const downloadQueueRef = React.useRef<Promise<void>>(Promise.resolve());
+    const supabaseClientRef = React.useRef<Awaited<ReturnType<typeof getSupabaseClient>> | null>(null);
 
     // --- EFFECTIVE USER ID LOGIC ---
+    // Initialize Supabase client once
+    React.useEffect(() => {
+        const initSupabaseClient = async () => {
+            const client = await getSupabaseClient();
+            supabaseClientRef.current = client;
+        };
+        initSupabaseClient();
+    }, [user?.id]);
+
     const effectiveUserId = React.useMemo(() => {
         if (!user) return null;
         const currentUserProfile = data.profiles.find(p => p.id === user.id);
@@ -381,7 +394,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         if (pendingDocs.length === 0) return;
 
         downloadQueueRef.current = downloadQueueRef.current.then(async () => {
-            const supabase = getSupabaseClient();
+            const supabase = supabaseClientRef.current;
             if (!supabase) return;
             const db = await getDb();
 
@@ -471,7 +484,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         const loadData = async () => {
             setIsDataLoading(true);
             try {
-                const supabase = getSupabaseClient();
+                const supabase = supabaseClientRef.current;
                 const isOnlineNow = typeof navigator !== 'undefined' ? navigator.onLine : true;
                 
                 if (isOnlineNow && supabase) {
@@ -497,8 +510,8 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
 
                 if (isOnlineNow && supabase) {
                     try {
-                        const res: any = await fetchWithRetry(() => 
-                            supabase!.from('profiles').select('lawyer_id').eq('id', user!.id).maybeSingle()
+                        const res: any = await fetchWithRetry(async () => 
+                            await supabase!.from('profiles').select('lawyer_id').eq('id', user!.id).maybeSingle()
                         );
                         const profileData = res?.data;
 
@@ -665,60 +678,113 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         }
     }, [updateData]);
 
-    const { manualSync, fetchAndRefresh } = useSync({
+    const { manualSync: originalManualSync, fetchAndRefresh } = useSync({
         user: userRef.current, // Real User
         effectiveUserId, // Owner
         localData: data, 
         deletedIds,
         onDataSynced: handleDataSynced,
         onDeletionsSynced: handleDeletionsSynced,
-        onSyncStatusChange: handleSyncStatusChange,
+        onSyncStatusChange: (status, error) => {
+            handleSyncStatusChange(status, error);
+            if (status === 'syncing') {
+                isSyncingRef.current = true;
+            } else if (status === 'synced') {
+                isSyncingRef.current = false;
+                setLastSyncedAt(new Date());
+                if (pendingSyncRef.current) {
+                    pendingSyncRef.current = false;
+                    console.log("Executing pending sync...");
+                    manualSync();
+                }
+            } else if (status === 'error') {
+                isSyncingRef.current = false;
+                if (pendingSyncRef.current) {
+                    pendingSyncRef.current = false;
+                    console.log("Executing pending sync...");
+                    manualSync();
+                }
+            }
+        },
         onDocumentsUploaded: handleDocumentsUploaded, 
         excludedDocIds, 
         isOnline, isAuthLoading, syncStatus
     });
 
+    const manualSync = React.useCallback(async () => {
+        if (isSyncingRef.current) {
+            console.log("Sync already in progress, queuing next sync...");
+            pendingSyncRef.current = true;
+            return;
+        }
+        return originalManualSync();
+    }, [originalManualSync]);
+
+    const addRealtimeAlert = React.useCallback((message: string, type: 'sync' | 'userApproval' = 'sync') => {
+        setRealtimeAlerts((prev: any[]) => [...prev, { id: Date.now(), message, type }]);
+    }, []);
+
     // --- REALTIME SUBSCRIPTION ---
     React.useEffect(() => {
-        const supabase = getSupabaseClient();
-        if (!supabase || !user || !effectiveUserId || !isOnline) return;
+        let channel: any = null;
+        
+        const setupRealtime = async () => {
+            const supabase = supabaseClientRef.current;
+            if (!supabase || !user || !effectiveUserId || !isOnline) return;
 
-        const channel = supabase
-            .channel(`office-updates-${effectiveUserId}`)
-            .on(
-                'postgres_changes',
-                {
-                    event: '*',
-                    schema: 'public',
-                },
-                (payload) => {
-                    // Only trigger sync if the change belongs to our office
-                    // Most tables have user_id, profiles has id
-                    const record = payload.new as any || payload.old as any;
-                    const recordUserId = record?.user_id || record?.id;
-                    
-                    if (recordUserId === effectiveUserId) {
-                        console.log('Realtime update detected for office:', payload.table);
-                        if (syncStatusRef.current !== 'syncing') {
+            channel = supabase
+                .channel(`office-updates-${effectiveUserId}`)
+                .on(
+                    'postgres_changes',
+                    {
+                        event: '*',
+                        schema: 'public',
+                    },
+                    (payload: any) => {
+                        // Only trigger sync if the change belongs to our office
+                        const record = payload.new as any || payload.old as any;
+                        const recordUserId = record?.user_id || record?.id || record?.lawyer_id;
+                        
+                        if (recordUserId === effectiveUserId) {
+                            console.log('Realtime update detected for office:', payload.table, payload.eventType);
+                            
+                            // Show a notification for remote updates
+                            const tableNamesAr: Record<string, string> = {
+                                'clients': 'الموكلين',
+                                'cases': 'القضايا',
+                                'stages': 'مراحل القضايا',
+                                'sessions': 'الجلسات',
+                                'admin_tasks': 'المهام الإدارية',
+                                'appointments': 'المواعيد',
+                                'accounting_entries': 'القيود المحاسبية',
+                                'invoices': 'الفواتير'
+                            };
+                            const tableName = tableNamesAr[payload.table] || payload.table;
+                            addRealtimeAlert(`تم تحديث بيانات (${tableName}) من مستخدم آخر`, 'sync');
                             manualSync();
                         }
                     }
-                }
-            )
-            .subscribe((status) => {
-                if (status === 'SUBSCRIBED') {
-                    console.log('Successfully subscribed to realtime office updates');
-                }
-            });
+                )
+                .subscribe((status: string) => {
+                    if (status === 'SUBSCRIBED') {
+                        console.log('Successfully subscribed to realtime office updates');
+                    }
+                });
+        };
+
+        setupRealtime();
 
         return () => {
-            supabase.removeChannel(channel);
+            if (channel) {
+                const supabase = supabaseClientRef.current;
+                if (supabase && channel) supabase.removeChannel(channel);
+            }
         };
-    }, [user, effectiveUserId, isOnline, manualSync]);
+    }, [user, effectiveUserId, isOnline, manualSync, addRealtimeAlert]);
 
     React.useEffect(() => {
         if (isOnline && isDirty && userSettings.isAutoSyncEnabled && syncStatus !== 'syncing') {
-            const handler = setTimeout(() => { manualSync(); }, 15000);
+            const handler = setTimeout(() => { manualSync(); }, 3000);
             return () => clearTimeout(handler);
         }
     }, [isOnline, isDirty, userSettings.isAutoSyncEnabled, manualSync]);
@@ -754,10 +820,6 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         };
     }, [isOnline, userSettings.isAutoSyncEnabled, manualSync]); 
 
-    const addRealtimeAlert = React.useCallback((message: string, type: 'sync' | 'userApproval' = 'sync') => {
-        setRealtimeAlerts(prev => [...prev, { id: Date.now(), message, type }]);
-    }, []);
-
     const createDeleteFunction = <T extends keyof DeletedIds>(entity: T) => async (id: DeletedIds[T][number]) => {
         if (!effectiveUserId) return;
         const db = await getDb();
@@ -769,15 +831,16 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
 
     return {
         ...data,
-        setClients: (updater) => updateData(prev => ({ ...prev, clients: updater(prev.clients).map(c => ({ ...c, updated_at: new Date() })) })),
-        setAdminTasks: (updater) => updateData(prev => ({ ...prev, adminTasks: updater(prev.adminTasks).map(t => ({ ...t, updated_at: new Date() })) })),
-        setAppointments: (updater) => updateData(prev => ({ ...prev, appointments: updater(prev.appointments).map(a => ({ ...a, updated_at: new Date() })) })),
-        setAccountingEntries: (updater) => updateData(prev => ({ ...prev, accountingEntries: updater(prev.accountingEntries).map(e => ({ ...e, updated_at: new Date() })) })),
-        setInvoices: (updater) => updateData(prev => ({ ...prev, invoices: updater(prev.invoices).map(i => ({ ...i, updated_at: new Date() })) })),
-        setAssistants: (updater) => updateData(prev => ({ ...prev, assistants: updater(prev.assistants) })),
-        setDocuments: (updater) => updateData(prev => ({ ...prev, documents: updater(prev.documents).map(d => ({ ...d, updated_at: new Date() })) })),
-        setProfiles: (updater) => updateData(prev => ({ ...prev, profiles: updater(prev.profiles).map(p => ({ ...p, updated_at: new Date() })) })),
-        setSiteFinances: (updater) => updateData(prev => ({ ...prev, siteFinances: updater(prev.siteFinances).map(f => ({ ...f, updated_at: new Date() })) })),
+        setClients: (updater: (prev: Client[]) => Client[]) => updateData((prev: AppData) => ({ ...prev, clients: updater(prev.clients).map((c: Client) => ({ ...c, updated_at: new Date() })) })),
+        setAdminTasks: (updater: (prev: AdminTask[]) => AdminTask[]) => updateData((prev: AppData) => ({ ...prev, adminTasks: updater(prev.adminTasks).map((t: AdminTask) => ({ ...t, updated_at: new Date() })) })),
+        setAppointments: (updater: (prev: Appointment[]) => Appointment[]) => updateData((prev: AppData) => ({ ...prev, appointments: updater(prev.appointments).map((a: Appointment) => ({ ...a, updated_at: new Date() })) })),
+        setAccountingEntries: (updater: (prev: AccountingEntry[]) => AccountingEntry[]) => updateData((prev: AppData) => ({ ...prev, accountingEntries: updater(prev.accountingEntries).map((e: AccountingEntry) => ({ ...e, updated_at: new Date() })) })),
+        setInvoices: (updater: (prev: Invoice[]) => Invoice[]) => updateData((prev: AppData) => ({ ...prev, invoices: updater(prev.invoices).map((i: Invoice) => ({ ...i, updated_at: new Date() })) })),
+        setAssistants: (updater: (prev: string[]) => string[]) => updateData((prev: AppData) => ({ ...prev, assistants: updater(prev.assistants) })),
+        setDocuments: (updater: (prev: CaseDocument[]) => CaseDocument[]) => updateData((prev: AppData) => ({ ...prev, documents: updater(prev.documents).map((d: CaseDocument) => ({ ...d, updated_at: new Date() })) })),
+        setProfiles: (updater: (prev: Profile[]) => Profile[]) => updateData((prev: AppData) => ({ ...prev, profiles: updater(prev.profiles).map((p: Profile) => ({ ...p, updated_at: new Date() })) })),
+        setSiteFinances: (updater: (prev: SiteFinancialEntry[]) => SiteFinancialEntry[]) => updateData((prev: AppData) => ({ ...prev, siteFinances: updater(prev.siteFinances).map((f: SiteFinancialEntry) => ({ ...f, updated_at: new Date() })) })),
+        lastSyncedAt,
         setFullData,
         allSessions: React.useMemo(() => data.clients.flatMap(c => c.cases.flatMap(cs => cs.stages.flatMap(st => st.sessions.map(s => ({...s, stageId: st.id, stageDecisionDate: st.decisionDate}))))), [data.clients]),
         unpostponedSessions: React.useMemo(() => {
@@ -932,15 +995,15 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         },
         getDocumentFile: async (docId: string): Promise<File | null> => {
             const db = await getDb();
-            const supabase = getSupabaseClient();
+            const supabase = await getSupabaseClient();
             const doc = data.documents.find(d => d.id === docId);
             if (!doc) return null;
             const localFile = await db.get(DOCS_FILES_STORE_NAME, docId);
             if (localFile) return localFile;
             if (doc.localState === 'pending_download' && isOnline && supabase) {
                 try {
-                    updateData(prev => ({...prev, documents: prev.documents.map(d => d.id === docId ? {...d, localState: 'downloading' } : d)}), { markDirty: false });
-                    const { data: blob, error } = await fetchWithRetry(() => supabase.storage.from('documents').download(doc.storagePath!));
+                    updateData((prev: AppData) => ({...prev, documents: prev.documents.map(d => d.id === docId ? {...d, localState: 'downloading' } : d)}), { markDirty: false });
+                    const { data: blob, error }: any = await fetchWithRetry(() => supabase.storage.from('documents').download(doc.storagePath!));
                     if (error || !blob) throw error || new Error("Empty blob");
                     const downloadedFile = new File([blob], doc.name, { type: doc.type });
                     await db.put(DOCS_FILES_STORE_NAME, downloadedFile, doc.id);

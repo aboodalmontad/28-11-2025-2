@@ -1,4 +1,5 @@
 import * as React from 'react';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseClient } from '../supabaseClient.ts';
 import { Profile } from '../types.ts';
 import { formatDate, toInputDateString } from '../utils/dateUtils.ts';
@@ -155,7 +156,15 @@ const AdminPage: React.FC = () => {
     const [viewingUser, setViewingUser] = React.useState<Profile | null>(null);
     const [generatingOtpFor, setGeneratingOtpFor] = React.useState<string | null>(null);
     
-    const supabase = getSupabaseClient();
+    const [supabase, setSupabase] = React.useState<SupabaseClient | null>(null);
+
+    React.useEffect(() => {
+        const initializeSupabase = async () => {
+            const client = await getSupabaseClient();
+            setSupabase(client);
+        };
+        initializeSupabase();
+    }, []); // Run once on mount
 
     const handleUpdateUser = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
@@ -169,7 +178,7 @@ const AdminPage: React.FC = () => {
         // If using real backend, you would make the API call here
         if (supabase) {
              try {
-                 const { error } = await fetchWithRetry(() => supabase.from('profiles').update({
+                 const { error }: any = await fetchWithRetry(async () => await supabase.from('profiles').update({
                      full_name: editingUser.full_name,
                      mobile_number: editingUser.mobile_number,
                      subscription_start_date: editingUser.subscription_start_date,
@@ -202,7 +211,7 @@ const AdminPage: React.FC = () => {
         const userToDeleteId = userToDelete.id;
     
         try {
-            const { error: rpcError } = await fetchWithRetry(() => supabase.rpc('delete_user', {
+            const { error: rpcError }: any = await fetchWithRetry(async () => await supabase.rpc('delete_user', {
                 user_id_to_delete: userToDeleteId
             }));
     
@@ -227,7 +236,7 @@ const AdminPage: React.FC = () => {
          setUsers(prev => prev.map(u => u.id === user.id ? updatedUser : u));
          
          try {
-            const { error } = await fetchWithRetry(() => supabase.from('profiles').update({ is_approved: updatedUser.is_approved }).eq('id', user.id));
+            const { error }: any = await fetchWithRetry(async () => await supabase.from('profiles').update({ is_approved: updatedUser.is_approved }).eq('id', user.id));
             if (error) throw error;
             fetchAndRefresh();
          } catch(err: any) {
@@ -246,7 +255,7 @@ const AdminPage: React.FC = () => {
          setUsers(prev => prev.map(u => u.id === user.id ? updatedUser : u));
          
          try {
-            const { error } = await fetchWithRetry(() => supabase.from('profiles').update({ is_active: updatedUser.is_active }).eq('id', user.id));
+            const { error }: any = await fetchWithRetry(async () => await supabase.from('profiles').update({ is_active: updatedUser.is_active }).eq('id', user.id));
             if (error) throw error;
             fetchAndRefresh();
          } catch(err: any) {
@@ -263,7 +272,7 @@ const AdminPage: React.FC = () => {
         if (!supabase) return;
         setGeneratingOtpFor(user.id);
         try {
-            const { data: code, error } = await fetchWithRetry(() => supabase.rpc('generate_mobile_otp', {
+            const { data: code, error }: any = await fetchWithRetry(async () => await supabase.rpc('generate_mobile_otp', {
                 target_user_id: user.id
             }));
 

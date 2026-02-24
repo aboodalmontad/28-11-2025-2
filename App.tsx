@@ -1,6 +1,6 @@
 
 import * as React from 'react';
-import type { Session as AuthSession, User } from '@supabase/supabase-js';
+import type { Session as AuthSession, User, SupabaseClient } from '@supabase/supabase-js';
 
 // Static imports with extensions to fix ESM resolution errors in the browser.
 import ClientsPage from './pages/ClientsPage.tsx';
@@ -18,7 +18,7 @@ import { UserIcon, CalculatorIcon, Cog6ToothIcon, NoSymbolIcon, PowerIcon, Print
 import ContextMenu, { MenuItem } from './components/ContextMenu.tsx';
 import AdminTaskModal from './components/AdminTaskModal.tsx';
 import { AdminTask, Profile, Client, Appointment, AccountingEntry, Invoice, CaseDocument, AppData, SiteFinancialEntry, Permissions } from './types.ts';
-import { getSupabaseClient } from './supabaseClient.ts';
+import { getSupabaseClient, getSupabaseClientSync } from './supabaseClient.ts';
 import { useOnlineStatus } from './hooks/useOnlineStatus.ts';
 import UnpostponedSessionsModal from './components/UnpostponedSessionsModal.tsx';
 import NotificationCenter, { RealtimeAlert } from './components/RealtimeNotifier.tsx';
@@ -47,7 +47,8 @@ const Navbar: React.FC<{
     isAutoSyncEnabled: boolean;
     homePageActions?: React.ReactNode;
     permissions: Permissions;
-}> = ({ currentPage, onNavigate, onLogout, syncStatus, lastSyncError, isDirty, isOnline, onManualSync, profile, isAutoSyncEnabled, homePageActions, permissions }) => {
+    lastSyncedAt: Date | null;
+}> = ({ currentPage, onNavigate, onLogout, syncStatus, lastSyncError, isDirty, isOnline, onManualSync, profile, isAutoSyncEnabled, homePageActions, permissions, lastSyncedAt }) => {
     
     const allNavItems = [
         { id: 'home', label: 'المفكرة', icon: CalendarDaysIcon, visible: permissions.can_view_agenda },
@@ -98,6 +99,7 @@ const Navbar: React.FC<{
                     isOnline={isOnline}
                     onManualSync={onManualSync}
                     isAutoSyncEnabled={isAutoSyncEnabled}
+                    lastSyncedAt={lastSyncedAt}
                 />
                 <button 
                     onClick={() => onNavigate('settings')} 
@@ -219,30 +221,64 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     const printReportRef = React.useRef<HTMLDivElement>(null);
     const actionsMenuRef = React.useRef<HTMLDivElement>(null);
 
-    const supabase = getSupabaseClient();
+    const [supabase, setSupabase] = React.useState<SupabaseClient | null>(null);
     const isOnline = useOnlineStatus();
+
+    React.useEffect(() => {
+        const initSupabase = async () => {
+            const client = await getSupabaseClient();
+            setSupabase(client);
+        };
+        initSupabase();
+    }, []);
 
     const data = useSupabaseData(session?.user ?? null, isAuthLoading);
 
     React.useEffect(() => {
-        if (!supabase) {
-            console.error("Supabase client is null. Cannot subscribe to auth changes.");
-            return;
-        }
-
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-            setSession(session);
-            setIsAuthLoading(false);
-            if (session) {
-                localStorage.setItem(LAST_USER_CACHE_KEY, JSON.stringify(session.user));
-            } else {
-                localStorage.removeItem(LAST_USER_CACHE_KEY);
-                localStorage.removeItem(LAST_USER_CREDENTIALS_CACHE_KEY);
+        // Safety timeout for auth loading state
+        const timeout = setTimeout(() => {
+            if (isAuthLoading) {
+                console.warn("Auth loading timed out, forcing false.");
+                setIsAuthLoading(false);
             }
-        });
+        }, 8000);
+
+        const setupAuthListener = async (): Promise<() => void> => {
+            console.log("App.tsx: setupAuthListener invoked.");
+            const auth = supabase?.auth;
+
+            let subscription: { unsubscribe: () => void } | undefined;
+
+            if (!auth) {
+                // If supabase is not ready yet, we still want to clear the timeout eventually
+                return () => clearTimeout(timeout);
+            }
+    
+            const { data } = auth.onAuthStateChange((_event: string, session: AuthSession | null) => {
+                console.log("App.tsx: onAuthStateChange event:", _event, "session:", session);
+                setSession(session);
+                setIsAuthLoading(false);
+                if (session) {
+                    localStorage.setItem(LAST_USER_CACHE_KEY, JSON.stringify(session.user));
+                } else {
+                    localStorage.removeItem(LAST_USER_CACHE_KEY);
+                    localStorage.removeItem(LAST_USER_CREDENTIALS_CACHE_KEY);
+                }
+            });
+    
+            subscription = data?.subscription;
+    
+            return () => {
+                clearTimeout(timeout);
+                if (subscription) subscription.unsubscribe();
+            };
+        };
+        const cleanupPromise = setupAuthListener();
 
         return () => {
-            if (subscription) subscription.unsubscribe();
+            cleanupPromise.then(cleanupFn => {
+                if (typeof cleanupFn === 'function') cleanupFn();
+            });
         };
     }, [supabase, onRefresh, isOnline]);
 
@@ -318,7 +354,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
         setIsAdminTaskModalOpen(true);
     };
 
-    const handleSaveAdminTask = (taskData: Omit<AdminTask, 'completed'> & { id?: string }) => {
+    const handleSaveAdminTask = (taskData: Omit<AdminTask, 'id' | 'completed'> & { id?: string }) => {
         if (taskData.id) {
             data.setAdminTasks(prev => prev.map(t => t.id === taskData.id ? { ...t, ...taskData, updated_at: new Date() } : t));
         } else {
@@ -430,6 +466,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     };
 
     if (data.syncStatus === 'unconfigured' || data.syncStatus === 'uninitialized') return <ConfigurationModal onRetry={data.manualSync} />;
+    console.log("App.tsx: Rendering App, current session:", session, "isAuthLoading:", isAuthLoading);
     if (!session) return <LoginPage onForceSetup={() => onRefresh()} onLoginSuccess={handleLoginSuccess}/>;
     
     const effectiveProfile = profile || data.profiles.find(p => p.id === session.user.id);
@@ -510,7 +547,21 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     return (
         <DataProvider value={data}>
             <div className="flex flex-col h-screen bg-gray-50">
-                <Navbar currentPage={currentPage} onNavigate={handleNavigation} onLogout={handleLogout} syncStatus={data.syncStatus} lastSyncError={data.lastSyncError} isDirty={data.isDirty} isOnline={isOnline} onManualSync={data.manualSync} profile={effectiveProfile} isAutoSyncEnabled={data.isAutoSyncEnabled} homePageActions={homePageActions} permissions={data.permissions} />
+                <Navbar 
+                    currentPage={currentPage} 
+                    onNavigate={handleNavigation} 
+                    onLogout={handleLogout} 
+                    syncStatus={data.syncStatus} 
+                    lastSyncError={data.lastSyncError} 
+                    isDirty={data.isDirty} 
+                    isOnline={isOnline} 
+                    onManualSync={data.manualSync} 
+                    profile={effectiveProfile} 
+                    isAutoSyncEnabled={data.isAutoSyncEnabled} 
+                    homePageActions={homePageActions} 
+                    permissions={data.permissions}
+                    lastSyncedAt={data.lastSyncedAt}
+                />
                 <OfflineBanner />
                 <main className="flex-grow p-4 sm:p-6 overflow-y-auto pb-20 sm:pb-6">{renderPage()}</main>
                 <MobileNavbar currentPage={currentPage} onNavigate={handleNavigation} permissions={data.permissions} />

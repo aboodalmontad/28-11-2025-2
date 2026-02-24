@@ -1,4 +1,5 @@
 import * as React from 'react';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { AccountingEntry, Client, Invoice, InvoiceItem, Case, Stage, Session } from '../types.ts';
 import { formatDate, toInputDateString, parseInputDateString } from '../utils/dateUtils.ts';
 import { PlusIcon, PencilIcon, TrashIcon, SearchIcon, ExclamationTriangleIcon, PrintIcon, DocumentTextIcon, CalculatorIcon, ChartPieIcon } from '../components/icons.tsx';
@@ -44,7 +45,7 @@ const EntriesTab: React.FC = () => {
 
     const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: name === 'amount' ? parseFloat(value) : value }));
+        setFormData((prev: Partial<AccountingEntry>) => ({ ...prev, [name]: name === 'amount' ? parseFloat(value) : value }));
     };
 
     const handleClientChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -58,7 +59,7 @@ const EntriesTab: React.FC = () => {
         const entryData: Omit<AccountingEntry, 'id'> = {
             type: formData.type as 'income' | 'expense',
             amount: Number(formData.amount),
-            date: new Date(formData.date!),
+            date: new Date(formData.date as unknown as string),
             description: formData.description!,
             clientId: formData.clientId || '',
             caseId: formData.caseId || '',
@@ -67,9 +68,9 @@ const EntriesTab: React.FC = () => {
         };
 
         if (modal.data) {
-            setAccountingEntries(prev => prev.map(item => item.id === modal.data!.id ? { ...item, ...entryData } : item));
+            setAccountingEntries((prev: AccountingEntry[]) => prev.map((item: AccountingEntry) => item.id === modal.data!.id ? { ...item, ...entryData } : item));
         } else {
-            setAccountingEntries(prev => [...prev, { ...entryData, id: `acc-${Date.now()}` }]);
+            setAccountingEntries((prev: AccountingEntry[]) => [...prev, { ...entryData, id: `acc-${Date.now()}` }]);
         }
         handleCloseModal();
     };

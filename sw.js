@@ -1,6 +1,6 @@
 
 // This version number is incremented to trigger the 'install' event and update the cache.
-const CACHE_NAME = 'lawyer-app-cache-v21-02-2026-full-offline-v12';
+const CACHE_NAME = 'lawyer-app-cache-v22-02-2026-fix-v1';
 
 // The list of URLs to cache explicitly (App Shell)
 const urlsToCache = [
@@ -79,9 +79,8 @@ self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
   // Strategy 1: Stale-While-Revalidate for main scripts and local JS chunks.
-  // This ensures that when the app requests a lazy-loaded chunk (like chunk-XXXX.js),
-  // it gets cached immediately for future offline use.
-  if (url.pathname.endsWith('.js') || url.pathname.endsWith('.json') || event.request.mode === 'navigate') {
+  // We exclude sw.js itself from being intercepted by the service worker to avoid update loops or MIME type issues.
+  if ((url.pathname.endsWith('.js') && !url.pathname.includes('sw.js')) || url.pathname.endsWith('.json') || event.request.mode === 'navigate') {
     event.respondWith(
       caches.open(CACHE_NAME).then(cache => {
         return cache.match(event.request).then(cachedResponse => {

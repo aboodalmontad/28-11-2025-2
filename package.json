@@ -4,12 +4,27 @@
   "private": true,
   "scripts": {
     "build": "node build.js",
-    "start": "serve -s dist -l 3000",
-    "dev": "node build.js && serve -s dist -l 3000"
+    "start": "serve dist -l 3000",
+    "dev": "node build.js && serve dist -l 3000",
+    "lint": "tsc --noEmit"
   },
   "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@types/recharts": "^1.8.29",
     "esbuild": "^0.21.4",
     "fs-extra": "^11.2.0",
-    "serve": "^14.2.5"
+    "serve": "^14.2.5",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.97.0",
+    "clsx": "^2.1.1",
+    "docx-preview": "^0.3.7",
+    "idb": "^8.0.3",
+    "lucide-react": "^0.575.0",
+    "recharts": "^3.7.0",
+    "tailwind-merge": "^3.5.0"
   }
 }

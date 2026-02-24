@@ -4,12 +4,45 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>مكتب المحامي</title>
-    <link rel="manifest" href="./manifest.json">
-    <link rel="icon" href="./icon.svg" type="image/svg+xml">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="icon" href="/icon.svg" type="image/svg+xml">
     <meta name="theme-color" content="#1f2937">
     <!-- Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Google Fonts -->
+    <script>
+      window.onerror = function(msg, url, lineNo, columnNo, error) {
+        var message = [
+          'Message: ' + msg,
+          'URL: ' + url,
+          'Line: ' + lineNo,
+          'Column: ' + columnNo,
+          'Error object: ' + JSON.stringify(error)
+        ].join('\n');
+        console.error(message);
+        
+        // If the root is still empty after 2 seconds, show the error on screen
+        setTimeout(function() {
+          var root = document.getElementById('root');
+          if (root && root.innerHTML === '') {
+            var errorDiv = document.createElement('div');
+            errorDiv.style.position = 'fixed';
+            errorDiv.style.top = '0';
+            errorDiv.style.left = '0';
+            errorDiv.style.width = '100%';
+            errorDiv.style.height = '100%';
+            errorDiv.style.backgroundColor = 'white';
+            errorDiv.style.color = 'red';
+            errorDiv.style.padding = '20px';
+            errorDiv.style.zIndex = '10000';
+            errorDiv.style.overflow = 'auto';
+            errorDiv.innerHTML = '<h1>حدث خطأ في تحميل التطبيق</h1><pre>' + message + '</pre><button onclick="location.reload()" style="padding: 10px 20px; background: blue; color: white; border: none; border-radius: 5px; cursor: pointer;">إعادة تحميل</button>';
+            document.body.appendChild(errorDiv);
+          }
+        }, 2000);
+        return false;
+      };
+    </script>
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap');
       body {
@@ -64,15 +97,16 @@
     <script type="importmap">
 {
   "imports": {
-    "@google/genai": "https://esm.sh/@google/genai@^1.20.0",
-    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@^2.44.4",
-    "react/": "https://esm.sh/react@^19.1.1/",
-    "react": "https://esm.sh/react@^19.1.1",
-    "react-dom/": "https://esm.sh/react-dom@^19.1.1/",
-    "react-dom/client": "https://esm.sh/react-dom@^19.1.1/client",
-    "recharts": "https://esm.sh/recharts@^2.12.7",
-    "idb": "https://esm.sh/idb@^8.0.0",
-    "docx-preview": "https://esm.sh/docx-preview@^0.1.20"
+    "@google/genai": "https://esm.sh/@google/genai@1.20.0",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.44.4",
+    "react/": "https://esm.sh/react@19.0.0/",
+    "react": "https://esm.sh/react@19.0.0",
+    "react-dom": "https://esm.sh/react-dom@19.0.0",
+    "react-dom/": "https://esm.sh/react-dom@19.0.0/",
+    "react-dom/client": "https://esm.sh/react-dom@19.0.0/client",
+    "recharts": "https://esm.sh/recharts@2.12.7",
+    "idb": "https://esm.sh/idb@8.0.0",
+    "docx-preview": "https://esm.sh/docx-preview@0.1.20"
   }
 }
 </script>
@@ -84,6 +118,6 @@
     <!-- The root element for React -->
     <div id="root"></div>
     <!-- The main script for the application -->
-    <script type="module" src="./index.js"></script>
+    <script type="module" src="/index.js"></script>
   </body>
 </html>
