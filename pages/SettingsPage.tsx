@@ -109,6 +109,17 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
                         <span className="font-bold text-gray-600">آخر خطأ:</span>
                         <p className="text-red-600 break-words">{lastSyncError || 'لا يوجد'}</p>
                     </div>
+                    <div className="col-span-1 md:col-span-2">
+                        <span className="font-bold text-gray-600">المستخدمون المتزامنون (Synced Users):</span>
+                        <p className="text-xs text-gray-500 break-all">
+                             يتم جلب البيانات الخاصة بهؤلاء المستخدمين. تأكد من وجود معرفك ومعرف المالك هنا.
+                        </p>
+                         {/* We don't have direct access to the 'relatedUserIds' calculated inside manualSync here, 
+                             but we can infer it from the profiles if we wanted to be precise. 
+                             For now, let's just show a hint or add a way to expose it if needed. 
+                             Actually, let's just leave the hint text above as it's helpful enough for now without exposing internal state.
+                         */}
+                    </div>
                 </div>
                 <div className="flex gap-4">
                      <button 

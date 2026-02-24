@@ -111,7 +111,29 @@ export const checkSupabaseSchema = async () => {
     }
 };
 
-export const fetchDataFromSupabase = async (ownerId: string, userId?: string): Promise<Partial<FlatData>> => {
+export const fetchProfilesFromSupabase = async (ownerId: string): Promise<Profile[]> => {
+    const supabase = await getSupabaseClient();
+    if (!supabase) return [];
+    
+    try {
+        const { data, error } = await fetchWithRetry(async () => 
+            supabase.from('profiles')
+            .select('*')
+            .or(`id.eq.${ownerId},lawyer_id.eq.${ownerId}`)
+        );
+        
+        if (error) {
+            console.warn("Failed to fetch profiles:", error);
+            return [];
+        }
+        return (data as Profile[]) || [];
+    } catch (e) {
+        console.warn("Exception fetching profiles:", e);
+        return [];
+    }
+};
+
+export const fetchDataFromSupabase = async (ownerId: string, relatedUserIds: string[] = []): Promise<Partial<FlatData>> => {
     const supabase = await getSupabaseClient();
     if (!supabase) throw new Error('Supabase client not available.');
 
@@ -135,11 +157,12 @@ export const fetchDataFromSupabase = async (ownerId: string, userId?: string): P
                     if (table === 'profiles') {
                         query = query.or(`id.eq.${ownerId},lawyer_id.eq.${ownerId}`);
                     } else {
-                        // Fetch data for the owner (Lawyer) AND the current user (Assistant)
-                        // This ensures that if data was accidentally saved to the assistant's ID, it is still retrieved.
-                        // It also handles the case where ownerId might be different from userId.
-                        if (userId && userId !== ownerId) {
-                            query = query.or(`user_id.eq.${ownerId},user_id.eq.${userId}`);
+                        // Fetch data for the owner (Lawyer) AND all related users (Assistants)
+                        // This ensures that if data was saved with an assistant's ID, it is still retrieved.
+                        const allIds = Array.from(new Set([ownerId, ...relatedUserIds]));
+                        if (allIds.length > 1) {
+                            // Use 'in' filter for multiple IDs
+                            query = query.in('user_id', allIds);
                         } else {
                             query = query.eq('user_id', ownerId);
                         }
@@ -197,7 +220,9 @@ export const upsertDataToSupabase = async (data: Partial<FlatData>, realUser: Us
             };
 
             if (table !== 'profiles') {
-                newItem.user_id = ownerId;
+                // Use the real user's ID to avoid RLS (Row Level Security) violations.
+                // The fetch logic handles retrieving data for all related users (Owner + Assistants).
+                newItem.user_id = realUser.id;
             }
 
             if (feeAgreement !== undefined) {

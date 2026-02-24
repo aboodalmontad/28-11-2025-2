@@ -1,6 +1,6 @@
 import * as React from 'react';
 import type { User } from '@supabase/supabase-js';
-import { checkSupabaseSchema, fetchDataFromSupabase, upsertDataToSupabase, FlatData, deleteDataFromSupabase, transformRemoteToLocal, fetchDeletionsFromSupabase, isNetworkError, fetchWithRetry, getFriendlyErrorMessage } from './useOnlineData.ts';
+import { checkSupabaseSchema, fetchDataFromSupabase, upsertDataToSupabase, FlatData, deleteDataFromSupabase, transformRemoteToLocal, fetchDeletionsFromSupabase, isNetworkError, fetchWithRetry, getFriendlyErrorMessage, fetchProfilesFromSupabase } from './useOnlineData.ts';
 import { getSupabaseClient } from '../supabaseClient.ts';
 import { Client, Case, Stage, Session, CaseDocument, AppData, DeletedIds, getInitialDeletedIds, SyncDeletion } from '../types.ts';
 import { getDb, DOCS_FILES_STORE_NAME } from '../utils/db.ts';
@@ -208,8 +208,30 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
             }
 
             console.log("useSync: Fetching remote data and deletions.", { ownerId, userId: realUser.id });
+            
+            // Step 1: Fetch profiles FIRST to ensure we know about all assistants
+            // This fixes the issue where a new assistant's data isn't fetched because the owner doesn't know about them yet.
+            const remoteProfiles = await fetchProfilesFromSupabase(ownerId);
+            
+            // Merge remote profiles with local profiles to get a complete list of known users
+            const allProfiles = [...localDataRef.current.profiles];
+            remoteProfiles.forEach(rp => {
+                if (!allProfiles.find(p => p.id === rp.id)) {
+                    allProfiles.push(rp);
+                }
+            });
+
+            // Calculate all related user IDs to fetch data for
+            // This includes the owner, the current user, and any assistants linked to the owner
+            const assistantIds = allProfiles
+                .filter(p => p.lawyer_id === ownerId)
+                .map(p => p.id);
+            
+            const relatedUserIds = Array.from(new Set([realUser.id, ownerId, ...assistantIds]));
+            console.log("useSync: Identified related users for sync:", relatedUserIds);
+
             const [remoteDataRaw, remoteDeletions] = await Promise.all([
-                fetchWithRetry(() => fetchDataFromSupabase(ownerId, realUser.id)),
+                fetchWithRetry(() => fetchDataFromSupabase(ownerId, relatedUserIds)),
                 fetchWithRetry(() => fetchDeletionsFromSupabase())
             ]);
 
