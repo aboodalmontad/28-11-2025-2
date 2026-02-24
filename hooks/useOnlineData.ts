@@ -111,7 +111,7 @@ export const checkSupabaseSchema = async () => {
     }
 };
 
-export const fetchDataFromSupabase = async (ownerId: string): Promise<Partial<FlatData>> => {
+export const fetchDataFromSupabase = async (ownerId: string, userId?: string): Promise<Partial<FlatData>> => {
     const supabase = await getSupabaseClient();
     if (!supabase) throw new Error('Supabase client not available.');
 
@@ -135,7 +135,14 @@ export const fetchDataFromSupabase = async (ownerId: string): Promise<Partial<Fl
                     if (table === 'profiles') {
                         query = query.or(`id.eq.${ownerId},lawyer_id.eq.${ownerId}`);
                     } else {
-                        query = query.eq('user_id', ownerId);
+                        // Fetch data for the owner (Lawyer) AND the current user (Assistant)
+                        // This ensures that if data was accidentally saved to the assistant's ID, it is still retrieved.
+                        // It also handles the case where ownerId might be different from userId.
+                        if (userId && userId !== ownerId) {
+                            query = query.or(`user_id.eq.${ownerId},user_id.eq.${userId}`);
+                        } else {
+                            query = query.eq('user_id', ownerId);
+                        }
                     }
                     return query;
                 };

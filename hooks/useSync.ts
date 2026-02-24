@@ -207,11 +207,18 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
                 return;
             }
 
-            console.log("useSync: Fetching remote data and deletions.", { ownerId });
+            console.log("useSync: Fetching remote data and deletions.", { ownerId, userId: realUser.id });
             const [remoteDataRaw, remoteDeletions] = await Promise.all([
-                fetchWithRetry(() => fetchDataFromSupabase(ownerId)),
+                fetchWithRetry(() => fetchDataFromSupabase(ownerId, realUser.id)),
                 fetchWithRetry(() => fetchDeletionsFromSupabase())
             ]);
+
+            // Debug: Log fetched counts
+            const counts = Object.keys(remoteDataRaw).reduce((acc: any, key) => {
+                acc[key] = Array.isArray((remoteDataRaw as any)[key]) ? (remoteDataRaw as any)[key].length : 0;
+                return acc;
+            }, {});
+            console.log("useSync: Fetched remote data counts:", counts);
 
             const remoteFlatData = transformRemoteToLocal(remoteDataRaw);
             let localFlatData = applyDeletionsToLocal(flattenData(localDataRef.current), remoteDeletions);

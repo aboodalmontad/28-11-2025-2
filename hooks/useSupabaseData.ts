@@ -910,8 +910,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 )
             );
         }, [data.clients]),
-        syncStatus, manualSync, lastSyncError, isDirty, userId: user?.id, isDataLoading,
-        effectiveUserId,
+        syncStatus, manualSync, lastSyncError, isDirty, userId: user?.id, effectiveUserId, isDataLoading,
         permissions: currentUserPermissions,
         isAutoSyncEnabled: userSettings.isAutoSyncEnabled, setAutoSyncEnabled: (v: boolean) => updateSettings(p => ({...p, isAutoSyncEnabled: v})),
         isAutoBackupEnabled: userSettings.isAutoBackupEnabled, setAutoBackupEnabled: (v: boolean) => updateSettings(p => ({...p, isAutoBackupEnabled: v})),

@@ -10,7 +10,7 @@ import { getFriendlyErrorMessage } from '../hooks/useOnlineData.ts';
 interface SettingsPageProps {}
 
 const SettingsPage: React.FC<SettingsPageProps> = () => {
-    const { setFullData, assistants, setAssistants, userId, isAutoSyncEnabled, setAutoSyncEnabled, isAutoBackupEnabled, setAutoBackupEnabled, adminTasksLayout, setAdminTasksLayout, deleteAssistant, exportData, permissions } = useData();
+    const { setFullData, assistants, setAssistants, userId, isAutoSyncEnabled, setAutoSyncEnabled, isAutoBackupEnabled, setAutoBackupEnabled, adminTasksLayout, setAdminTasksLayout, deleteAssistant, exportData, permissions, effectiveUserId, syncStatus, lastSyncError, manualSync } = useData();
     const [feedback, setFeedback] = React.useState<{ message: string; type: 'success' | 'error' } | null>(null);
     const [isConfirmModalOpen, setIsConfirmModalOpen] = React.useState(false);
     const [isDeleteAssistantModalOpen, setIsDeleteAssistantModalOpen] = React.useState(false);
@@ -84,6 +84,47 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
             {isDeleteAssistantModalOpen && <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"><div className="bg-white p-8 rounded shadow-lg"><p className="mb-4">حذف المساعد؟</p><div className="flex gap-4"><button onClick={() => setIsDeleteAssistantModalOpen(false)} className="px-4 py-2 bg-gray-200 rounded">إلغاء</button><button onClick={handleConfirmDeleteAssistant} className="px-4 py-2 bg-red-600 text-white rounded">نعم</button></div></div></div>}
             
             {isAssistantsManagerOpen && <AssistantsManager onClose={() => setIsAssistantsManagerOpen(false)} />}
+            
+            <div className="bg-white p-6 rounded-lg shadow space-y-4 border-t-4 border-yellow-400">
+                <h2 className="text-xl font-bold text-gray-800 border-b pb-3 flex items-center gap-2">
+                    <ExclamationTriangleIcon className="w-6 h-6 text-yellow-500" />
+                    تشخيص المزامنة (للمطورين)
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm font-mono bg-gray-50 p-4 rounded">
+                    <div>
+                        <span className="font-bold text-gray-600">معرف المستخدم الحالي:</span>
+                        <p className="break-all">{userId || 'غير مسجل'}</p>
+                    </div>
+                    <div>
+                        <span className="font-bold text-gray-600">معرف المالك (Effective Owner):</span>
+                        <p className="break-all">{effectiveUserId || 'غير محدد'}</p>
+                    </div>
+                    <div>
+                        <span className="font-bold text-gray-600">حالة المزامنة:</span>
+                        <p className={`font-bold ${syncStatus === 'synced' ? 'text-green-600' : syncStatus === 'error' ? 'text-red-600' : 'text-blue-600'}`}>
+                            {syncStatus === 'synced' ? 'متزامن' : syncStatus === 'syncing' ? 'جاري المزامنة...' : syncStatus === 'error' ? 'خطأ' : syncStatus}
+                        </p>
+                    </div>
+                    <div>
+                        <span className="font-bold text-gray-600">آخر خطأ:</span>
+                        <p className="text-red-600 break-words">{lastSyncError || 'لا يوجد'}</p>
+                    </div>
+                </div>
+                <div className="flex gap-4">
+                     <button 
+                        onClick={() => manualSync()} 
+                        disabled={syncStatus === 'syncing'}
+                        className="px-4 py-2 bg-yellow-500 text-white font-bold rounded hover:bg-yellow-600 disabled:opacity-50 flex items-center gap-2"
+                    >
+                        <ArrowPathIcon className={`w-5 h-5 ${syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
+                        <span>فرض مزامنة كاملة</span>
+                    </button>
+                </div>
+                <p className="text-xs text-gray-500">
+                    ملاحظة: إذا كان "معرف المالك" يختلف عن "معرف المستخدم"، فأنت تعمل كمساعد للمحامي صاحب المعرف.
+                    تأكد من أن البيانات تظهر لدى المحامي.
+                </p>
+            </div>
         </div>
     );
 };
