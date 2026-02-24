@@ -220,9 +220,7 @@ export const upsertDataToSupabase = async (data: Partial<FlatData>, realUser: Us
             };
 
             if (table !== 'profiles') {
-                // Use the real user's ID to avoid RLS (Row Level Security) violations.
-                // The fetch logic handles retrieving data for all related users (Owner + Assistants).
-                newItem.user_id = realUser.id;
+                newItem.user_id = ownerId;
             }
 
             if (feeAgreement !== undefined) {

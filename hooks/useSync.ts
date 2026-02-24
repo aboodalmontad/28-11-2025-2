@@ -221,17 +221,26 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
                 }
             });
 
+            // RE-CALCULATE OWNER ID based on new profiles
+            // This handles the case where a user just logged in and their profile (with lawyer_id) wasn't synced yet.
+            let currentOwnerId = ownerId;
+            const currentUserProfile = allProfiles.find(p => p.id === realUser.id);
+            if (currentUserProfile && currentUserProfile.lawyer_id) {
+                currentOwnerId = currentUserProfile.lawyer_id;
+                console.log("useSync: Updated ownerId from profiles:", currentOwnerId);
+            }
+
             // Calculate all related user IDs to fetch data for
             // This includes the owner, the current user, and any assistants linked to the owner
             const assistantIds = allProfiles
-                .filter(p => p.lawyer_id === ownerId)
+                .filter(p => p.lawyer_id === currentOwnerId)
                 .map(p => p.id);
             
-            const relatedUserIds = Array.from(new Set([realUser.id, ownerId, ...assistantIds]));
+            const relatedUserIds = Array.from(new Set([realUser.id, currentOwnerId, ...assistantIds]));
             console.log("useSync: Identified related users for sync:", relatedUserIds);
 
             const [remoteDataRaw, remoteDeletions] = await Promise.all([
-                fetchWithRetry(() => fetchDataFromSupabase(ownerId, relatedUserIds)),
+                fetchWithRetry(() => fetchDataFromSupabase(currentOwnerId, relatedUserIds)),
                 fetchWithRetry(() => fetchDeletionsFromSupabase())
             ]);
 
@@ -284,7 +293,7 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
             }
 
             console.log("useSync: Upserting data to Supabase.", { flatUpserts });
-            const upsertedDataRaw = await fetchWithRetry(() => upsertDataToSupabase(flatUpserts as FlatData, realUser, ownerId));
+            const upsertedDataRaw = await fetchWithRetry(() => upsertDataToSupabase(flatUpserts as FlatData, realUser, currentOwnerId));
             const finalMergedData = constructData(mergedFlatData as FlatData);
             
             await onDataSyncedRef.current(finalMergedData);
