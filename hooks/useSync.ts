@@ -277,5 +277,13 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
 
     // Fix: manualSync and fetchAndRefresh are often used interchangeably in the UI. 
     // fetchAndRefresh logic is inherently handled by manualSync (full bi-directional sync).
+
+    React.useEffect(() => {
+        if (isOnline && !isSyncLocked && !isAuthLoading && userRef.current && ownerRef.current) {
+            console.log("useSync: Online detected, triggering sync.");
+            manualSync();
+        }
+    }, [isOnline, isAuthLoading, manualSync]);
+
     return { manualSync, fetchAndRefresh: manualSync };
 };
