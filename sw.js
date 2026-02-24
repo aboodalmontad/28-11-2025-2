@@ -1,6 +1,6 @@
 
 // This version number is incremented to trigger the 'install' event and update the cache.
-const CACHE_NAME = 'lawyer-app-cache-v22-02-2026-fix-v1';
+const CACHE_NAME = 'lawyer-app-cache-v23-02-2026-fix-v2';
 
 // The list of URLs to cache explicitly (App Shell)
 const urlsToCache = [
@@ -18,7 +18,7 @@ const urlsToCache = [
   'https://esm.sh/react@^19.1.1/jsx-runtime',
   'https://esm.sh/recharts@^2.12.7',
   'https://esm.sh/idb@^8.0.0',
-  'https://esm.sh/docx-preview@^0.1.20',
+  'https://esm.sh/docx-preview@0.3.7',
 ];
 
 self.addEventListener('install', event => {
