@@ -12,6 +12,12 @@
     <!-- Google Fonts -->
     <script>
       window.onerror = function(msg, url, lineNo, columnNo, error) {
+        var lowerMsg = String(msg).toLowerCase();
+        var isNetworkError = lowerMsg.includes('fetch') || 
+                             lowerMsg.includes('network error') || 
+                             lowerMsg.includes('load failed') ||
+                             lowerMsg.includes('script error');
+
         var message = [
           'Message: ' + msg,
           'URL: ' + url,
@@ -19,28 +25,51 @@
           'Column: ' + columnNo,
           'Error object: ' + JSON.stringify(error)
         ].join('\n');
-        console.error(message);
+
+        if (isNetworkError) {
+          console.warn('Suppressed network error in global handler:', msg);
+        } else {
+          console.error(message);
+        }
         
-        // If the root is still empty after 2 seconds, show the error on screen
-        setTimeout(function() {
-          var root = document.getElementById('root');
-          if (root && root.innerHTML === '') {
-            var errorDiv = document.createElement('div');
-            errorDiv.style.position = 'fixed';
-            errorDiv.style.top = '0';
-            errorDiv.style.left = '0';
-            errorDiv.style.width = '100%';
-            errorDiv.style.height = '100%';
-            errorDiv.style.backgroundColor = 'white';
-            errorDiv.style.color = 'red';
-            errorDiv.style.padding = '20px';
-            errorDiv.style.zIndex = '10000';
-            errorDiv.style.overflow = 'auto';
-            errorDiv.innerHTML = '<h1>حدث خطأ في تحميل التطبيق</h1><pre>' + message + '</pre><button onclick="location.reload()" style="padding: 10px 20px; background: blue; color: white; border: none; border-radius: 5px; cursor: pointer;">إعادة تحميل</button>';
-            document.body.appendChild(errorDiv);
-          }
-        }, 2000);
-        return false;
+        // If the root is still empty after 2 seconds, show the error on screen (only for non-network errors)
+        if (!isNetworkError) {
+          setTimeout(function() {
+            var root = document.getElementById('root');
+            if (root && root.innerHTML === '') {
+              var errorDiv = document.createElement('div');
+              errorDiv.style.position = 'fixed';
+              errorDiv.style.top = '0';
+              errorDiv.style.left = '0';
+              errorDiv.style.width = '100%';
+              errorDiv.style.height = '100%';
+              errorDiv.style.backgroundColor = 'white';
+              errorDiv.style.color = 'red';
+              errorDiv.style.padding = '20px';
+              errorDiv.style.zIndex = '10000';
+              errorDiv.style.overflow = 'auto';
+              errorDiv.innerHTML = '<h1>حدث خطأ في تحميل التطبيق</h1><pre>' + message + '</pre><button onclick="location.reload()" style="padding: 10px 20px; background: blue; color: white; border: none; border-radius: 5px; cursor: pointer;">إعادة تحميل</button>';
+              document.body.appendChild(errorDiv);
+            }
+          }, 2000);
+        }
+        return isNetworkError; // Prevent default browser error logging for network errors
+      };
+
+      window.onunhandledrejection = function(event) {
+        var reason = event.reason;
+        var msg = reason ? (reason.message || String(reason)) : '';
+        var lowerMsg = msg.toLowerCase();
+        var isNetworkError = lowerMsg.includes('fetch') || 
+                             lowerMsg.includes('network error') || 
+                             lowerMsg.includes('load failed') ||
+                             lowerMsg.includes('script error') ||
+                             lowerMsg.includes('offline');
+
+        if (isNetworkError) {
+          console.warn('Suppressed unhandled network rejection:', msg);
+          event.preventDefault();
+        }
       };
     </script>
     <style>

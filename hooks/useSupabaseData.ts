@@ -307,12 +307,22 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
 
     const effectiveUserId = React.useMemo(() => {
         if (!user) return null;
+        
+        // 1. Check profiles in data state (most up-to-date)
         const currentUserProfile = data.profiles.find(p => p.id === user.id);
         if (currentUserProfile && currentUserProfile.lawyer_id) {
-            return currentUserProfile.lawyer_id; 
+            return currentUserProfile.lawyer_id;
         }
-        return user.id; 
+
+        // 2. Check localStorage (fallback for initial load)
+        const cachedOwnerId = localStorage.getItem(`lawyer_app_owner_id_${user.id}`);
+        if (cachedOwnerId) return cachedOwnerId;
+
+        return user.id;
     }, [user, data.profiles]);
+
+    const effectiveUserIdRef = React.useRef(effectiveUserId);
+    effectiveUserIdRef.current = effectiveUserId;
 
     const currentUserPermissions: Permissions = React.useMemo(() => {
         if (!user) return defaultPermissions;
@@ -789,6 +799,8 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
             const supabase = supabaseClientRef.current;
             if (!supabase || !user || !effectiveUserId || !isOnline) return;
 
+            console.log('Subscribing to realtime updates for office:', effectiveUserId);
+
             channel = supabase
                 .channel(`office-updates-${effectiveUserId}`)
                 .on(
@@ -800,16 +812,19 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     (payload: any) => {
                         // Only trigger sync if the change belongs to our office
                         const record = payload.new as any || payload.old as any;
+                        if (!record) return;
+
                         let shouldSync = false;
+                        const currentOwnerId = effectiveUserIdRef.current;
 
                         if (payload.table === 'profiles') {
-                             // Sync if the profile is ME, or the profile belongs to my OFFICE (lawyer_id == effectiveUserId), or the profile IS the lawyer (id == effectiveUserId)
-                             if (record.id === user.id || record.lawyer_id === effectiveUserId || record.id === effectiveUserId) {
+                             // Sync if the profile is ME, or the profile belongs to my OFFICE (lawyer_id == currentOwnerId), or the profile IS the lawyer (id == currentOwnerId)
+                             if (record.id === user.id || record.lawyer_id === currentOwnerId || record.id === currentOwnerId) {
                                  shouldSync = true;
                              }
                         } else {
                              // For other tables, check user_id
-                             if (record.user_id === effectiveUserId) {
+                             if (record.user_id === currentOwnerId) {
                                  shouldSync = true;
                              }
                         }
@@ -949,7 +964,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 )
             );
         }, [data.clients]),
-        syncStatus, manualSync, lastSyncError, isDirty, userId: user?.id, effectiveUserId, isDataLoading,
+        syncStatus, setSyncStatus, manualSync, lastSyncError, isDirty, userId: user?.id, effectiveUserId, isDataLoading,
         permissions: currentUserPermissions,
         isAutoSyncEnabled: userSettings.isAutoSyncEnabled, setAutoSyncEnabled: (v: boolean) => updateSettings(p => ({...p, isAutoSyncEnabled: v})),
         isAutoBackupEnabled: userSettings.isAutoBackupEnabled, setAutoBackupEnabled: (v: boolean) => updateSettings(p => ({...p, isAutoBackupEnabled: v})),
@@ -1110,7 +1125,11 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     } catch {
                         errorMsg = String(e);
                     }
-                    console.error(`Failed to download doc ${doc.id}:`, e);
+                    if (!isNetworkError(e)) {
+                        console.error(`Failed to download doc ${doc.id}:`, e);
+                    } else {
+                        console.warn(`Failed to download doc ${doc.id} due to network error (offline).`);
+                    }
                     await db.put(DOCS_METADATA_STORE_NAME, { ...doc, localState: 'error' }, doc.id);
                     updateData(prev => ({...prev, documents: prev.documents.map(d => d.id === docId ? {...d, localState: 'error'} : d)}), { markDirty: false });
                 }

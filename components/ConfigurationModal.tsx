@@ -252,39 +252,40 @@ BEGIN
 END$$;
 
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
--- Fix: Robust RLS for profiles to support UPSERT.
--- Users/Lawyers must be able to insert/update their own profile, and Lawyers can update their assistants.
-CREATE POLICY "Profiles Visibility" ON public.profiles FOR SELECT USING (auth.uid() = id OR lawyer_id = auth.uid() OR public.is_admin());
+CREATE POLICY "Profiles Visibility" ON public.profiles FOR SELECT USING (auth.uid() = id OR lawyer_id = auth.uid() OR EXISTS (SELECT 1 FROM public.profiles p WHERE p.lawyer_id = auth.uid() AND p.id = public.profiles.id) OR public.is_admin());
 CREATE POLICY "Profiles UPSERT" ON public.profiles FOR ALL USING (auth.uid() = id OR lawyer_id = auth.uid() OR public.is_admin()) WITH CHECK (auth.uid() = id OR lawyer_id = auth.uid() OR public.is_admin());
 
--- Unified Policy for Data Tables:
--- Allow access if:
--- 1. The user owns the data (user_id = auth.uid())
--- 2. The user is an assistant linked to the owner (user_id = lawyer_id)
--- 3. The user is an admin
-CREATE POLICY "Unified Access Policy" ON public.assistants FOR ALL USING (
-    user_id = auth.uid() OR 
-    user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR 
-    public.is_admin()
-) WITH CHECK (
-    user_id = auth.uid() OR 
-    user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR 
-    public.is_admin()
-);
+-- Unified Bidirectional Policy for Data Tables:
+-- 1. Owner can see their own data.
+-- 2. Assistant can see their Lawyer's data.
+-- 3. Lawyer can see all their Assistants' data.
+-- 4. Admin can see everything.
+CREATE OR REPLACE FUNCTION public.can_access_data(row_user_id uuid)
+RETURNS boolean AS $$
+BEGIN
+    RETURN (
+        row_user_id = auth.uid() OR -- Own data
+        row_user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR -- Lawyer's data
+        EXISTS (SELECT 1 FROM public.profiles WHERE id = row_user_id AND lawyer_id = auth.uid()) OR -- Assistant's data
+        public.is_admin()
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE POLICY "Unified Access Policy" ON public.clients FOR ALL USING (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin()) WITH CHECK (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin());
-CREATE POLICY "Unified Access Policy" ON public.cases FOR ALL USING (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin()) WITH CHECK (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin());
-CREATE POLICY "Unified Access Policy" ON public.stages FOR ALL USING (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin()) WITH CHECK (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin());
-CREATE POLICY "Unified Access Policy" ON public.sessions FOR ALL USING (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin()) WITH CHECK (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin());
-CREATE POLICY "Unified Access Policy" ON public.admin_tasks FOR ALL USING (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin()) WITH CHECK (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin());
-CREATE POLICY "Unified Access Policy" ON public.appointments FOR ALL USING (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin()) WITH CHECK (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin());
-CREATE POLICY "Unified Access Policy" ON public.accounting_entries FOR ALL USING (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin()) WITH CHECK (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin());
-CREATE POLICY "Unified Access Policy" ON public.invoices FOR ALL USING (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin()) WITH CHECK (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin());
-CREATE POLICY "Unified Access Policy" ON public.invoice_items FOR ALL USING (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin()) WITH CHECK (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin());
-CREATE POLICY "Unified Access Policy" ON public.case_documents FOR ALL USING (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin()) WITH CHECK (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin());
+CREATE POLICY "Unified Access Policy" ON public.assistants FOR ALL USING (public.can_access_data(user_id)) WITH CHECK (public.can_access_data(user_id));
+CREATE POLICY "Unified Access Policy" ON public.clients FOR ALL USING (public.can_access_data(user_id)) WITH CHECK (public.can_access_data(user_id));
+CREATE POLICY "Unified Access Policy" ON public.cases FOR ALL USING (public.can_access_data(user_id)) WITH CHECK (public.can_access_data(user_id));
+CREATE POLICY "Unified Access Policy" ON public.stages FOR ALL USING (public.can_access_data(user_id)) WITH CHECK (public.can_access_data(user_id));
+CREATE POLICY "Unified Access Policy" ON public.sessions FOR ALL USING (public.can_access_data(user_id)) WITH CHECK (public.can_access_data(user_id));
+CREATE POLICY "Unified Access Policy" ON public.admin_tasks FOR ALL USING (public.can_access_data(user_id)) WITH CHECK (public.can_access_data(user_id));
+CREATE POLICY "Unified Access Policy" ON public.appointments FOR ALL USING (public.can_access_data(user_id)) WITH CHECK (public.can_access_data(user_id));
+CREATE POLICY "Unified Access Policy" ON public.accounting_entries FOR ALL USING (public.can_access_data(user_id)) WITH CHECK (public.can_access_data(user_id));
+CREATE POLICY "Unified Access Policy" ON public.invoices FOR ALL USING (public.can_access_data(user_id)) WITH CHECK (public.can_access_data(user_id));
+CREATE POLICY "Unified Access Policy" ON public.invoice_items FOR ALL USING (public.can_access_data(user_id)) WITH CHECK (public.can_access_data(user_id));
+CREATE POLICY "Unified Access Policy" ON public.case_documents FOR ALL USING (public.can_access_data(user_id)) WITH CHECK (public.can_access_data(user_id));
 
 ALTER TABLE public.sync_deletions ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Unified Access Policy" ON public.sync_deletions FOR ALL USING (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin()) WITH CHECK (user_id = auth.uid() OR user_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()) OR public.is_admin());
+CREATE POLICY "Unified Access Policy" ON public.sync_deletions FOR ALL USING (public.can_access_data(user_id)) WITH CHECK (public.can_access_data(user_id));
 
 ALTER TABLE public.assistants ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.clients ENABLE ROW LEVEL SECURITY;

@@ -1,5 +1,6 @@
 // Fix: Use `import type` for SupabaseClient as it is used as a type, not a value. This resolves module resolution errors in some environments.
 import { createClient, type SupabaseClient, AuthError } from '@supabase/supabase-js';
+import { isNetworkError } from './hooks/useOnlineData.ts';
 
 // Hardcoded Supabase credentials provided by the user.
 const supabaseUrl = "https://gvafdhyudvdymletqjee.supabase.co";
@@ -27,7 +28,11 @@ export async function getSupabaseClient(): Promise<SupabaseClient | null> {
             } else {
                 const { data: { session }, error } = await supabase.auth.getSession();
                 if (error || !session) {
-                    console.warn("Supabase session invalid or expired, re-initializing client.", error);
+                    if (error && !isNetworkError(error)) {
+                        console.warn("Supabase session invalid or expired, re-initializing client.", error);
+                    } else {
+                        console.warn("Supabase session invalid or expired (possibly offline), re-initializing client.");
+                    }
                     supabase = null; // Force re-initialization
                 } else {
                     return supabase;
@@ -40,7 +45,7 @@ export async function getSupabaseClient(): Promise<SupabaseClient | null> {
             console.error("Supabase credentials are not defined in the code.");
             return null;
         }
-
+ 
         // Create a new client instance.
         try {
             supabase = createClient(supabaseUrl, supabaseAnonKey, {
@@ -66,7 +71,11 @@ export async function getSupabaseClient(): Promise<SupabaseClient | null> {
             });
             return supabase;
         } catch (error) {
-            console.error("Error creating Supabase client:", error);
+            if (!isNetworkError(error)) {
+                console.error("Error creating Supabase client:", error);
+            } else {
+                console.warn("Error creating Supabase client due to network issues.");
+            }
             supabase = null; // Ensure supabase is null on failure
             return null;
         }

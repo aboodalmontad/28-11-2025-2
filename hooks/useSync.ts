@@ -311,7 +311,11 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
             // Small delay to ensure state updates (like setDirty) are processed
             setTimeout(() => setStatus('synced'), 100);
         } catch (err: any) {
-            console.error("useSync: Manual Sync Error Details:", err);
+            if (!isNetworkError(err)) {
+                console.error("useSync: Manual Sync Error Details:", err);
+            } else {
+                console.warn("useSync: Manual Sync failed due to network error (offline).");
+            }
             const errorMsg = getFriendlyErrorMessage(err, 'فشل المزامنة.');
             setStatus('error', errorMsg);
         } finally {

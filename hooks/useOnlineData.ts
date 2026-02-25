@@ -54,19 +54,32 @@ export const isNetworkError = (err: any): boolean => {
         'preflight',
         'socket',
         'offline',
+        'OFFLINE',
         'status 0',
         'status: 0',
         'typeerror',
         'fetch',
         'terminated',
         'reset',
-        'refused'
+        'refused',
+        'failed to load',
+        'internet',
+        'server',
+        'service unavailable',
+        'gateway'
     ];
 
-    return networkPatterns.some(pattern => combined.includes(pattern)) || 
-           err instanceof TypeError || 
-           String(err.status) === '0' ||
-           combined.includes('failed to fetch');
+    const isMatch = networkPatterns.some(pattern => combined.includes(pattern));
+    
+    if (isMatch) return true;
+
+    // Additional checks for specific error types or properties
+    if (err instanceof TypeError) return true;
+    if (err.name === 'AbortError') return true;
+    if (String(err.status) === '0') return true;
+    if (err.code === 'PGRST301') return true;
+
+    return false;
 };
 
 export const getFriendlyErrorMessage = (err: any, defaultMessage: string = 'حدث خطأ غير متوقع.'): string => {
@@ -75,15 +88,26 @@ export const getFriendlyErrorMessage = (err: any, defaultMessage: string = 'حد
     }
     
     // Handle specific Supabase error messages that might not be caught by patterns
-    const msg = typeof err === 'string' ? err : (err?.message || '');
-    if (msg.toLowerCase().includes('failed to fetch')) {
+    const msg = typeof err === 'string' ? err : (err?.message || err?.error_description || err?.statusText || '');
+    const lowerMsg = String(msg).toLowerCase();
+    
+    if (lowerMsg.includes('failed to fetch') || lowerMsg.includes('network error') || lowerMsg.includes('load failed') || lowerMsg.includes('fetch')) {
         return 'تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.';
     }
 
-    return err?.message || defaultMessage;
+    if (lowerMsg.includes('jwt expired') || lowerMsg.includes('pgrst301') || lowerMsg.includes('token expired')) {
+        return 'انتهت صلاحية الجلسة. يرجى إعادة تسجيل الدخول.';
+    }
+
+    return err?.message || err?.error_description || String(err) || defaultMessage;
 };
 
 export const fetchWithRetry = async <T>(fn: () => Promise<T>, retries = 5, delay = 1000): Promise<T> => {
+    // Fail fast if we are definitely offline to avoid browser "Failed to fetch" noise
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        throw new Error('OFFLINE: No internet connection');
+    }
+
     const timeout = (ms: number) => new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), ms));
     
     try {
@@ -115,7 +139,7 @@ export const checkSupabaseSchema = async () => {
     const supabase = await getSupabaseClient();
     if (!supabase) return { success: false, message: 'Supabase غير مهيأ.' };
     try {
-        const { error }: any = await supabase.from('profiles').select('id', { head: true });
+        const { error }: any = await fetchWithRetry(async () => await supabase.from('profiles').select('id', { head: true }));
         if (error) {
             if (isNetworkError(error)) throw error;
             // If it's a "table doesn't exist" or similar error, the schema needs setup
@@ -123,6 +147,9 @@ export const checkSupabaseSchema = async () => {
         }
         return { success: true, message: '' };
     } catch (err: any) {
+        if (isNetworkError(err)) {
+             return { success: false, message: 'تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.' };
+        }
         return { success: false, message: getFriendlyErrorMessage(err, 'قاعدة البيانات غير مستجيبة.') };
     }
 };
@@ -248,7 +275,9 @@ export const upsertDataToSupabase = async (data: Partial<FlatData>, realUser: Us
         
         const { error }: any = await fetchWithRetry(async () => await supabase.from(table).upsert(formatted));
         if (error) {
-            console.error(`Upsert failed for table ${table}:`, error);
+            if (!isNetworkError(error)) {
+                console.error(`Upsert failed for table ${table}:`, error);
+            }
             if (['profiles', 'clients', 'cases', 'admin_tasks'].includes(table)) throw error;
         }
     }));
