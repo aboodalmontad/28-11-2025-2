@@ -101,7 +101,13 @@ const mergeForRefresh = <T extends { id?: any; name?: string; updated_at?: Date 
     const finalItems = new Map<string, T>();
     
     const getId = (item: T) => item.id ?? item.name;
+    const getTimestamp = (item: T) => {
+        if (!item.updated_at) return 0;
+        const d = new Date(item.updated_at);
+        return isNaN(d.getTime()) ? 0 : d.getTime();
+    };
 
+    // 1. Start with local items
     for (const localItem of local) {
         const id = getId(localItem);
         if (id !== undefined) {
@@ -109,18 +115,22 @@ const mergeForRefresh = <T extends { id?: any; name?: string; updated_at?: Date 
         }
     }
 
+    // 2. Merge remote items
     for (const remoteItem of remote) {
         const id = getId(remoteItem);
-        if (id === undefined) continue; // Skip items without a valid ID or name
+        if (id === undefined) continue;
 
         const existingItem = finalItems.get(String(id));
         if (existingItem) {
-            const remoteDate = new Date(remoteItem.updated_at || 0).getTime();
-            const localDate = new Date(existingItem.updated_at || 0).getTime();
-            if (remoteDate > localDate) {
+            const remoteTs = getTimestamp(remoteItem);
+            const localTs = getTimestamp(existingItem);
+            
+            // Last-Write-Wins: Only update if remote is strictly newer
+            if (remoteTs > localTs) {
                 finalItems.set(String(id), remoteItem);
             }
         } else {
+            // New item from remote
             finalItems.set(String(id), remoteItem);
         }
     }
@@ -302,12 +312,8 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
             setTimeout(() => setStatus('synced'), 100);
         } catch (err: any) {
             console.error("useSync: Manual Sync Error Details:", err);
-            if (!isNetworkError(err)) {
-                setStatus('error', `فشل المزامنة: ${err.message || 'خطأ غير معروف'}`);
-            } else {
-                console.warn("Sync failed due to network error (offline).");
-                setStatus('error', 'تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.');
-            }
+            const errorMsg = getFriendlyErrorMessage(err, 'فشل المزامنة.');
+            setStatus('error', errorMsg);
         } finally {
             isSyncLocked = false;
         }

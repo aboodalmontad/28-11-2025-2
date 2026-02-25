@@ -30,7 +30,10 @@ export const isNetworkError = (err: any): boolean => {
         combined = `${err.name} ${err.message}`.toLowerCase();
     } else {
         try {
-            combined = JSON.stringify(err).toLowerCase();
+            // Check for common error object structures
+            const msg = err.message || err.error_description || err.statusText || '';
+            const code = err.code || '';
+            combined = `${code} ${msg} ${JSON.stringify(err)}`.toLowerCase();
         } catch {
             combined = String(err).toLowerCase();
         }
@@ -42,7 +45,8 @@ export const isNetworkError = (err: any): boolean => {
         'connection',
         'aborted',
         'load failed',
-        'pgrst301', // JWT expired (often results in network-like failure)
+        'pgrst301', // JWT expired
+        'jwk fetch failed',
         '401', '403', '502', '503', '504',
         'dns',
         'timeout',
@@ -52,18 +56,30 @@ export const isNetworkError = (err: any): boolean => {
         'offline',
         'status 0',
         'status: 0',
-        'typeerror', // fetch() throws TypeError on network failure
+        'typeerror',
+        'fetch',
+        'terminated',
+        'reset',
+        'refused'
     ];
 
     return networkPatterns.some(pattern => combined.includes(pattern)) || 
            err instanceof TypeError || 
-           String(err.status) === '0';
+           String(err.status) === '0' ||
+           combined.includes('failed to fetch');
 };
 
 export const getFriendlyErrorMessage = (err: any, defaultMessage: string = 'حدث خطأ غير متوقع.'): string => {
     if (isNetworkError(err)) {
+        return 'تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت أو المحاولة لاحقاً.';
+    }
+    
+    // Handle specific Supabase error messages that might not be caught by patterns
+    const msg = typeof err === 'string' ? err : (err?.message || '');
+    if (msg.toLowerCase().includes('failed to fetch')) {
         return 'تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.';
     }
+
     return err?.message || defaultMessage;
 };
 
@@ -107,7 +123,7 @@ export const checkSupabaseSchema = async () => {
         }
         return { success: true, message: '' };
     } catch (err: any) {
-        return { success: false, message: isNetworkError(err) ? 'تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.' : 'قاعدة البيانات غير مستجيبة.' };
+        return { success: false, message: getFriendlyErrorMessage(err, 'قاعدة البيانات غير مستجيبة.') };
     }
 };
 

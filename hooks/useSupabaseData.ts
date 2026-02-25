@@ -277,6 +277,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     const [syncStatus, setSyncStatus] = React.useState<SyncStatus>('loading');
     const [lastSyncError, setLastSyncError] = React.useState<string | null>(null);
     const [lastSyncedAt, setLastSyncedAt] = React.useState<Date | null>(null);
+    const [lastSyncAttemptAt, setLastSyncAttemptAt] = React.useState<Date | null>(null);
     const [isDataLoading, setIsDataLoading] = React.useState(true);
     const [triggeredAlerts, setTriggeredAlerts] = React.useState<Appointment[]>([]);
     const [showUnpostponedSessionsModal, setShowUnpostponedSessionsModal] = React.useState(false);
@@ -747,8 +748,34 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
             pendingSyncRef.current = true;
             return;
         }
+        setLastSyncAttemptAt(new Date());
         return originalManualSync();
     }, [originalManualSync]);
+
+    // --- BACKGROUND SYNC LOOP ---
+    // This effect ensures that any local changes (isDirty) are synced to the cloud when online.
+    React.useEffect(() => {
+        if (!isOnline || isSyncingRef.current || !isDirty || !user || !effectiveUserId) return;
+
+        // Debounce sync to avoid too many requests during rapid edits
+        const timer = setTimeout(() => {
+            console.log("Background sync triggered by local changes (isDirty).");
+            manualSync();
+        }, 3000);
+
+        return () => clearTimeout(timer);
+    }, [isDirty, isOnline, user?.id, effectiveUserId, manualSync]);
+
+    // Periodic sync check (every 5 minutes) even if not dirty, to catch missed realtime updates
+    React.useEffect(() => {
+        const interval = setInterval(() => {
+            if (isOnline && !isSyncingRef.current && user && effectiveUserId) {
+                console.log("Periodic background sync check.");
+                manualSync();
+            }
+        }, 5 * 60 * 1000);
+        return () => clearInterval(interval);
+    }, [isOnline, user?.id, effectiveUserId, manualSync]);
 
     const addRealtimeAlert = React.useCallback((message: string, type: 'sync' | 'userApproval' = 'sync') => {
         setRealtimeAlerts((prev: any[]) => [...prev, { id: Date.now(), message, type }]);
@@ -799,10 +826,22 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                                 'admin_tasks': 'المهام الإدارية',
                                 'appointments': 'المواعيد',
                                 'accounting_entries': 'القيود المحاسبية',
-                                'invoices': 'الفواتير'
+                                'invoices': 'الفواتير',
+                                'case_documents': 'المستندات',
+                                'profiles': 'الملفات الشخصية',
+                                'assistants': 'المساعدين'
                             };
+
+                            const eventTypesAr: Record<string, string> = {
+                                'INSERT': 'إضافة',
+                                'UPDATE': 'تعديل',
+                                'DELETE': 'حذف'
+                            };
+
                             const tableName = tableNamesAr[payload.table] || payload.table;
-                            addRealtimeAlert(`تم تحديث بيانات (${tableName}) من مستخدم آخر`, 'sync');
+                            const eventType = eventTypesAr[payload.eventType] || payload.eventType;
+                            
+                            addRealtimeAlert(`تم ${eventType} في ${tableName} من قبل مستخدم آخر. جاري المزامنة...`);
                             manualSync();
                         }
                     }
