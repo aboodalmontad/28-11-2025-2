@@ -14,7 +14,7 @@ import { resetSyncLock } from '../hooks/useSync.ts';
 interface SettingsPageProps {}
 
 const SettingsPage: React.FC<SettingsPageProps> = () => {
-    const { setFullData, assistants, setAssistants, userId, isAutoSyncEnabled, setAutoSyncEnabled, isAutoBackupEnabled, setAutoBackupEnabled, adminTasksLayout, setAdminTasksLayout, deleteAssistant, exportData, permissions, effectiveUserId, syncStatus, lastSyncError, manualSync } = useData();
+    const { setFullData, assistants, setAssistants, userId, isAutoSyncEnabled, setAutoSyncEnabled, isAutoBackupEnabled, setAutoBackupEnabled, adminTasksLayout, setAdminTasksLayout, deleteAssistant, exportData, permissions, effectiveUserId, syncStatus, lastSyncError, manualSync, syncHistory } = useData();
     const [feedback, setFeedback] = React.useState<{ message: string; type: 'success' | 'error' } | null>(null);
     const [isConfirmModalOpen, setIsConfirmModalOpen] = React.useState(false);
     const [isDeleteAssistantModalOpen, setIsDeleteAssistantModalOpen] = React.useState(false);
@@ -113,6 +113,20 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
                     <div>
                         <span className="font-bold text-gray-600">آخر خطأ:</span>
                         <p className="text-red-600 break-words">{lastSyncError || 'لا يوجد'}</p>
+                    </div>
+                    <div className="col-span-1 md:col-span-2">
+                        <span className="font-bold text-gray-600">سجل المزامنة الأخير:</span>
+                        <div className="mt-2 max-h-40 overflow-y-auto border rounded p-2 bg-white space-y-1">
+                            {syncHistory && syncHistory.length > 0 ? (
+                                syncHistory.map((log, i) => (
+                                    <div key={i} className={`text-[10px] flex justify-between gap-2 ${log.type === 'error' ? 'text-red-600' : log.type === 'success' ? 'text-green-600' : 'text-gray-600'}`}>
+                                        <span>[{log.time.toLocaleTimeString('ar-EG')}] {log.message}</span>
+                                    </div>
+                                ))
+                            ) : (
+                                <p className="text-gray-400 text-xs italic">لا يوجد سجل مزامنة حالياً.</p>
+                            )}
+                        </div>
                     </div>
                     <div className="col-span-1 md:col-span-2">
                         <span className="font-bold text-gray-600">المستخدمون المتزامنون (Synced Users):</span>

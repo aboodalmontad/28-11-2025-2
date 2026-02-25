@@ -12,14 +12,16 @@ interface UseSyncProps {
     effectiveUserId: string | null;
     localData: AppData;
     deletedIds: DeletedIds;
-    onDataSynced: (mergedData: AppData) => void;
+    onDataSynced: (mergedData: AppData, syncStartTime: number) => void;
     onDeletionsSynced: (syncedDeletions: Partial<DeletedIds>) => void;
     onSyncStatusChange: (status: SyncStatus, error: string | null) => void;
     onDocumentsUploaded?: (uploadedDocIds: string[]) => void;
+    addSyncLog: (message: string, type: 'success' | 'error' | 'info') => void;
     excludedDocIds?: Set<string>;
     isOnline: boolean;
     isAuthLoading: boolean;
     syncStatus: SyncStatus;
+    lastLocalChangeTime: number;
 }
 
 const flattenData = (data: AppData): FlatData => {
@@ -181,7 +183,7 @@ export const resetSyncLock = () => {
     isSyncLocked = false;
 };
 
-export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSynced, onDeletionsSynced, onSyncStatusChange, onDocumentsUploaded, excludedDocIds, isOnline, isAuthLoading, syncStatus }: UseSyncProps) => {
+export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSynced, onDeletionsSynced, onSyncStatusChange, onDocumentsUploaded, addSyncLog, excludedDocIds, isOnline, isAuthLoading, syncStatus, lastLocalChangeTime }: UseSyncProps) => {
     const userRef = React.useRef(user);
     const ownerRef = React.useRef(effectiveUserId);
     const localDataRef = React.useRef(localData);
@@ -190,6 +192,8 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
     const onDataSyncedRef = React.useRef(onDataSynced);
     const onDeletionsSyncedRef = React.useRef(onDeletionsSynced);
     const onSyncStatusChangeRef = React.useRef(onSyncStatusChange);
+    const addSyncLogRef = React.useRef(addSyncLog);
+    const lastLocalChangeTimeRef = React.useRef(lastLocalChangeTime);
 
     userRef.current = user;
     ownerRef.current = effectiveUserId;
@@ -199,6 +203,8 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
     onDataSyncedRef.current = onDataSynced;
     onDeletionsSyncedRef.current = onDeletionsSynced;
     onSyncStatusChangeRef.current = onSyncStatusChange;
+    addSyncLogRef.current = addSyncLog;
+    lastLocalChangeTimeRef.current = lastLocalChangeTime;
 
 
     const setStatus = (status: SyncStatus, error: string | null = null) => { onSyncStatusChangeRef.current(status, error); };
@@ -214,7 +220,9 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
         }
 
         isSyncLocked = true;
+        const syncStartTime = Date.now();
         setStatus('syncing', 'جاري المزامنة...');
+        addSyncLogRef.current('بدء المزامنة...', 'info');
         console.log("useSync: Sync lock acquired.");
         try {
             const schemaCheck = await fetchWithRetry(() => checkSupabaseSchema());
@@ -330,15 +338,25 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
             }
             const finalMergedData = constructData(mergedFlatData as FlatData);
             
-            await onDataSyncedRef.current(finalMergedData);
+            await onDataSyncedRef.current(finalMergedData, syncStartTime);
             await onDeletionsSyncedRef.current(deletedIdsRef.current);
+            
+            addSyncLogRef.current('اكتملت المزامنة بنجاح.', 'success');
+            
+            // Only clear dirty state if no new changes happened during sync
+            const syncFinishedTime = Date.now();
+            const lastChangeTime = lastLocalChangeTimeRef.current;
+            console.log("useSync: Sync finished.", { syncStartTime, syncFinishedTime, lastChangeTime });
+            
             // Small delay to ensure state updates (like setDirty) are processed
             setTimeout(() => setStatus('synced'), 100);
         } catch (err: any) {
             if (!isNetworkError(err)) {
                 console.error("useSync: Manual Sync Error Details:", err);
+                addSyncLogRef.current(`خطأ في المزامنة: ${err.message || String(err)}`, 'error');
             } else {
                 console.warn("useSync: Manual Sync failed due to network error (offline).", err);
+                addSyncLogRef.current('فشل المزامنة بسبب انقطاع الاتصال.', 'error');
             }
             const errorMsg = getFriendlyErrorMessage(err, 'فشل المزامنة.');
             setStatus('error', errorMsg);

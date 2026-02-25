@@ -273,7 +273,20 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     const [data, setData] = React.useState<AppData>(getInitialData);
     const [deletedIds, setDeletedIds] = React.useState<DeletedIds>(getInitialDeletedIds);
     const [excludedDocIds, setExcludedDocIds] = React.useState<Set<string>>(new Set());
-    const [isDirty, setDirty] = React.useState(false);
+    const [isDirty, setDirtyState] = React.useState(false);
+    const [lastLocalChangeTime, setLastLocalChangeTime] = React.useState<number>(0);
+    
+    const setDirty = React.useCallback((dirty: boolean) => {
+        setDirtyState(dirty);
+        if (dirty) {
+            setLastLocalChangeTime(Date.now());
+        }
+        if (effectiveUserIdRef.current) {
+            getDb().then(db => {
+                db.put(DATA_STORE_NAME, dirty, `isDirty_${effectiveUserIdRef.current}`);
+            }).catch(e => console.error("Failed to persist isDirty state", e));
+        }
+    }, []);
     const [syncStatus, setSyncStatus] = React.useState<SyncStatus>('loading');
     const [lastSyncError, setLastSyncError] = React.useState<string | null>(null);
     const [lastSyncedAt, setLastSyncedAt] = React.useState<Date | null>(null);
@@ -283,6 +296,11 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     const [showUnpostponedSessionsModal, setShowUnpostponedSessionsModal] = React.useState(false);
     const [realtimeAlerts, setRealtimeAlerts] = React.useState<RealtimeAlert[]>([]);
     const [userApprovalAlerts, setUserApprovalAlerts] = React.useState<RealtimeAlert[]>([]);
+    const [syncHistory, setSyncHistory] = React.useState<{ time: Date; message: string; type: 'success' | 'error' | 'info' }[]>([]);
+    
+    const addSyncLog = React.useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
+        setSyncHistory(prev => [{ time: new Date(), message, type }, ...prev].slice(0, 20));
+    }, []);
     const [userSettings, setUserSettings] = React.useState<any>({ isAutoSyncEnabled: true, isAutoBackupEnabled: true, adminTasksLayout: 'horizontal', locationOrder: [] });
     const isOnline = useOnlineStatus();
     
@@ -549,11 +567,12 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 }
 
                 const db = await getDb();
-                const [storedData, storedDeletedIds, localDocsMetadata, storedExcludedDocs] = await Promise.all([
+                const [storedData, storedDeletedIds, localDocsMetadata, storedExcludedDocs, storedIsDirty] = await Promise.all([
                     db.get(DATA_STORE_NAME, ownerId),
                     db.get(DATA_STORE_NAME, `deletedIds_${ownerId}`),
                     db.getAll(DOCS_METADATA_STORE_NAME),
-                    db.getAll(LOCAL_EXCLUDED_DOCS_STORE_NAME)
+                    db.getAll(LOCAL_EXCLUDED_DOCS_STORE_NAME),
+                    db.get(DATA_STORE_NAME, `isDirty_${ownerId}`)
                 ]);
                 
                 if (cancelled) return;
@@ -562,7 +581,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 setExcludedDocIds(excludedIdsSet);
 
                 const validatedData = validateAndFixData(storedData, user);
-
+                
                 // Merge fetched profile data to ensure effectiveUserId is correct immediately
                 if (fetchedProfileData) {
                     const existingProfileIndex = validatedData.profiles.findIndex(p => p.id === user.id);
@@ -601,6 +620,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 
                 setData(finalData);
                 setDeletedIds(storedDeletedIds || getInitialDeletedIds());
+                setDirtyState(!!storedIsDirty);
                 
                 // Initial background sync
                 if (isOnlineNow) {
@@ -633,7 +653,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         setLastSyncError(error);
     }, []);
 
-    const handleDataSynced = React.useCallback(async (mergedData: AppData) => {
+    const handleDataSynced = React.useCallback(async (mergedData: AppData, syncStartTime: number) => {
         if (!effectiveUserId) return;
         try {
             const validatedMergedData = validateAndFixData(mergedData, userRef.current);
@@ -670,7 +690,14 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
             }
 
             setData(finalData);
-            setDirty(false);
+            
+            // Only clear dirty state if no new changes happened during sync
+            if (lastLocalChangeTime <= syncStartTime) {
+                console.log("useSupabaseData: Clearing dirty state, no new changes during sync.");
+                setDirty(false);
+            } else {
+                console.log("useSupabaseData: Keeping dirty state, new changes occurred during sync.", { lastLocalChangeTime, syncStartTime });
+            }
             
             if (isOnline) {
                 downloadMissingFiles(finalDocs);
@@ -757,7 +784,9 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         },
         onDocumentsUploaded: handleDocumentsUploaded, 
         excludedDocIds, 
-        isOnline, isAuthLoading, syncStatus
+        isOnline, isAuthLoading, syncStatus,
+        lastLocalChangeTime,
+        addSyncLog
     });
 
     const manualSync = React.useCallback(async () => {
@@ -766,8 +795,20 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
             pendingSyncRef.current = true;
             return;
         }
+        
+        isSyncingRef.current = true;
         setLastSyncAttemptAt(new Date());
-        return originalManualSync();
+        
+        try {
+            await originalManualSync();
+        } finally {
+            isSyncingRef.current = false;
+            if (pendingSyncRef.current) {
+                console.log("Executing queued sync...");
+                pendingSyncRef.current = false;
+                manualSync();
+            }
+        }
     }, [originalManualSync]);
 
     // --- BACKGROUND SYNC LOOP ---
@@ -910,15 +951,15 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
 
     return {
         ...data,
-        setClients: (updater: (prev: Client[]) => Client[]) => updateData((prev: AppData) => ({ ...prev, clients: updater(prev.clients).map((c: Client) => ({ ...c, updated_at: new Date() })) })),
-        setAdminTasks: (updater: (prev: AdminTask[]) => AdminTask[]) => updateData((prev: AppData) => ({ ...prev, adminTasks: updater(prev.adminTasks).map((t: AdminTask) => ({ ...t, updated_at: new Date() })) })),
-        setAppointments: (updater: (prev: Appointment[]) => Appointment[]) => updateData((prev: AppData) => ({ ...prev, appointments: updater(prev.appointments).map((a: Appointment) => ({ ...a, updated_at: new Date() })) })),
-        setAccountingEntries: (updater: (prev: AccountingEntry[]) => AccountingEntry[]) => updateData((prev: AppData) => ({ ...prev, accountingEntries: updater(prev.accountingEntries).map((e: AccountingEntry) => ({ ...e, updated_at: new Date() })) })),
-        setInvoices: (updater: (prev: Invoice[]) => Invoice[]) => updateData((prev: AppData) => ({ ...prev, invoices: updater(prev.invoices).map((i: Invoice) => ({ ...i, updated_at: new Date() })) })),
+        setClients: (updater: (prev: Client[]) => Client[]) => updateData((prev: AppData) => ({ ...prev, clients: updater(prev.clients) })),
+        setAdminTasks: (updater: (prev: AdminTask[]) => AdminTask[]) => updateData((prev: AppData) => ({ ...prev, adminTasks: updater(prev.adminTasks) })),
+        setAppointments: (updater: (prev: Appointment[]) => Appointment[]) => updateData((prev: AppData) => ({ ...prev, appointments: updater(prev.appointments) })),
+        setAccountingEntries: (updater: (prev: AccountingEntry[]) => AccountingEntry[]) => updateData((prev: AppData) => ({ ...prev, accountingEntries: updater(prev.accountingEntries) })),
+        setInvoices: (updater: (prev: Invoice[]) => Invoice[]) => updateData((prev: AppData) => ({ ...prev, invoices: updater(prev.invoices) })),
         setAssistants: (updater: (prev: string[]) => string[]) => updateData((prev: AppData) => ({ ...prev, assistants: updater(prev.assistants) })),
-        setDocuments: (updater: (prev: CaseDocument[]) => CaseDocument[]) => updateData((prev: AppData) => ({ ...prev, documents: updater(prev.documents).map((d: CaseDocument) => ({ ...d, updated_at: new Date() })) })),
-        setProfiles: (updater: (prev: Profile[]) => Profile[]) => updateData((prev: AppData) => ({ ...prev, profiles: updater(prev.profiles).map((p: Profile) => ({ ...p, updated_at: new Date() })) })),
-        setSiteFinances: (updater: (prev: SiteFinancialEntry[]) => SiteFinancialEntry[]) => updateData((prev: AppData) => ({ ...prev, siteFinances: updater(prev.siteFinances).map((f: SiteFinancialEntry) => ({ ...f, updated_at: new Date() })) })),
+        setDocuments: (updater: (prev: CaseDocument[]) => CaseDocument[]) => updateData((prev: AppData) => ({ ...prev, documents: updater(prev.documents) })),
+        setProfiles: (updater: (prev: Profile[]) => Profile[]) => updateData((prev: AppData) => ({ ...prev, profiles: updater(prev.profiles) })),
+        setSiteFinances: (updater: (prev: SiteFinancialEntry[]) => SiteFinancialEntry[]) => updateData((prev: AppData) => ({ ...prev, siteFinances: updater(prev.siteFinances) })),
         lastSyncedAt,
         setFullData,
         allSessions: React.useMemo(() => data.clients.flatMap(c => c.cases.flatMap(cs => cs.stages.flatMap(st => st.sessions.map(s => ({...s, stageId: st.id, stageDecisionDate: st.decisionDate}))))), [data.clients]),
@@ -948,6 +989,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
             );
         }, [data.clients]),
         syncStatus, setSyncStatus, manualSync, lastSyncError, isDirty, userId: user?.id, effectiveUserId, isDataLoading,
+        syncHistory, addSyncLog,
         permissions: currentUserPermissions,
         isAutoSyncEnabled: userSettings.isAutoSyncEnabled, setAutoSyncEnabled: (v: boolean) => updateSettings(p => ({...p, isAutoSyncEnabled: v})),
         isAutoBackupEnabled: userSettings.isAutoBackupEnabled, setAutoBackupEnabled: (v: boolean) => updateSettings(p => ({...p, isAutoBackupEnabled: v})),
