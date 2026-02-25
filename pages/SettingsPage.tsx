@@ -7,6 +7,8 @@ import { openDB } from 'idb';
 import AssistantsManager from '../components/AssistantsManager.tsx';
 import { getFriendlyErrorMessage } from '../hooks/useOnlineData.ts';
 
+import ConfigurationModal from '../components/ConfigurationModal.tsx';
+
 interface SettingsPageProps {}
 
 const SettingsPage: React.FC<SettingsPageProps> = () => {
@@ -18,6 +20,7 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
     const [newAssistant, setNewAssistant] = React.useState('');
     const [dbStats, setDbStats] = React.useState<string | null>(null);
     const [isAssistantsManagerOpen, setIsAssistantsManagerOpen] = React.useState(false);
+    const [isConfigurationModalOpen, setIsConfigurationModalOpen] = React.useState(false);
 
     const showFeedback = (message: string, type: 'success' | 'error') => {
         setFeedback({ message, type });
@@ -130,12 +133,20 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
                         <ArrowPathIcon className={`w-5 h-5 ${syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
                         <span>فرض مزامنة كاملة</span>
                     </button>
+                    <button
+                        onClick={() => setIsConfigurationModalOpen(true)}
+                        className="px-4 py-2 bg-gray-600 text-white font-bold rounded hover:bg-gray-700 flex items-center gap-2"
+                    >
+                        <ShieldCheckIcon className="w-5 h-5" />
+                        <span>فتح معالج قاعدة البيانات</span>
+                    </button>
                 </div>
                 <p className="text-xs text-gray-500">
                     ملاحظة: إذا كان "معرف المالك" يختلف عن "معرف المستخدم"، فأنت تعمل كمساعد للمحامي صاحب المعرف.
                     تأكد من أن البيانات تظهر لدى المحامي.
                 </p>
             </div>
+            {isConfigurationModalOpen && <ConfigurationModal onRetry={() => { setIsConfigurationModalOpen(false); manualSync(); }} />}
         </div>
     );
 };
