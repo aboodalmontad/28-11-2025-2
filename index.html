@@ -12,11 +12,18 @@
     <!-- Google Fonts -->
     <script>
       window.onerror = function(msg, url, lineNo, columnNo, error) {
-        var lowerMsg = String(msg).toLowerCase();
-        var isNetworkError = lowerMsg.includes('fetch') || 
-                             lowerMsg.includes('network error') || 
-                             lowerMsg.includes('load failed') ||
-                             lowerMsg.includes('script error');
+        var messageStr = String(msg).toLowerCase();
+        var errorStr = error ? String(error.message || error).toLowerCase() : '';
+        var combined = (messageStr + ' ' + errorStr).toLowerCase();
+        
+        var isNetworkError = combined.includes('fetch') || 
+                             combined.includes('network error') || 
+                             combined.includes('load failed') ||
+                             combined.includes('script error') ||
+                             combined.includes('offline') ||
+                             combined.includes('connection') ||
+                             combined.includes('terminated') ||
+                             combined.includes('timeout');
 
         var message = [
           'Message: ' + msg,
@@ -28,6 +35,7 @@
 
         if (isNetworkError) {
           console.warn('Suppressed network error in global handler:', msg);
+          return true; // Prevent default logging
         } else {
           console.error(message);
         }
@@ -64,7 +72,10 @@
                              lowerMsg.includes('network error') || 
                              lowerMsg.includes('load failed') ||
                              lowerMsg.includes('script error') ||
-                             lowerMsg.includes('offline');
+                             lowerMsg.includes('offline') ||
+                             lowerMsg.includes('connection') ||
+                             lowerMsg.includes('terminated') ||
+                             lowerMsg.includes('timeout');
 
         if (isNetworkError) {
           console.warn('Suppressed unhandled network rejection:', msg);

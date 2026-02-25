@@ -99,10 +99,14 @@ self.addEventListener('fetch', event => {
                  return cache.match('/index.html');
              }
 
-             // If we don't have a cached response and network fails, return a 404 instead of throwing
+             // If we don't have a cached response and network fails, return a 503 instead of throwing
              // to keep the console clean of "Failed to fetch" errors.
              if (!cachedResponse) {
-                 return new Response('Network error and no cache available', { status: 503, statusText: 'Service Unavailable' });
+                 return new Response('Network error and no cache available', { 
+                     status: 503, 
+                     statusText: 'Service Unavailable',
+                     headers: { 'Content-Type': 'text/plain' }
+                 });
              }
              return cachedResponse;
           });
@@ -131,8 +135,12 @@ self.addEventListener('fetch', event => {
         return networkResponse;
       }).catch(error => {
           // Suppress "Failed to fetch" errors for non-essential assets to keep console clean
-          console.warn('Fetch failed for asset, returning 404:', event.request.url);
-          return new Response('Asset not found', { status: 404, statusText: 'Not Found' });
+          console.warn('Fetch failed for asset, returning 503:', event.request.url);
+          return new Response('Asset not found or network error', { 
+              status: 503, 
+              statusText: 'Service Unavailable',
+              headers: { 'Content-Type': 'text/plain' }
+          });
       });
     })
   );

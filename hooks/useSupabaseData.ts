@@ -324,6 +324,14 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     const effectiveUserIdRef = React.useRef(effectiveUserId);
     effectiveUserIdRef.current = effectiveUserId;
 
+    React.useEffect(() => {
+        console.log("useSupabaseData: isDirty changed:", isDirty);
+    }, [isDirty]);
+
+    React.useEffect(() => {
+        console.log("useSupabaseData: effectiveUserId changed:", effectiveUserId);
+    }, [effectiveUserId]);
+
     const currentUserPermissions: Permissions = React.useMemo(() => {
         if (!user) return defaultPermissions;
         const currentUserProfile = data.profiles.find(p => p.id === user.id);
@@ -765,7 +773,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     // --- BACKGROUND SYNC LOOP ---
     // This effect ensures that any local changes (isDirty) are synced to the cloud when online.
     React.useEffect(() => {
-        if (!isOnline || isSyncingRef.current || !isDirty || !user || !effectiveUserId) return;
+        if (!isOnline || isSyncingRef.current || !isDirty || !user || !effectiveUserId || !userSettings.isAutoSyncEnabled) return;
 
         // Debounce sync to avoid too many requests during rapid edits
         const timer = setTimeout(() => {
@@ -774,18 +782,31 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         }, 3000);
 
         return () => clearTimeout(timer);
-    }, [isDirty, isOnline, user?.id, effectiveUserId, manualSync]);
+    }, [isDirty, isOnline, user?.id, effectiveUserId, manualSync, userSettings.isAutoSyncEnabled]);
 
-    // Periodic sync check (every 5 minutes) even if not dirty, to catch missed realtime updates
+    // Periodic sync check (every 2 minutes) even if not dirty, to catch missed realtime updates
     React.useEffect(() => {
         const interval = setInterval(() => {
-            if (isOnline && !isSyncingRef.current && user && effectiveUserId) {
+            if (isOnline && !isSyncingRef.current && user && effectiveUserId && userSettings.isAutoSyncEnabled) {
                 console.log("Periodic background sync check.");
                 manualSync();
             }
-        }, 5 * 60 * 1000);
-        return () => clearInterval(interval);
-    }, [isOnline, user?.id, effectiveUserId, manualSync]);
+        }, 2 * 60 * 1000);
+
+        // Sync when window regains focus
+        const handleFocus = () => {
+            if (isOnline && !isSyncingRef.current && user && effectiveUserId && userSettings.isAutoSyncEnabled) {
+                console.log("Window focused, triggering sync...");
+                manualSync();
+            }
+        };
+        window.addEventListener('focus', handleFocus);
+
+        return () => {
+            clearInterval(interval);
+            window.removeEventListener('focus', handleFocus);
+        };
+    }, [isOnline, user?.id, effectiveUserId, manualSync, userSettings.isAutoSyncEnabled]);
 
     const addRealtimeAlert = React.useCallback((message: string, type: 'sync' | 'userApproval' = 'sync') => {
         setRealtimeAlerts((prev: any[]) => [...prev, { id: Date.now(), message, type }]);
@@ -877,44 +898,6 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
             }
         };
     }, [user, effectiveUserId, isOnline, manualSync, addRealtimeAlert]);
-
-    React.useEffect(() => {
-        if (isOnline && isDirty && userSettings.isAutoSyncEnabled && syncStatus !== 'syncing') {
-            const handler = setTimeout(() => { manualSync(); }, 3000);
-            return () => clearTimeout(handler);
-        }
-    }, [isOnline, isDirty, userSettings.isAutoSyncEnabled, manualSync]);
-
-    React.useEffect(() => {
-        if (isOnline && userSettings.isAutoSyncEnabled && syncStatus !== 'syncing' && syncStatus !== 'loading') {
-            manualSync();
-        }
-
-        // Periodic sync every 2 minutes to pull changes from other users
-        let interval: number | undefined;
-        if (isOnline && userSettings.isAutoSyncEnabled) {
-            interval = window.setInterval(() => {
-                if (syncStatus !== 'syncing') {
-                    console.log("Periodic background sync...");
-                    manualSync();
-                }
-            }, 120000); // 2 minutes
-        }
-
-        // Sync when window regains focus
-        const handleFocus = () => {
-            if (isOnline && userSettings.isAutoSyncEnabled && syncStatus !== 'syncing') {
-                console.log("Window focused, triggering sync...");
-                manualSync();
-            }
-        };
-        window.addEventListener('focus', handleFocus);
-
-        return () => {
-            if (interval) clearInterval(interval);
-            window.removeEventListener('focus', handleFocus);
-        };
-    }, [isOnline, userSettings.isAutoSyncEnabled, manualSync]); 
 
     const createDeleteFunction = <T extends keyof DeletedIds>(entity: T) => async (id: DeletedIds[T][number]) => {
         if (!effectiveUserId) return;

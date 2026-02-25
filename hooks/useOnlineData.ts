@@ -57,8 +57,6 @@ export const isNetworkError = (err: any): boolean => {
         'OFFLINE',
         'status 0',
         'status: 0',
-        'typeerror',
-        'fetch',
         'terminated',
         'reset',
         'refused',
@@ -66,7 +64,9 @@ export const isNetworkError = (err: any): boolean => {
         'internet',
         'server',
         'service unavailable',
-        'gateway'
+        'gateway',
+        'unreachable',
+        'unexpected end of stream'
     ];
 
     const isMatch = networkPatterns.some(pattern => combined.includes(pattern));
@@ -74,7 +74,7 @@ export const isNetworkError = (err: any): boolean => {
     if (isMatch) return true;
 
     // Additional checks for specific error types or properties
-    if (err instanceof TypeError) return true;
+    if (err instanceof TypeError && (combined.includes('fetch') || combined.includes('network'))) return true;
     if (err.name === 'AbortError') return true;
     if (String(err.status) === '0') return true;
     if (err.code === 'PGRST301') return true;

@@ -9,6 +9,8 @@ import { getFriendlyErrorMessage } from '../hooks/useOnlineData.ts';
 
 import ConfigurationModal from '../components/ConfigurationModal.tsx';
 
+import { resetSyncLock } from '../hooks/useSync.ts';
+
 interface SettingsPageProps {}
 
 const SettingsPage: React.FC<SettingsPageProps> = () => {
@@ -124,7 +126,7 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
                          */}
                     </div>
                 </div>
-                <div className="flex gap-4">
+                <div className="flex flex-wrap gap-4">
                      <button 
                         onClick={() => manualSync()} 
                         disabled={syncStatus === 'syncing'}
@@ -132,6 +134,17 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
                     >
                         <ArrowPathIcon className={`w-5 h-5 ${syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
                         <span>فرض مزامنة كاملة</span>
+                    </button>
+                    <button 
+                        onClick={() => {
+                            resetSyncLock();
+                            manualSync();
+                            showFeedback('تمت إعادة تعيين قفل المزامنة وبدء مزامنة جديدة.', 'success');
+                        }} 
+                        className="px-4 py-2 bg-red-500 text-white font-bold rounded hover:bg-red-600 flex items-center gap-2"
+                    >
+                        <XCircleIcon className="w-5 h-5" />
+                        <span>إعادة تعيين قفل المزامنة</span>
                     </button>
                     <button
                         onClick={() => setIsConfigurationModalOpen(true)}

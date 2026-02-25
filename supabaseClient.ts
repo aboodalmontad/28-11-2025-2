@@ -16,30 +16,23 @@ let clientPromise: Promise<SupabaseClient | null> | null = null;
  */
 export async function getSupabaseClient(): Promise<SupabaseClient | null> {
     if (clientPromise) {
-        return clientPromise;
+        const client = await clientPromise;
+        if (client) {
+            // Check if the current session is still valid
+            try {
+                const { data: { session }, error } = await client.auth.getSession();
+                if (!error && session) {
+                    return client;
+                }
+                console.warn("Supabase session invalid or expired, clearing client promise.");
+            } catch (e) {
+                console.warn("Error checking Supabase session:", e);
+            }
+        }
+        clientPromise = null; // Force re-initialization on next call
     }
 
     clientPromise = (async () => {
-        if (supabase) {
-            // Check if the current session is still valid
-            if (!supabase.auth) {
-                console.warn("Supabase auth not available on existing client, re-initializing.");
-                supabase = null;
-            } else {
-                const { data: { session }, error } = await supabase.auth.getSession();
-                if (error || !session) {
-                    if (error && !isNetworkError(error)) {
-                        console.warn("Supabase session invalid or expired, re-initializing client.", error);
-                    } else {
-                        console.warn("Supabase session invalid or expired (possibly offline), re-initializing client.");
-                    }
-                    supabase = null; // Force re-initialization
-                } else {
-                    return supabase;
-                }
-            }
-        }
-        
         // If hardcoded credentials are not valid, return null.
         if (!supabaseUrl || !supabaseAnonKey) {
             console.error("Supabase credentials are not defined in the code.");
@@ -48,6 +41,7 @@ export async function getSupabaseClient(): Promise<SupabaseClient | null> {
  
         // Create a new client instance.
         try {
+            console.log("Creating new Supabase client instance...");
             supabase = createClient(supabaseUrl, supabaseAnonKey, {
                 auth: {
                     persistSession: true,
