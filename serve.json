@@ -1,5 +1,4 @@
 {
-  "public": "dist",
   "rewrites": [
     { "source": "/sw.js", "destination": "/sw.js" },
     { "source": "/index.js", "destination": "/index.js" },
