@@ -400,7 +400,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
             }
             return newData;
         });
-    }, [effectiveUserId]); 
+    }, [effectiveUserIdRef.current]); 
 
     const setFullData = React.useCallback(async (newData: any) => {
         const validated = validateAndFixData(newData, userRef.current);

@@ -114,7 +114,8 @@ export const fetchWithRetry = async <T>(fn: () => Promise<T>, retries = 5, delay
         // Increase timeout to 150 seconds for slower connections
         const result = await Promise.race([fn(), timeout(150000)]) as T;
         
-        if (result && typeof result === 'object' && (result as any).error) {
+        // Check if the result itself is an error object (e.g., from Supabase)
+        if (result && typeof result === 'object' && ('error' in result) && (result as any).error) {
             const err = (result as any).error;
             if (isNetworkError(err)) {
                 if (retries > 0) {
