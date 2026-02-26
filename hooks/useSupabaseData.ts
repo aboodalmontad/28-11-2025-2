@@ -818,12 +818,12 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
 
         // Debounce sync to avoid too many requests during rapid edits
         const timer = setTimeout(() => {
-            console.log("Background sync triggered by local changes (isDirty).");
+            console.log("Background sync triggered by local changes (isDirty/lastLocalChangeTime).");
             manualSync();
         }, 3000);
 
         return () => clearTimeout(timer);
-    }, [isDirty, isOnline, user?.id, effectiveUserId, manualSync, userSettings.isAutoSyncEnabled]);
+    }, [isDirty, lastLocalChangeTime, isOnline, user?.id, effectiveUserId, manualSync, userSettings.isAutoSyncEnabled]);
 
     // Periodic sync check (every 2 minutes) even if not dirty, to catch missed realtime updates
     React.useEffect(() => {

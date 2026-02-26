@@ -296,13 +296,18 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
                     const localTs = new Date(localItem.updated_at || 0).getTime();
                     const remoteTs = remoteItem ? new Date(remoteItem.updated_at || 0).getTime() : 0;
                     
-                    const isNewer = !remoteItem || localTs > remoteTs || localTs > lastLocalChangeTimeRef.current;
+                    // Standard Last-Write-Wins: local is newer than remote
+                    const isNewerThanRemote = localTs > remoteTs;
+                    // Also upsert if it's a completely new item
+                    const isNew = !remoteItem;
                     
-                    if (isNewer && remoteItem) {
-                        console.log(`useSync: Item ${key}:${id} is newer. Local: ${localTs}, Remote: ${remoteTs}`);
+                    const shouldUpsert = isNew || isNewerThanRemote;
+                    
+                    if (shouldUpsert) {
+                        console.log(`useSync: Item ${key}:${id} will be upserted. Reason: ${isNew ? 'New' : 'Newer'}. Local: ${localTs}, Remote: ${remoteTs}`);
                     }
                     
-                    return isNewer;
+                    return shouldUpsert;
                 });
                 (flatUpserts as any)[key] = itemsToUpsert;
                 totalUpserts += itemsToUpsert.length;
