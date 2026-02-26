@@ -25,7 +25,15 @@ export async function getSupabaseClient(): Promise<SupabaseClient | null> {
                 console.warn("Supabase auth not available on existing client, re-initializing.");
                 supabase = null;
             } else {
-                const { data: { session }, error } = await supabase.auth.getSession();
+                let sessionResult;
+                try {
+                    sessionResult = await supabase.auth.getSession();
+                } catch (sessionErr) {
+                    console.error("Failed to get Supabase session:", sessionErr);
+                    supabase = null;
+                    return null;
+                }
+                const { data: { session }, error } = sessionResult;
                 if (error || !session) {
                     console.warn("Supabase session invalid or expired, re-initializing client.", error);
                     supabase = null; // Force re-initialization

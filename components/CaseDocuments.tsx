@@ -247,7 +247,7 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
                     }
                 }
             } catch (e: any) {
-                setError('خطأ غير متوقع: ' + e.message);
+                setError(getFriendlyErrorMessage(e, 'حدث خطأ غير متوقع أثناء تحميل الملف.'));
             } finally {
                 setIsLoading(false);
             }

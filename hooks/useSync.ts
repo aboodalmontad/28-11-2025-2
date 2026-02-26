@@ -20,6 +20,7 @@ interface UseSyncProps {
     isOnline: boolean;
     isAuthLoading: boolean;
     syncStatus: SyncStatus;
+    isAdmin?: boolean;
 }
 
 const flattenData = (data: AppData): FlatData => {
@@ -166,7 +167,7 @@ const applyDeletionsToLocal = (localFlatData: FlatData, deletions: SyncDeletion[
 
 let isSyncLocked = false;
 
-export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSynced, onDeletionsSynced, onSyncStatusChange, onDocumentsUploaded, excludedDocIds, isOnline, isAuthLoading, syncStatus }: UseSyncProps) => {
+export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSynced, onDeletionsSynced, onSyncStatusChange, onDocumentsUploaded, excludedDocIds, isOnline, isAuthLoading, syncStatus, isAdmin }: UseSyncProps) => {
     const userRef = React.useRef(user);
     const ownerRef = React.useRef(effectiveUserId);
     const localDataRef = React.useRef(localData);
@@ -184,15 +185,18 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
     onDataSyncedRef.current = onDataSynced;
     onDeletionsSyncedRef.current = onDeletionsSynced;
     onSyncStatusChangeRef.current = onSyncStatusChange;
+    const isAdminRef = React.useRef(isAdmin);
+    isAdminRef.current = isAdmin;
 
 
     const setStatus = (status: SyncStatus, error: string | null = null) => { onSyncStatusChangeRef.current(status, error); };
 
     const manualSync = React.useCallback(async () => {
-        console.log("useSync: manualSync invoked.", { isSyncLocked, isAuthLoading, isOnline, user: userRef.current?.id, effectiveUserId: ownerRef.current });
+        console.log("useSync: manualSync invoked.", { isSyncLocked, isAuthLoading, isOnline, user: userRef.current?.id, effectiveUserId: ownerRef.current, isAdmin: isAdminRef.current });
         if (isSyncLocked || isAuthLoading) return;
         const realUser = userRef.current;
         const ownerId = ownerRef.current;
+        const isAdmin = !!isAdminRef.current;
         if (!isOnline || !realUser || !ownerId) {
             console.warn("useSync: manualSync aborted due to offline, no user, or no ownerId.", { isOnline, realUser: !!realUser, ownerId: !!ownerId });
             return;
@@ -207,9 +211,9 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
                 return;
             }
 
-            console.log("useSync: Fetching remote data and deletions.", { ownerId });
+            console.log("useSync: Fetching remote data and deletions.", { ownerId, isAdmin });
             const [remoteDataRaw, remoteDeletions] = await Promise.all([
-                fetchWithRetry(() => fetchDataFromSupabase(ownerId)),
+                fetchWithRetry(() => fetchDataFromSupabase(ownerId, isAdmin)),
                 fetchWithRetry(() => fetchDeletionsFromSupabase())
             ]);
 

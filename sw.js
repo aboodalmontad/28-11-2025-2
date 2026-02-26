@@ -1,23 +1,24 @@
 
 // This version number is incremented to trigger the 'install' event and update the cache.
-const CACHE_NAME = 'lawyer-app-cache-v23-02-2026-fix-v2';
+const CACHE_NAME = 'lawyer-app-cache-v26-02-2026-fix-v2';
 
 // The list of URLs to cache explicitly (App Shell)
 const urlsToCache = [
   '/',
   '/index.html',
+  '/index.js',
   '/manifest.json',
   '/icon.svg',
   'https://cdn.tailwindcss.com',
   'https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap',
-  // Dependencies
-  'https://esm.sh/@google/genai@^1.20.0',
-  'https://esm.sh/@supabase/supabase-js@^2.44.4',
-  'https://esm.sh/react@^19.1.1',
-  'https://esm.sh/react-dom@^19.1.1/client',
-  'https://esm.sh/react@^19.1.1/jsx-runtime',
-  'https://esm.sh/recharts@^2.12.7',
-  'https://esm.sh/idb@^8.0.0',
+  // Dependencies - using exact versions to match importmap and ensure reliability
+  'https://esm.sh/@google/genai@1.20.0',
+  'https://esm.sh/@supabase/supabase-js@2.44.4',
+  'https://esm.sh/react@19.0.0',
+  'https://esm.sh/react-dom@19.0.0/client',
+  'https://esm.sh/react@19.0.0/jsx-runtime',
+  'https://esm.sh/recharts@2.12.7',
+  'https://esm.sh/idb@8.0.0',
   'https://esm.sh/docx-preview@0.3.7',
 ];
 
@@ -127,12 +128,25 @@ self.addEventListener('fetch', event => {
         const responseToCache = networkResponse.clone();
         caches.open(CACHE_NAME).then(cache => {
           cache.put(event.request, responseToCache);
-        });
+        }).catch(err => console.warn('Failed to cache response:', err));
         return networkResponse;
       }).catch(error => {
           // Suppress "Failed to fetch" errors for non-essential assets to keep console clean
-          console.warn('Fetch failed for asset, returning 404:', event.request.url);
-          return new Response('Asset not found', { status: 404, statusText: 'Not Found' });
+          if (event.request.destination === 'image' || event.request.destination === 'font') {
+              console.warn('Fetch failed for asset, returning 404:', event.request.url);
+              return new Response('Asset not found', { status: 404, statusText: 'Not Found' });
+          }
+          
+          // If it's a script or module, returning a 408 might be better than letting it throw "Failed to fetch"
+          if (event.request.destination === 'script') {
+              console.error('Critical script failed to load:', event.request.url);
+              return new Response('console.error("Critical script failed to load due to network error: ' + event.request.url + '");', { 
+                  status: 200, 
+                  headers: { 'Content-Type': 'application/javascript' } 
+              });
+          }
+
+          return new Response('Network error', { status: 408, statusText: 'Request Timeout' });
       });
     })
   );

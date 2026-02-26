@@ -36,7 +36,7 @@
             errorDiv.style.padding = '20px';
             errorDiv.style.zIndex = '10000';
             errorDiv.style.overflow = 'auto';
-            errorDiv.innerHTML = '<h1>حدث خطأ في تحميل التطبيق</h1><pre>' + message + '</pre><button onclick="location.reload()" style="padding: 10px 20px; background: blue; color: white; border: none; border-radius: 5px; cursor: pointer;">إعادة تحميل</button>';
+            errorDiv.innerHTML = '<div style="max-width: 600px; margin: auto;"><h1>حدث خطأ في تحميل التطبيق</h1><p>قد يكون هذا بسبب ضعف اتصال الإنترنت أو حظر بعض الخوادم المطلوبة.</p><pre style="background: #f4f4f4; padding: 10px; border-radius: 5px; font-size: 12px; text-align: left;" dir="ltr">' + message + '</pre><div style="display: flex; gap: 10px; justify-content: center;"><button onclick="location.reload()" style="padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">إعادة تحميل</button><button onclick="navigator.serviceWorker.getRegistrations().then(regs => {for(let reg of regs) reg.unregister(); location.reload();})" style="padding: 10px 20px; background: #6b7280; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">مسح التخزين المؤقت</button></div></div>';
             document.body.appendChild(errorDiv);
           }
         }, 2000);

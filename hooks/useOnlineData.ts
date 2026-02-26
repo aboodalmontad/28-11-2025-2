@@ -24,16 +24,17 @@ export const isNetworkError = (err: any): boolean => {
     
     // Convert error to string representation for broad matching
     let combined = '';
-    if (typeof err === 'string') {
-        combined = err.toLowerCase();
-    } else if (err instanceof Error) {
-        combined = `${err.name} ${err.message}`.toLowerCase();
-    } else {
-        try {
-            combined = JSON.stringify(err).toLowerCase();
-        } catch {
-            combined = String(err).toLowerCase();
+    try {
+        if (typeof err === 'string') {
+            combined = err.toLowerCase();
+        } else {
+            combined = `${err.name || ''} ${err.message || ''} ${err.code || ''} ${err.status || ''}`.toLowerCase();
+            if (combined.trim() === '') {
+                combined = JSON.stringify(err).toLowerCase();
+            }
         }
+    } catch {
+        combined = String(err).toLowerCase();
     }
 
     const networkPatterns = [
@@ -42,7 +43,7 @@ export const isNetworkError = (err: any): boolean => {
         'connection',
         'aborted',
         'load failed',
-        'pgrst301', // JWT expired (often results in network-like failure)
+        'pgrst301', 
         '401', '403', '502', '503', '504',
         'dns',
         'timeout',
@@ -52,19 +53,38 @@ export const isNetworkError = (err: any): boolean => {
         'offline',
         'status 0',
         'status: 0',
-        'typeerror', // fetch() throws TypeError on network failure
+        'typeerror', 
+        'load_failed',
+        'net::err',
+        'request failed',
+        'failed to load',
     ];
 
-    return networkPatterns.some(pattern => combined.includes(pattern)) || 
+    const isMatch = networkPatterns.some(pattern => combined.includes(pattern)) || 
            err instanceof TypeError || 
-           String(err.status) === '0';
+           String(err.status) === '0' ||
+           String(err.code) === 'PGRST301' ||
+           String(err.code) === 'ECONNREFUSED' ||
+           combined.includes('fetch');
+
+    if (isMatch) {
+        console.warn('Network error detected:', combined, err);
+    }
+    
+    return isMatch;
 };
 
 export const getFriendlyErrorMessage = (err: any, defaultMessage: string = 'حدث خطأ غير متوقع.'): string => {
     if (isNetworkError(err)) {
-        return 'تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.';
+        return 'تعذر الاتصال بخادم قاعدة البيانات. يرجى التأكد من اتصال الإنترنت أو المحاولة لاحقاً. (Network Connection Error)';
     }
-    return err?.message || defaultMessage;
+    
+    // Handle specific Supabase errors if possible
+    if (err?.code === 'PGRST301' || (typeof err === 'string' && err.includes('PGRST301'))) 
+        return 'انتهت صلاحية الجلسة، يرجى إعادة تسجيل الدخول.';
+    if (err?.code === '42P01') return 'قاعدة البيانات بحاجة إلى إعداد (Table not found).';
+    
+    return err?.message || (typeof err === 'string' ? err : defaultMessage);
 };
 
 export const fetchWithRetry = async <T>(fn: () => Promise<T>, retries = 5, delay = 1000): Promise<T> => {
@@ -88,9 +108,11 @@ export const fetchWithRetry = async <T>(fn: () => Promise<T>, retries = 5, delay
     } catch (err: any) {
         const isTimeout = err.message === 'TIMEOUT';
         if (retries > 0 && (isNetworkError(err) || isTimeout)) {
+            console.warn(`Retrying fetch (${retries} left) due to: ${err.message || err}`);
             await new Promise(resolve => setTimeout(resolve, delay));
-            return fetchWithRetry<T>(fn, retries - 1, delay * 1.5);
+            return fetchWithRetry<T>(fn, retries - 1, delay * 2); // Increased backoff
         }
+        console.error("fetchWithRetry failed after retries:", err);
         throw err;
     }
 };
