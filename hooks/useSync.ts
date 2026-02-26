@@ -296,7 +296,7 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
                     const localTs = new Date(localItem.updated_at || 0).getTime();
                     const remoteTs = remoteItem ? new Date(remoteItem.updated_at || 0).getTime() : 0;
                     
-                    const isNewer = !remoteItem || localTs > remoteTs;
+                    const isNewer = !remoteItem || localTs > remoteTs || localTs > lastLocalChangeTimeRef.current;
                     
                     if (isNewer && remoteItem) {
                         console.log(`useSync: Item ${key}:${id} is newer. Local: ${localTs}, Remote: ${remoteTs}`);
