@@ -2,7 +2,6 @@
 const esbuild = require('esbuild');
 const fs = require('fs-extra');
 const path = require('path');
-require('dotenv').config();
 
 const publicDir = 'dist';
 
@@ -26,8 +25,8 @@ async function build() {
             minify: true,
             target: 'es2020',
             define: {
-                'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(process.env.VITE_SUPABASE_URL),
-                'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(process.env.VITE_SUPABASE_ANON_KEY),
+                'import.meta.env.VITE_SUPABASE_URL': process.env.VITE_SUPABASE_URL ? JSON.stringify(process.env.VITE_SUPABASE_URL) : 'undefined',
+                'import.meta.env.VITE_SUPABASE_ANON_KEY': process.env.VITE_SUPABASE_ANON_KEY ? JSON.stringify(process.env.VITE_SUPABASE_ANON_KEY) : 'undefined',
             },
             // All packages from importmap are external to keep bundle size small
             external: [
@@ -40,6 +39,7 @@ async function build() {
                 'idb',
                 'react/*', 
                 'docx-preview',
+                'jszip',
             ],
         });
 

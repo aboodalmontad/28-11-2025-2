@@ -1,10 +1,11 @@
 // Fix: Use `import type` for SupabaseClient as it is used as a type, not a value. This resolves module resolution errors in some environments.
 import { createClient, type SupabaseClient, AuthError } from '@supabase/supabase-js';
-import { isNetworkError } from './hooks/useOnlineData.ts';
 
-// Hardcoded Supabase credentials provided by the user.
-const supabaseUrl = process.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
+// Supabase credentials. Prefer environment variables, fallback to hardcoded values for development.
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "https://gvafdhyudvdymletqjee.supabase.co";
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2YWZkaHl1ZHZkeW1sZXRxamVlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE5MzA0NzYsImV4cCI6MjA3NzUwNjQ3Nn0.PuoD-Mayi8cTscKG9CuQWA_qQU8x8lCeprI63jh5qCE";
+
+console.log("Supabase URL initialized:", supabaseUrl);
 
 // Singleton instance of the Supabase client.
 let supabase: SupabaseClient | null = null;
@@ -16,32 +17,34 @@ let clientPromise: Promise<SupabaseClient | null> | null = null;
  */
 export async function getSupabaseClient(): Promise<SupabaseClient | null> {
     if (clientPromise) {
-        const client = await clientPromise;
-        if (client) {
-            // Check if the current session is still valid
-            try {
-                const { data: { session }, error } = await client.auth.getSession();
-                if (!error && session) {
-                    return client;
-                }
-                console.warn("Supabase session invalid or expired, clearing client promise.");
-            } catch (e) {
-                console.warn("Error checking Supabase session:", e);
-            }
-        }
-        clientPromise = null; // Force re-initialization on next call
+        return clientPromise;
     }
 
     clientPromise = (async () => {
+        if (supabase) {
+            // Check if the current session is still valid
+            if (!supabase.auth) {
+                console.warn("Supabase auth not available on existing client, re-initializing.");
+                supabase = null;
+            } else {
+                const { data: { session }, error } = await supabase.auth.getSession();
+                if (error || !session) {
+                    console.warn("Supabase session invalid or expired, re-initializing client.", error);
+                    supabase = null; // Force re-initialization
+                } else {
+                    return supabase;
+                }
+            }
+        }
+        
         // If hardcoded credentials are not valid, return null.
         if (!supabaseUrl || !supabaseAnonKey) {
             console.error("Supabase credentials are not defined in the code.");
             return null;
         }
- 
+
         // Create a new client instance.
         try {
-            console.log("Creating new Supabase client instance...");
             supabase = createClient(supabaseUrl, supabaseAnonKey, {
                 auth: {
                     persistSession: true,
@@ -65,11 +68,7 @@ export async function getSupabaseClient(): Promise<SupabaseClient | null> {
             });
             return supabase;
         } catch (error) {
-            if (!isNetworkError(error)) {
-                console.error("Error creating Supabase client:", error);
-            } else {
-                console.warn("Error creating Supabase client due to network issues.");
-            }
+            console.error("Error creating Supabase client:", error);
             supabase = null; // Ensure supabase is null on failure
             return null;
         }

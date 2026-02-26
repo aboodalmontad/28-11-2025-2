@@ -1,11 +1,12 @@
 
 // This version number is incremented to trigger the 'install' event and update the cache.
-const CACHE_NAME = 'lawyer-app-cache-v23-02-2026-fix-v2';
+const CACHE_NAME = 'lawyer-app-cache-v22-02-2026-fix-v7';
 
 // The list of URLs to cache explicitly (App Shell)
 const urlsToCache = [
   '/',
   '/index.html',
+  '/index.js',
   '/manifest.json',
   '/icon.svg',
   'https://cdn.tailwindcss.com',
@@ -14,11 +15,13 @@ const urlsToCache = [
   'https://esm.sh/@google/genai@1.20.0',
   'https://esm.sh/@supabase/supabase-js@2.44.4',
   'https://esm.sh/react@19.0.0',
-  'https://esm.sh/react-dom@19.0.0/client',
   'https://esm.sh/react@19.0.0/jsx-runtime',
+  'https://esm.sh/react-dom@19.0.0',
+  'https://esm.sh/react-dom@19.0.0/client',
   'https://esm.sh/recharts@2.12.7',
   'https://esm.sh/idb@8.0.0',
-  'https://esm.sh/docx-preview@0.3.7',
+  'https://esm.sh/jszip@3.10.1',
+  'https://unpkg.com/docx-preview@0.3.7/dist/docx-preview.mjs',
 ];
 
 self.addEventListener('install', event => {
@@ -85,6 +88,11 @@ self.addEventListener('fetch', event => {
       caches.open(CACHE_NAME).then(cache => {
         return cache.match(event.request).then(cachedResponse => {
           const fetchPromise = fetch(event.request).then(networkResponse => {
+            // Fallback for navigation if server returns error (e.g. 404 on SPA route)
+            if (event.request.mode === 'navigate' && !networkResponse.ok) {
+                return cache.match('/index.html').then(fallback => fallback || networkResponse);
+            }
+
             // Update cache with new version
             if (networkResponse && networkResponse.status === 200 && networkResponse.type !== 'opaque') {
                 cache.put(event.request, networkResponse.clone());
@@ -99,14 +107,10 @@ self.addEventListener('fetch', event => {
                  return cache.match('/index.html');
              }
 
-             // If we don't have a cached response and network fails, return a 503 instead of throwing
+             // If we don't have a cached response and network fails, return a 404 instead of throwing
              // to keep the console clean of "Failed to fetch" errors.
              if (!cachedResponse) {
-                 return new Response('Network error and no cache available', { 
-                     status: 503, 
-                     statusText: 'Service Unavailable',
-                     headers: { 'Content-Type': 'text/plain' }
-                 });
+                 return new Response('Network error and no cache available', { status: 503, statusText: 'Service Unavailable' });
              }
              return cachedResponse;
           });
@@ -135,12 +139,8 @@ self.addEventListener('fetch', event => {
         return networkResponse;
       }).catch(error => {
           // Suppress "Failed to fetch" errors for non-essential assets to keep console clean
-          console.warn('Fetch failed for asset, returning 503:', event.request.url);
-          return new Response('Asset not found or network error', { 
-              status: 503, 
-              statusText: 'Service Unavailable',
-              headers: { 'Content-Type': 'text/plain' }
-          });
+          console.warn('Fetch failed for asset, returning 404:', event.request.url);
+          return new Response('Asset not found', { status: 404, statusText: 'Not Found' });
       });
     })
   );
