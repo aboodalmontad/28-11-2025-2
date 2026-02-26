@@ -1,6 +1,6 @@
 import * as React from 'react';
 import type { User } from '@supabase/supabase-js';
-import { checkSupabaseSchema, fetchDataFromSupabase, upsertDataToSupabase, FlatData, deleteDataFromSupabase, transformRemoteToLocal, fetchDeletionsFromSupabase, isNetworkError, fetchWithRetry, getFriendlyErrorMessage, fetchProfilesFromSupabase } from './useOnlineData.ts';
+import { checkSupabaseSchema, fetchDataFromSupabase, upsertDataToSupabase, FlatData, deleteDataFromSupabase, transformRemoteToLocal, fetchDeletionsFromSupabase, isNetworkError, fetchWithRetry, getFriendlyErrorMessage } from './useOnlineData.ts';
 import { getSupabaseClient } from '../supabaseClient.ts';
 import { Client, Case, Stage, Session, CaseDocument, AppData, DeletedIds, getInitialDeletedIds, SyncDeletion } from '../types.ts';
 import { getDb, DOCS_FILES_STORE_NAME } from '../utils/db.ts';
@@ -12,16 +12,14 @@ interface UseSyncProps {
     effectiveUserId: string | null;
     localData: AppData;
     deletedIds: DeletedIds;
-    onDataSynced: (mergedData: AppData, syncStartTime: number) => void;
+    onDataSynced: (mergedData: AppData) => void;
     onDeletionsSynced: (syncedDeletions: Partial<DeletedIds>) => void;
     onSyncStatusChange: (status: SyncStatus, error: string | null) => void;
     onDocumentsUploaded?: (uploadedDocIds: string[]) => void;
-    addSyncLog: (message: string, type: 'success' | 'error' | 'info') => void;
     excludedDocIds?: Set<string>;
     isOnline: boolean;
     isAuthLoading: boolean;
     syncStatus: SyncStatus;
-    lastLocalChangeTime: number;
 }
 
 const flattenData = (data: AppData): FlatData => {
@@ -103,13 +101,7 @@ const mergeForRefresh = <T extends { id?: any; name?: string; updated_at?: Date 
     const finalItems = new Map<string, T>();
     
     const getId = (item: T) => item.id ?? item.name;
-    const getTimestamp = (item: T) => {
-        if (!item.updated_at) return 0;
-        const d = new Date(item.updated_at);
-        return isNaN(d.getTime()) ? 0 : d.getTime();
-    };
 
-    // 1. Start with local items
     for (const localItem of local) {
         const id = getId(localItem);
         if (id !== undefined) {
@@ -117,22 +109,18 @@ const mergeForRefresh = <T extends { id?: any; name?: string; updated_at?: Date 
         }
     }
 
-    // 2. Merge remote items
     for (const remoteItem of remote) {
         const id = getId(remoteItem);
-        if (id === undefined) continue;
+        if (id === undefined) continue; // Skip items without a valid ID or name
 
         const existingItem = finalItems.get(String(id));
         if (existingItem) {
-            const remoteTs = getTimestamp(remoteItem);
-            const localTs = getTimestamp(existingItem);
-            
-            // Last-Write-Wins: Only update if remote is strictly newer
-            if (remoteTs > localTs) {
+            const remoteDate = new Date(remoteItem.updated_at || 0).getTime();
+            const localDate = new Date(existingItem.updated_at || 0).getTime();
+            if (remoteDate > localDate) {
                 finalItems.set(String(id), remoteItem);
             }
         } else {
-            // New item from remote
             finalItems.set(String(id), remoteItem);
         }
     }
@@ -178,12 +166,7 @@ const applyDeletionsToLocal = (localFlatData: FlatData, deletions: SyncDeletion[
 
 let isSyncLocked = false;
 
-export const resetSyncLock = () => {
-    console.log("useSync: Resetting sync lock manually.");
-    isSyncLocked = false;
-};
-
-export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSynced, onDeletionsSynced, onSyncStatusChange, onDocumentsUploaded, addSyncLog, excludedDocIds, isOnline, isAuthLoading, syncStatus, lastLocalChangeTime }: UseSyncProps) => {
+export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSynced, onDeletionsSynced, onSyncStatusChange, onDocumentsUploaded, excludedDocIds, isOnline, isAuthLoading, syncStatus }: UseSyncProps) => {
     const userRef = React.useRef(user);
     const ownerRef = React.useRef(effectiveUserId);
     const localDataRef = React.useRef(localData);
@@ -192,8 +175,6 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
     const onDataSyncedRef = React.useRef(onDataSynced);
     const onDeletionsSyncedRef = React.useRef(onDeletionsSynced);
     const onSyncStatusChangeRef = React.useRef(onSyncStatusChange);
-    const addSyncLogRef = React.useRef(addSyncLog);
-    const lastLocalChangeTimeRef = React.useRef(lastLocalChangeTime);
 
     userRef.current = user;
     ownerRef.current = effectiveUserId;
@@ -203,27 +184,30 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
     onDataSyncedRef.current = onDataSynced;
     onDeletionsSyncedRef.current = onDeletionsSynced;
     onSyncStatusChangeRef.current = onSyncStatusChange;
-    addSyncLogRef.current = addSyncLog;
-    lastLocalChangeTimeRef.current = lastLocalChangeTime;
 
 
     const setStatus = (status: SyncStatus, error: string | null = null) => { onSyncStatusChangeRef.current(status, error); };
 
     const manualSync = React.useCallback(async () => {
-        console.log("useSync: manualSync invoked.", { isSyncLocked, isAuthLoading, isOnline, user: userRef.current?.id, effectiveUserId: ownerRef.current });
         if (isSyncLocked || isAuthLoading) return;
         const realUser = userRef.current;
         const ownerId = ownerRef.current;
-        if (!isOnline || !realUser || !ownerId) {
-            console.warn("useSync: manualSync aborted due to offline, no user, or no ownerId.", { isOnline, realUser: !!realUser, ownerId: !!ownerId });
+        
+        if (!isOnline) {
+            console.log("Sync: Skipping because offline");
+            return;
+        }
+        if (!realUser) {
+            console.log("Sync: Skipping because no user");
+            return;
+        }
+        if (!ownerId) {
+            console.log("Sync: Skipping because no ownerId (effectiveUserId)");
             return;
         }
 
         isSyncLocked = true;
-        const syncStartTime = Date.now();
         setStatus('syncing', 'جاري المزامنة...');
-        addSyncLogRef.current('بدء المزامنة...', 'info');
-        console.log("useSync: Sync lock acquired.");
         try {
             const schemaCheck = await fetchWithRetry(() => checkSupabaseSchema());
             if (!schemaCheck.success) {
@@ -231,56 +215,16 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
                 return;
             }
 
-            console.log("useSync: Fetching remote data and deletions.", { ownerId, userId: realUser.id });
-            
-            // Step 1: Fetch profiles FIRST to ensure we know about all assistants
-            // This fixes the issue where a new assistant's data isn't fetched because the owner doesn't know about them yet.
-            const remoteProfiles = await fetchProfilesFromSupabase(ownerId);
-            
-            // Merge remote profiles with local profiles to get a complete list of known users
-            const allProfiles = [...localDataRef.current.profiles];
-            remoteProfiles.forEach(rp => {
-                if (!allProfiles.find(p => p.id === rp.id)) {
-                    allProfiles.push(rp);
-                }
-            });
-
-            // RE-CALCULATE OWNER ID based on new profiles
-            // This handles the case where a user just logged in and their profile (with lawyer_id) wasn't synced yet.
-            let currentOwnerId = ownerId;
-            const currentUserProfile = allProfiles.find(p => p.id === realUser.id);
-            if (currentUserProfile && currentUserProfile.lawyer_id) {
-                currentOwnerId = currentUserProfile.lawyer_id;
-                console.log("useSync: Updated ownerId from profiles:", currentOwnerId);
-            }
-
-            // Calculate all related user IDs to fetch data for
-            // This includes the owner, the current user, and any assistants linked to the owner
-            const assistantIds = allProfiles
-                .filter(p => p.lawyer_id === currentOwnerId)
-                .map(p => p.id);
-            
-            const relatedUserIds = Array.from(new Set([realUser.id, currentOwnerId, ...assistantIds]));
-            console.log("useSync: Identified related users for sync:", relatedUserIds);
-
             const [remoteDataRaw, remoteDeletions] = await Promise.all([
-                fetchWithRetry(() => fetchDataFromSupabase(currentOwnerId, relatedUserIds)),
+                fetchWithRetry(() => fetchDataFromSupabase(ownerId)),
                 fetchWithRetry(() => fetchDeletionsFromSupabase())
             ]);
-
-            // Debug: Log fetched counts
-            const counts = Object.keys(remoteDataRaw).reduce((acc: any, key) => {
-                acc[key] = Array.isArray((remoteDataRaw as any)[key]) ? (remoteDataRaw as any)[key].length : 0;
-                return acc;
-            }, {});
-            console.log("useSync: Fetched remote data counts:", counts);
 
             const remoteFlatData = transformRemoteToLocal(remoteDataRaw);
             let localFlatData = applyDeletionsToLocal(flattenData(localDataRef.current), remoteDeletions);
 
             const flatUpserts: Partial<FlatData> = {};
             const mergedFlatData: Partial<FlatData> = {};
-            let totalUpserts = 0;
 
             for (const key of Object.keys(localFlatData) as (keyof FlatData)[]) {
                 const localItems = (localFlatData as any)[key] || [];
@@ -292,25 +236,13 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
                 const itemsToUpsert = localItems.filter((localItem: any) => {
                     const id = localItem.id ?? localItem.name;
                     const remoteItem = remoteItems.find((r: any) => (r.id ?? r.name) === id);
-                    
-                    const localTs = new Date(localItem.updated_at || 0).getTime();
-                    const remoteTs = remoteItem ? new Date(remoteItem.updated_at || 0).getTime() : 0;
-                    
-                    // Standard Last-Write-Wins: local is newer than remote
-                    const isNewerThanRemote = localTs > remoteTs;
-                    // Also upsert if it's a completely new item
-                    const isNew = !remoteItem;
-                    
-                    const shouldUpsert = isNew || isNewerThanRemote;
-                    
-                    if (shouldUpsert) {
-                        console.log(`useSync: Item ${key}:${id} will be upserted. Reason: ${isNew ? 'New' : 'Newer'}. Local: ${localTs}, Remote: ${remoteTs}`);
-                    }
-                    
-                    return shouldUpsert;
+                    const isNewer = !remoteItem || new Date(localItem.updated_at || 0).getTime() > new Date(remoteItem.updated_at || 0).getTime();
+                    return isNewer;
                 });
+                if (itemsToUpsert.length > 0) {
+                    console.log(`Sync: Found ${itemsToUpsert.length} items to upload for table ${key}`);
+                }
                 (flatUpserts as any)[key] = itemsToUpsert;
-                totalUpserts += itemsToUpsert.length;
             }
 
             const flatDeletes: Partial<FlatData> = {
@@ -328,43 +260,25 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
                 site_finances: deletedIdsRef.current.siteFinances.map(id => ({ id })) as any,
             };
 
-            const totalDeletes = Object.values(flatDeletes).reduce((acc, arr) => acc + (arr?.length || 0), 0);
-
-            if (totalDeletes > 0) {
-                console.log(`useSync: Deleting ${totalDeletes} items from Supabase.`);
+            if (Object.values(flatDeletes).some(arr => arr && arr.length > 0)) {
                 await deleteDataFromSupabase(flatDeletes, realUser);
             }
 
-            if (totalUpserts > 0) {
-                console.log(`useSync: Upserting ${totalUpserts} items to Supabase.`, { flatUpserts });
-                await fetchWithRetry(() => upsertDataToSupabase(flatUpserts as FlatData, realUser, currentOwnerId));
-            } else {
-                console.log("useSync: No new or modified data to upsert.");
-            }
+            const upsertedDataRaw = await fetchWithRetry(() => upsertDataToSupabase(flatUpserts as FlatData, realUser, ownerId));
             const finalMergedData = constructData(mergedFlatData as FlatData);
             
-            await onDataSyncedRef.current(finalMergedData, syncStartTime);
+            await onDataSyncedRef.current(finalMergedData);
             await onDeletionsSyncedRef.current(deletedIdsRef.current);
-            
-            addSyncLogRef.current('اكتملت المزامنة بنجاح.', 'success');
-            
-            // Only clear dirty state if no new changes happened during sync
-            const syncFinishedTime = Date.now();
-            const lastChangeTime = lastLocalChangeTimeRef.current;
-            console.log("useSync: Sync finished.", { syncStartTime, syncFinishedTime, lastChangeTime });
-            
             // Small delay to ensure state updates (like setDirty) are processed
             setTimeout(() => setStatus('synced'), 100);
         } catch (err: any) {
+            console.error("Manual Sync Error Details:", err);
             if (!isNetworkError(err)) {
-                console.error("useSync: Manual Sync Error Details:", err);
-                addSyncLogRef.current(`خطأ في المزامنة: ${err.message || String(err)}`, 'error');
+                setStatus('error', `فشل المزامنة: ${err.message || 'خطأ غير معروف'}`);
             } else {
-                console.warn("useSync: Manual Sync failed due to network error (offline).", err);
-                addSyncLogRef.current('فشل المزامنة بسبب انقطاع الاتصال.', 'error');
+                console.warn("Sync failed due to network error (offline).");
+                setStatus('error', 'تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.');
             }
-            const errorMsg = getFriendlyErrorMessage(err, 'فشل المزامنة.');
-            setStatus('error', errorMsg);
         } finally {
             isSyncLocked = false;
         }
@@ -372,13 +286,5 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
 
     // Fix: manualSync and fetchAndRefresh are often used interchangeably in the UI. 
     // fetchAndRefresh logic is inherently handled by manualSync (full bi-directional sync).
-
-    React.useEffect(() => {
-        if (isOnline && !isSyncLocked && !isAuthLoading && userRef.current && ownerRef.current) {
-            console.log("useSync: Online detected, triggering sync.");
-            manualSync();
-        }
-    }, [isOnline, isAuthLoading, manualSync]);
-
     return { manualSync, fetchAndRefresh: manualSync };
 };

@@ -30,10 +30,7 @@ export const isNetworkError = (err: any): boolean => {
         combined = `${err.name} ${err.message}`.toLowerCase();
     } else {
         try {
-            // Check for common error object structures
-            const msg = err.message || err.error_description || err.statusText || '';
-            const code = err.code || '';
-            combined = `${code} ${msg} ${JSON.stringify(err)}`.toLowerCase();
+            combined = JSON.stringify(err).toLowerCase();
         } catch {
             combined = String(err).toLowerCase();
         }
@@ -45,8 +42,7 @@ export const isNetworkError = (err: any): boolean => {
         'connection',
         'aborted',
         'load failed',
-        'pgrst301', // JWT expired
-        'jwk fetch failed',
+        'pgrst301', // JWT expired (often results in network-like failure)
         '401', '403', '502', '503', '504',
         'dns',
         'timeout',
@@ -54,68 +50,31 @@ export const isNetworkError = (err: any): boolean => {
         'preflight',
         'socket',
         'offline',
-        'OFFLINE',
         'status 0',
         'status: 0',
-        'terminated',
-        'reset',
-        'refused',
-        'failed to load',
-        'internet',
-        'server',
-        'service unavailable',
-        'gateway',
-        'unreachable',
-        'unexpected end of stream'
+        'typeerror', // fetch() throws TypeError on network failure
     ];
 
-    const isMatch = networkPatterns.some(pattern => combined.includes(pattern));
-    
-    if (isMatch) return true;
-
-    // Additional checks for specific error types or properties
-    if (err instanceof TypeError && (combined.includes('fetch') || combined.includes('network'))) return true;
-    if (err.name === 'AbortError') return true;
-    if (String(err.status) === '0') return true;
-    if (err.code === 'PGRST301') return true;
-
-    return false;
+    return networkPatterns.some(pattern => combined.includes(pattern)) || 
+           err instanceof TypeError || 
+           String(err.status) === '0';
 };
 
 export const getFriendlyErrorMessage = (err: any, defaultMessage: string = 'حدث خطأ غير متوقع.'): string => {
     if (isNetworkError(err)) {
-        return 'تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت أو المحاولة لاحقاً.';
-    }
-    
-    // Handle specific Supabase error messages that might not be caught by patterns
-    const msg = typeof err === 'string' ? err : (err?.message || err?.error_description || err?.statusText || '');
-    const lowerMsg = String(msg).toLowerCase();
-    
-    if (lowerMsg.includes('failed to fetch') || lowerMsg.includes('network error') || lowerMsg.includes('load failed') || lowerMsg.includes('fetch')) {
         return 'تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.';
     }
-
-    if (lowerMsg.includes('jwt expired') || lowerMsg.includes('pgrst301') || lowerMsg.includes('token expired')) {
-        return 'انتهت صلاحية الجلسة. يرجى إعادة تسجيل الدخول.';
-    }
-
-    return err?.message || err?.error_description || String(err) || defaultMessage;
+    return err?.message || defaultMessage;
 };
 
 export const fetchWithRetry = async <T>(fn: () => Promise<T>, retries = 5, delay = 1000): Promise<T> => {
-    // Fail fast if we are definitely offline to avoid browser "Failed to fetch" noise
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-        throw new Error('OFFLINE: No internet connection');
-    }
-
     const timeout = (ms: number) => new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), ms));
     
     try {
         // Increase timeout to 150 seconds for slower connections
         const result = await Promise.race([fn(), timeout(150000)]) as T;
         
-        // Check if the result itself is an error object (e.g., from Supabase)
-        if (result && typeof result === 'object' && ('error' in result) && (result as any).error) {
+        if (result && typeof result === 'object' && (result as any).error) {
             const err = (result as any).error;
             if (isNetworkError(err)) {
                 if (retries > 0) {
@@ -140,7 +99,7 @@ export const checkSupabaseSchema = async () => {
     const supabase = await getSupabaseClient();
     if (!supabase) return { success: false, message: 'Supabase غير مهيأ.' };
     try {
-        const { error }: any = await fetchWithRetry(async () => await supabase.from('profiles').select('id', { head: true }));
+        const { error }: any = await supabase.from('profiles').select('id', { head: true });
         if (error) {
             if (isNetworkError(error)) throw error;
             // If it's a "table doesn't exist" or similar error, the schema needs setup
@@ -148,36 +107,11 @@ export const checkSupabaseSchema = async () => {
         }
         return { success: true, message: '' };
     } catch (err: any) {
-        if (isNetworkError(err)) {
-             return { success: false, message: 'تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.' };
-        }
-        return { success: false, message: getFriendlyErrorMessage(err, 'قاعدة البيانات غير مستجيبة.') };
+        return { success: false, message: isNetworkError(err) ? 'تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.' : 'قاعدة البيانات غير مستجيبة.' };
     }
 };
 
-export const fetchProfilesFromSupabase = async (ownerId: string): Promise<Profile[]> => {
-    const supabase = await getSupabaseClient();
-    if (!supabase) return [];
-    
-    try {
-        const { data, error } = await fetchWithRetry(async () => 
-            supabase.from('profiles')
-            .select('*')
-            .or(`id.eq.${ownerId},lawyer_id.eq.${ownerId}`)
-        );
-        
-        if (error) {
-            console.warn("Failed to fetch profiles:", error);
-            return [];
-        }
-        return (data as Profile[]) || [];
-    } catch (e) {
-        console.warn("Exception fetching profiles:", e);
-        return [];
-    }
-};
-
-export const fetchDataFromSupabase = async (ownerId: string, relatedUserIds: string[] = []): Promise<Partial<FlatData>> => {
+export const fetchDataFromSupabase = async (ownerId: string): Promise<Partial<FlatData>> => {
     const supabase = await getSupabaseClient();
     if (!supabase) throw new Error('Supabase client not available.');
 
@@ -201,28 +135,20 @@ export const fetchDataFromSupabase = async (ownerId: string, relatedUserIds: str
                     if (table === 'profiles') {
                         query = query.or(`id.eq.${ownerId},lawyer_id.eq.${ownerId}`);
                     } else {
-                        // Fetch data for the owner (Lawyer) AND all related users (Assistants)
-                        // This ensures that if data was saved with an assistant's ID, it is still retrieved.
-                        const allIds = Array.from(new Set([ownerId, ...relatedUserIds]));
-                        if (allIds.length > 1) {
-                            // Use 'in' filter for multiple IDs
-                            query = query.in('user_id', allIds);
-                        } else {
-                            query = query.eq('user_id', ownerId);
-                        }
+                        query = query.eq('user_id', ownerId);
                     }
                     return query;
                 };
 
                 const { data: tableData, error } = await fetchWithRetry(fetchFn);
                 if (error) {
-                    if (['profiles', 'clients', 'cases', 'admin_tasks'].includes(table)) throw error;
+                    if (['profiles', 'clients', 'cases'].includes(table)) throw error;
                     console.warn(`Non-critical table fetch failed: ${table}`, error);
                     return [];
                 }
                 return tableData || [];
             } catch (e) {
-                if (['profiles', 'clients', 'cases', 'admin_tasks'].includes(table)) throw e;
+                if (['profiles', 'clients', 'cases'].includes(table)) throw e;
                 return [];
             }
         });
@@ -256,17 +182,19 @@ export const upsertDataToSupabase = async (data: Partial<FlatData>, realUser: Us
     const results = await Promise.allSettled(Object.entries(data).map(async ([table, items]) => {
         if (!items || items.length === 0) return;
         
+        console.log(`Sync: Upserting ${items.length} items to ${table}...`);
         const formatted = items.map(item => {
             const { feeAgreement, ...rest } = item as any;
             const newItem: any = {
                 ...rest,
                 updated_at: item.updated_at ? new Date(item.updated_at).toISOString() : new Date().toISOString(),
             };
-
+            
+            // Profiles table uses 'id' as the primary key and doesn't have a 'user_id' column
             if (table !== 'profiles') {
                 newItem.user_id = ownerId;
             }
-
+            
             if (feeAgreement !== undefined) {
                 newItem.fee_agreement = feeAgreement;
             }
@@ -274,12 +202,14 @@ export const upsertDataToSupabase = async (data: Partial<FlatData>, realUser: Us
             return newItem;
         });
         
-        const { error }: any = await fetchWithRetry(async () => await supabase.from(table).upsert(formatted));
+        console.table(formatted.slice(0, 5)); // Log first 5 items for debugging
+        
+        const { error, data: responseData }: any = await fetchWithRetry(async () => await supabase.from(table).upsert(formatted, { onConflict: table === 'assistants' ? 'name,user_id' : 'id' }));
         if (error) {
-            if (!isNetworkError(error)) {
-                console.error(`Upsert failed for table ${table}:`, error);
-            }
-            if (['profiles', 'clients', 'cases', 'admin_tasks'].includes(table)) throw error;
+            console.error(`Sync: Upsert failed for table ${table}:`, error);
+            if (['profiles', 'clients', 'cases'].includes(table)) throw error;
+        } else {
+            console.log(`Sync: Successfully upserted to ${table}`);
         }
     }));
 
