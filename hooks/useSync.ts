@@ -189,20 +189,12 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
     const setStatus = (status: SyncStatus, error: string | null = null) => { onSyncStatusChangeRef.current(status, error); };
 
     const manualSync = React.useCallback(async () => {
+        console.log("useSync: manualSync invoked.", { isSyncLocked, isAuthLoading, isOnline, user: userRef.current?.id, effectiveUserId: ownerRef.current });
         if (isSyncLocked || isAuthLoading) return;
         const realUser = userRef.current;
         const ownerId = ownerRef.current;
-        
-        if (!isOnline) {
-            console.log("Sync: Skipping because offline");
-            return;
-        }
-        if (!realUser) {
-            console.log("Sync: Skipping because no user");
-            return;
-        }
-        if (!ownerId) {
-            console.log("Sync: Skipping because no ownerId (effectiveUserId)");
+        if (!isOnline || !realUser || !ownerId) {
+            console.warn("useSync: manualSync aborted due to offline, no user, or no ownerId.", { isOnline, realUser: !!realUser, ownerId: !!ownerId });
             return;
         }
 
@@ -215,6 +207,7 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
                 return;
             }
 
+            console.log("useSync: Fetching remote data and deletions.", { ownerId });
             const [remoteDataRaw, remoteDeletions] = await Promise.all([
                 fetchWithRetry(() => fetchDataFromSupabase(ownerId)),
                 fetchWithRetry(() => fetchDeletionsFromSupabase())
@@ -236,12 +229,8 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
                 const itemsToUpsert = localItems.filter((localItem: any) => {
                     const id = localItem.id ?? localItem.name;
                     const remoteItem = remoteItems.find((r: any) => (r.id ?? r.name) === id);
-                    const isNewer = !remoteItem || new Date(localItem.updated_at || 0).getTime() > new Date(remoteItem.updated_at || 0).getTime();
-                    return isNewer;
+                    return !remoteItem || new Date(localItem.updated_at || 0).getTime() > new Date(remoteItem.updated_at || 0).getTime();
                 });
-                if (itemsToUpsert.length > 0) {
-                    console.log(`Sync: Found ${itemsToUpsert.length} items to upload for table ${key}`);
-                }
                 (flatUpserts as any)[key] = itemsToUpsert;
             }
 
@@ -261,9 +250,11 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
             };
 
             if (Object.values(flatDeletes).some(arr => arr && arr.length > 0)) {
+                console.log("useSync: Deleting data from Supabase.", { flatDeletes });
                 await deleteDataFromSupabase(flatDeletes, realUser);
             }
 
+            console.log("useSync: Upserting data to Supabase.", { flatUpserts });
             const upsertedDataRaw = await fetchWithRetry(() => upsertDataToSupabase(flatUpserts as FlatData, realUser, ownerId));
             const finalMergedData = constructData(mergedFlatData as FlatData);
             
@@ -272,7 +263,7 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
             // Small delay to ensure state updates (like setDirty) are processed
             setTimeout(() => setStatus('synced'), 100);
         } catch (err: any) {
-            console.error("Manual Sync Error Details:", err);
+            console.error("useSync: Manual Sync Error Details:", err);
             if (!isNetworkError(err)) {
                 setStatus('error', `فشل المزامنة: ${err.message || 'خطأ غير معروف'}`);
             } else {

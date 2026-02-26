@@ -273,34 +273,15 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     const [data, setData] = React.useState<AppData>(getInitialData);
     const [deletedIds, setDeletedIds] = React.useState<DeletedIds>(getInitialDeletedIds);
     const [excludedDocIds, setExcludedDocIds] = React.useState<Set<string>>(new Set());
-    const [isDirty, setDirtyState] = React.useState(false);
-    const [lastLocalChangeTime, setLastLocalChangeTime] = React.useState<number>(0);
-    
-    const setDirty = React.useCallback((dirty: boolean) => {
-        setDirtyState(dirty);
-        if (dirty) {
-            setLastLocalChangeTime(Date.now());
-        }
-        if (effectiveUserIdRef.current) {
-            getDb().then(db => {
-                db.put(DATA_STORE_NAME, dirty, `isDirty_${effectiveUserIdRef.current}`);
-            }).catch(e => console.error("Failed to persist isDirty state", e));
-        }
-    }, []);
+    const [isDirty, setDirty] = React.useState(false);
     const [syncStatus, setSyncStatus] = React.useState<SyncStatus>('loading');
     const [lastSyncError, setLastSyncError] = React.useState<string | null>(null);
     const [lastSyncedAt, setLastSyncedAt] = React.useState<Date | null>(null);
-    const [lastSyncAttemptAt, setLastSyncAttemptAt] = React.useState<Date | null>(null);
     const [isDataLoading, setIsDataLoading] = React.useState(true);
     const [triggeredAlerts, setTriggeredAlerts] = React.useState<Appointment[]>([]);
     const [showUnpostponedSessionsModal, setShowUnpostponedSessionsModal] = React.useState(false);
     const [realtimeAlerts, setRealtimeAlerts] = React.useState<RealtimeAlert[]>([]);
     const [userApprovalAlerts, setUserApprovalAlerts] = React.useState<RealtimeAlert[]>([]);
-    const [syncHistory, setSyncHistory] = React.useState<{ time: Date; message: string; type: 'success' | 'error' | 'info' }[]>([]);
-    
-    const addSyncLog = React.useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
-        setSyncHistory(prev => [{ time: new Date(), message, type }, ...prev].slice(0, 20));
-    }, []);
     const [userSettings, setUserSettings] = React.useState<any>({ isAutoSyncEnabled: true, isAutoBackupEnabled: true, adminTasksLayout: 'horizontal', locationOrder: [] });
     const isOnline = useOnlineStatus();
     
@@ -325,30 +306,12 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
 
     const effectiveUserId = React.useMemo(() => {
         if (!user) return null;
-        
-        // 1. Check profiles in data state (most up-to-date)
         const currentUserProfile = data.profiles.find(p => p.id === user.id);
         if (currentUserProfile && currentUserProfile.lawyer_id) {
-            return currentUserProfile.lawyer_id;
+            return currentUserProfile.lawyer_id; 
         }
-
-        // 2. Check localStorage (fallback for initial load)
-        const cachedOwnerId = localStorage.getItem(`lawyer_app_owner_id_${user.id}`);
-        if (cachedOwnerId) return cachedOwnerId;
-
-        return user.id;
+        return user.id; 
     }, [user, data.profiles]);
-
-    const effectiveUserIdRef = React.useRef(effectiveUserId);
-    effectiveUserIdRef.current = effectiveUserId;
-
-    React.useEffect(() => {
-        console.log("useSupabaseData: isDirty changed:", isDirty);
-    }, [isDirty]);
-
-    React.useEffect(() => {
-        console.log("useSupabaseData: effectiveUserId changed:", effectiveUserId);
-    }, [effectiveUserId]);
 
     const currentUserPermissions: Permissions = React.useMemo(() => {
         if (!user) return defaultPermissions;
@@ -400,7 +363,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
             }
             return newData;
         });
-    }, [effectiveUserIdRef.current]); 
+    }, [effectiveUserId]); 
 
     const setFullData = React.useCallback(async (newData: any) => {
         const validated = validateAndFixData(newData, userRef.current);
@@ -545,19 +508,17 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     ownerId = cachedOwnerId;
                 }
 
-                let fetchedProfileData: any = null;
-
                 if (isOnlineNow && supabase) {
                     try {
                         const res: any = await fetchWithRetry(async () => 
-                            await supabase!.from('profiles').select('*').eq('id', user!.id).maybeSingle()
+                            await supabase!.from('profiles').select('lawyer_id').eq('id', user!.id).maybeSingle()
                         );
-                        fetchedProfileData = res?.data;
+                        const profileData = res?.data;
 
-                        if (fetchedProfileData && fetchedProfileData.lawyer_id) {
-                            ownerId = fetchedProfileData.lawyer_id;
+                        if (profileData && profileData.lawyer_id) {
+                            ownerId = profileData.lawyer_id;
                             localStorage.setItem(`lawyer_app_owner_id_${user.id}`, ownerId);
-                        } else if (fetchedProfileData) {
+                        } else if (profileData) {
                             ownerId = user.id;
                             localStorage.setItem(`lawyer_app_owner_id_${user.id}`, ownerId);
                         }
@@ -567,12 +528,11 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 }
 
                 const db = await getDb();
-                const [storedData, storedDeletedIds, localDocsMetadata, storedExcludedDocs, storedIsDirty] = await Promise.all([
+                const [storedData, storedDeletedIds, localDocsMetadata, storedExcludedDocs] = await Promise.all([
                     db.get(DATA_STORE_NAME, ownerId),
                     db.get(DATA_STORE_NAME, `deletedIds_${ownerId}`),
                     db.getAll(DOCS_METADATA_STORE_NAME),
-                    db.getAll(LOCAL_EXCLUDED_DOCS_STORE_NAME),
-                    db.get(DATA_STORE_NAME, `isDirty_${ownerId}`)
+                    db.getAll(LOCAL_EXCLUDED_DOCS_STORE_NAME)
                 ]);
                 
                 if (cancelled) return;
@@ -581,34 +541,6 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 setExcludedDocIds(excludedIdsSet);
 
                 const validatedData = validateAndFixData(storedData, user);
-                
-                // Merge fetched profile data to ensure effectiveUserId is correct immediately
-                if (fetchedProfileData) {
-                    const existingProfileIndex = validatedData.profiles.findIndex(p => p.id === user.id);
-                    const newProfile = {
-                        id: String(fetchedProfileData.id),
-                        full_name: String(fetchedProfileData.full_name || ''),
-                        mobile_number: String(fetchedProfileData.mobile_number || ''),
-                        is_approved: !!fetchedProfileData.is_approved,
-                        is_active: fetchedProfileData.is_active !== false,
-                        mobile_verified: !!fetchedProfileData.mobile_verified,
-                        otp_code: fetchedProfileData.otp_code,
-                        otp_expires_at: fetchedProfileData.otp_expires_at,
-                        subscription_start_date: fetchedProfileData.subscription_start_date || null,
-                        subscription_end_date: fetchedProfileData.subscription_end_date || null,
-                        role: ['user', 'admin'].includes(fetchedProfileData.role) ? fetchedProfileData.role : 'user',
-                        lawyer_id: fetchedProfileData.lawyer_id || null, 
-                        permissions: fetchedProfileData.permissions || undefined, 
-                        created_at: fetchedProfileData.created_at,
-                        updated_at: reviveDate(fetchedProfileData.updated_at),
-                    };
-
-                    if (existingProfileIndex >= 0) {
-                        validatedData.profiles[existingProfileIndex] = { ...validatedData.profiles[existingProfileIndex], ...newProfile };
-                    } else {
-                        validatedData.profiles.push(newProfile as Profile);
-                    }
-                }
                 const localDocsMetadataMap = new Map((localDocsMetadata as any[]).map((meta: any) => [meta.id, meta]));
                 const finalDocs = validatedData.documents.map(doc => {
                     if (excludedIdsSet.has(doc.id)) return null;
@@ -620,7 +552,6 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 
                 setData(finalData);
                 setDeletedIds(storedDeletedIds || getInitialDeletedIds());
-                setDirtyState(!!storedIsDirty);
                 
                 // Initial background sync
                 if (isOnlineNow) {
@@ -653,7 +584,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         setLastSyncError(error);
     }, []);
 
-    const handleDataSynced = React.useCallback(async (mergedData: AppData, syncStartTime: number) => {
+    const handleDataSynced = React.useCallback(async (mergedData: AppData) => {
         if (!effectiveUserId) return;
         try {
             const validatedMergedData = validateAndFixData(mergedData, userRef.current);
@@ -690,14 +621,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
             }
 
             setData(finalData);
-            
-            // Only clear dirty state if no new changes happened during sync
-            if (lastLocalChangeTime <= syncStartTime) {
-                console.log("useSupabaseData: Clearing dirty state, no new changes during sync.");
-                setDirty(false);
-            } else {
-                console.log("useSupabaseData: Keeping dirty state, new changes occurred during sync.", { lastLocalChangeTime, syncStartTime });
-            }
+            setDirty(false);
             
             if (isOnline) {
                 downloadMissingFiles(finalDocs);
@@ -784,9 +708,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         },
         onDocumentsUploaded: handleDocumentsUploaded, 
         excludedDocIds, 
-        isOnline, isAuthLoading, syncStatus,
-        lastLocalChangeTime,
-        addSyncLog
+        isOnline, isAuthLoading, syncStatus
     });
 
     const manualSync = React.useCallback(async () => {
@@ -795,59 +717,8 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
             pendingSyncRef.current = true;
             return;
         }
-        
-        isSyncingRef.current = true;
-        setLastSyncAttemptAt(new Date());
-        
-        try {
-            await originalManualSync();
-        } finally {
-            isSyncingRef.current = false;
-            if (pendingSyncRef.current) {
-                console.log("Executing queued sync...");
-                pendingSyncRef.current = false;
-                manualSync();
-            }
-        }
+        return originalManualSync();
     }, [originalManualSync]);
-
-    // --- BACKGROUND SYNC LOOP ---
-    // This effect ensures that any local changes (isDirty) are synced to the cloud when online.
-    React.useEffect(() => {
-        if (!isOnline || isSyncingRef.current || !isDirty || !user || !effectiveUserId || !userSettings.isAutoSyncEnabled) return;
-
-        // Debounce sync to avoid too many requests during rapid edits
-        const timer = setTimeout(() => {
-            console.log("Background sync triggered by local changes (isDirty/lastLocalChangeTime).");
-            manualSync();
-        }, 3000);
-
-        return () => clearTimeout(timer);
-    }, [isDirty, lastLocalChangeTime, isOnline, user?.id, effectiveUserId, manualSync, userSettings.isAutoSyncEnabled]);
-
-    // Periodic sync check (every 2 minutes) even if not dirty, to catch missed realtime updates
-    React.useEffect(() => {
-        const interval = setInterval(() => {
-            if (isOnline && !isSyncingRef.current && user && effectiveUserId && userSettings.isAutoSyncEnabled) {
-                console.log("Periodic background sync check.");
-                manualSync();
-            }
-        }, 2 * 60 * 1000);
-
-        // Sync when window regains focus
-        const handleFocus = () => {
-            if (isOnline && !isSyncingRef.current && user && effectiveUserId && userSettings.isAutoSyncEnabled) {
-                console.log("Window focused, triggering sync...");
-                manualSync();
-            }
-        };
-        window.addEventListener('focus', handleFocus);
-
-        return () => {
-            clearInterval(interval);
-            window.removeEventListener('focus', handleFocus);
-        };
-    }, [isOnline, user?.id, effectiveUserId, manualSync, userSettings.isAutoSyncEnabled]);
 
     const addRealtimeAlert = React.useCallback((message: string, type: 'sync' | 'userApproval' = 'sync') => {
         setRealtimeAlerts((prev: any[]) => [...prev, { id: Date.now(), message, type }]);
@@ -861,8 +732,6 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
             const supabase = supabaseClientRef.current;
             if (!supabase || !user || !effectiveUserId || !isOnline) return;
 
-            console.log('Subscribing to realtime updates for office:', effectiveUserId);
-
             channel = supabase
                 .channel(`office-updates-${effectiveUserId}`)
                 .on(
@@ -874,24 +743,9 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     (payload: any) => {
                         // Only trigger sync if the change belongs to our office
                         const record = payload.new as any || payload.old as any;
-                        if (!record) return;
-
-                        let shouldSync = false;
-                        const currentOwnerId = effectiveUserIdRef.current;
-
-                        if (payload.table === 'profiles') {
-                             // Sync if the profile is ME, or the profile belongs to my OFFICE (lawyer_id == currentOwnerId), or the profile IS the lawyer (id == currentOwnerId)
-                             if (record.id === user.id || record.lawyer_id === currentOwnerId || record.id === currentOwnerId) {
-                                 shouldSync = true;
-                             }
-                        } else {
-                             // For other tables, check user_id
-                             if (record.user_id === currentOwnerId) {
-                                 shouldSync = true;
-                             }
-                        }
+                        const recordUserId = record?.user_id || record?.id || record?.lawyer_id;
                         
-                        if (shouldSync) {
+                        if (recordUserId === effectiveUserId) {
                             console.log('Realtime update detected for office:', payload.table, payload.eventType);
                             
                             // Show a notification for remote updates
@@ -903,22 +757,10 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                                 'admin_tasks': 'المهام الإدارية',
                                 'appointments': 'المواعيد',
                                 'accounting_entries': 'القيود المحاسبية',
-                                'invoices': 'الفواتير',
-                                'case_documents': 'المستندات',
-                                'profiles': 'الملفات الشخصية',
-                                'assistants': 'المساعدين'
+                                'invoices': 'الفواتير'
                             };
-
-                            const eventTypesAr: Record<string, string> = {
-                                'INSERT': 'إضافة',
-                                'UPDATE': 'تعديل',
-                                'DELETE': 'حذف'
-                            };
-
                             const tableName = tableNamesAr[payload.table] || payload.table;
-                            const eventType = eventTypesAr[payload.eventType] || payload.eventType;
-                            
-                            addRealtimeAlert(`تم ${eventType} في ${tableName} من قبل مستخدم آخر. جاري المزامنة...`);
+                            addRealtimeAlert(`تم تحديث بيانات (${tableName}) من مستخدم آخر`, 'sync');
                             manualSync();
                         }
                     }
@@ -940,6 +782,44 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         };
     }, [user, effectiveUserId, isOnline, manualSync, addRealtimeAlert]);
 
+    React.useEffect(() => {
+        if (isOnline && isDirty && userSettings.isAutoSyncEnabled && syncStatus !== 'syncing') {
+            const handler = setTimeout(() => { manualSync(); }, 3000);
+            return () => clearTimeout(handler);
+        }
+    }, [isOnline, isDirty, userSettings.isAutoSyncEnabled, manualSync]);
+
+    React.useEffect(() => {
+        if (isOnline && userSettings.isAutoSyncEnabled && syncStatus !== 'syncing' && syncStatus !== 'loading') {
+            manualSync();
+        }
+
+        // Periodic sync every 2 minutes to pull changes from other users
+        let interval: number | undefined;
+        if (isOnline && userSettings.isAutoSyncEnabled) {
+            interval = window.setInterval(() => {
+                if (syncStatus !== 'syncing') {
+                    console.log("Periodic background sync...");
+                    manualSync();
+                }
+            }, 120000); // 2 minutes
+        }
+
+        // Sync when window regains focus
+        const handleFocus = () => {
+            if (isOnline && userSettings.isAutoSyncEnabled && syncStatus !== 'syncing') {
+                console.log("Window focused, triggering sync...");
+                manualSync();
+            }
+        };
+        window.addEventListener('focus', handleFocus);
+
+        return () => {
+            if (interval) clearInterval(interval);
+            window.removeEventListener('focus', handleFocus);
+        };
+    }, [isOnline, userSettings.isAutoSyncEnabled, manualSync]); 
+
     const createDeleteFunction = <T extends keyof DeletedIds>(entity: T) => async (id: DeletedIds[T][number]) => {
         if (!effectiveUserId) return;
         const db = await getDb();
@@ -951,15 +831,15 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
 
     return {
         ...data,
-        setClients: (updater: (prev: Client[]) => Client[]) => updateData((prev: AppData) => ({ ...prev, clients: updater(prev.clients) })),
-        setAdminTasks: (updater: (prev: AdminTask[]) => AdminTask[]) => updateData((prev: AppData) => ({ ...prev, adminTasks: updater(prev.adminTasks) })),
-        setAppointments: (updater: (prev: Appointment[]) => Appointment[]) => updateData((prev: AppData) => ({ ...prev, appointments: updater(prev.appointments) })),
-        setAccountingEntries: (updater: (prev: AccountingEntry[]) => AccountingEntry[]) => updateData((prev: AppData) => ({ ...prev, accountingEntries: updater(prev.accountingEntries) })),
-        setInvoices: (updater: (prev: Invoice[]) => Invoice[]) => updateData((prev: AppData) => ({ ...prev, invoices: updater(prev.invoices) })),
+        setClients: (updater: (prev: Client[]) => Client[]) => updateData((prev: AppData) => ({ ...prev, clients: updater(prev.clients).map((c: Client) => ({ ...c, updated_at: new Date() })) })),
+        setAdminTasks: (updater: (prev: AdminTask[]) => AdminTask[]) => updateData((prev: AppData) => ({ ...prev, adminTasks: updater(prev.adminTasks).map((t: AdminTask) => ({ ...t, updated_at: new Date() })) })),
+        setAppointments: (updater: (prev: Appointment[]) => Appointment[]) => updateData((prev: AppData) => ({ ...prev, appointments: updater(prev.appointments).map((a: Appointment) => ({ ...a, updated_at: new Date() })) })),
+        setAccountingEntries: (updater: (prev: AccountingEntry[]) => AccountingEntry[]) => updateData((prev: AppData) => ({ ...prev, accountingEntries: updater(prev.accountingEntries).map((e: AccountingEntry) => ({ ...e, updated_at: new Date() })) })),
+        setInvoices: (updater: (prev: Invoice[]) => Invoice[]) => updateData((prev: AppData) => ({ ...prev, invoices: updater(prev.invoices).map((i: Invoice) => ({ ...i, updated_at: new Date() })) })),
         setAssistants: (updater: (prev: string[]) => string[]) => updateData((prev: AppData) => ({ ...prev, assistants: updater(prev.assistants) })),
-        setDocuments: (updater: (prev: CaseDocument[]) => CaseDocument[]) => updateData((prev: AppData) => ({ ...prev, documents: updater(prev.documents) })),
-        setProfiles: (updater: (prev: Profile[]) => Profile[]) => updateData((prev: AppData) => ({ ...prev, profiles: updater(prev.profiles) })),
-        setSiteFinances: (updater: (prev: SiteFinancialEntry[]) => SiteFinancialEntry[]) => updateData((prev: AppData) => ({ ...prev, siteFinances: updater(prev.siteFinances) })),
+        setDocuments: (updater: (prev: CaseDocument[]) => CaseDocument[]) => updateData((prev: AppData) => ({ ...prev, documents: updater(prev.documents).map((d: CaseDocument) => ({ ...d, updated_at: new Date() })) })),
+        setProfiles: (updater: (prev: Profile[]) => Profile[]) => updateData((prev: AppData) => ({ ...prev, profiles: updater(prev.profiles).map((p: Profile) => ({ ...p, updated_at: new Date() })) })),
+        setSiteFinances: (updater: (prev: SiteFinancialEntry[]) => SiteFinancialEntry[]) => updateData((prev: AppData) => ({ ...prev, siteFinances: updater(prev.siteFinances).map((f: SiteFinancialEntry) => ({ ...f, updated_at: new Date() })) })),
         lastSyncedAt,
         setFullData,
         allSessions: React.useMemo(() => data.clients.flatMap(c => c.cases.flatMap(cs => cs.stages.flatMap(st => st.sessions.map(s => ({...s, stageId: st.id, stageDecisionDate: st.decisionDate}))))), [data.clients]),
@@ -988,8 +868,8 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 )
             );
         }, [data.clients]),
-        syncStatus, setSyncStatus, manualSync, lastSyncError, isDirty, userId: user?.id, effectiveUserId, isDataLoading,
-        syncHistory, addSyncLog,
+        syncStatus, manualSync, lastSyncError, isDirty, userId: user?.id, isDataLoading,
+        effectiveUserId,
         permissions: currentUserPermissions,
         isAutoSyncEnabled: userSettings.isAutoSyncEnabled, setAutoSyncEnabled: (v: boolean) => updateSettings(p => ({...p, isAutoSyncEnabled: v})),
         isAutoBackupEnabled: userSettings.isAutoBackupEnabled, setAutoBackupEnabled: (v: boolean) => updateSettings(p => ({...p, isAutoBackupEnabled: v})),
@@ -1150,11 +1030,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     } catch {
                         errorMsg = String(e);
                     }
-                    if (!isNetworkError(e)) {
-                        console.error(`Failed to download doc ${doc.id}:`, e);
-                    } else {
-                        console.warn(`Failed to download doc ${doc.id} due to network error (offline).`);
-                    }
+                    console.error(`Failed to download doc ${doc.id}:`, e);
                     await db.put(DOCS_METADATA_STORE_NAME, { ...doc, localState: 'error' }, doc.id);
                     updateData(prev => ({...prev, documents: prev.documents.map(d => d.id === docId ? {...d, localState: 'error'} : d)}), { markDirty: false });
                 }

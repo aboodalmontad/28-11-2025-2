@@ -483,15 +483,10 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                         <p className="text-sm text-red-600 font-bold mb-2">
                            {data.syncStatus === 'error' ? 'فشل الاتصال بخادم قاعدة البيانات.' : 'يبدو أن التحميل يستغرق وقتاً أطول من المعتاد.'}
                         </p>
-                        <div className="flex flex-wrap gap-4 justify-center">
+                        <div className="flex gap-4 justify-center">
                             <button onClick={() => { setShowTroubleshooting(false); data.manualSync(); }} className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 shadow-sm">
                                 <ArrowPathIcon className="w-4 h-4" /> <span>إعادة المحاولة</span>
                             </button>
-                            {data.syncStatus === 'error' && (
-                                <button onClick={() => data.setSyncStatus('unconfigured')} className="px-4 py-2 bg-orange-600 text-white rounded-lg flex items-center gap-2 shadow-sm">
-                                    <ExclamationCircleIcon className="w-4 h-4" /> <span>فتح معالج الإعداد (SQL Script)</span>
-                                </button>
-                            )}
                             <button onClick={handleLogout} className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg flex items-center gap-2 shadow-sm">
                                 <PowerIcon className="w-4 h-4" /> <span>تسجيل الخروج</span>
                             </button>

@@ -24,10 +24,6 @@ async function build() {
             sourcemap: true,
             minify: true,
             target: 'es2020',
-            define: {
-                'import.meta.env.VITE_SUPABASE_URL': process.env.VITE_SUPABASE_URL ? JSON.stringify(process.env.VITE_SUPABASE_URL) : 'undefined',
-                'import.meta.env.VITE_SUPABASE_ANON_KEY': process.env.VITE_SUPABASE_ANON_KEY ? JSON.stringify(process.env.VITE_SUPABASE_ANON_KEY) : 'undefined',
-            },
             // All packages from importmap are external to keep bundle size small
             external: [
                 'react',
@@ -39,7 +35,6 @@ async function build() {
                 'idb',
                 'react/*', 
                 'docx-preview',
-                'jszip',
             ],
         });
 

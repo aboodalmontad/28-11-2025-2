@@ -21,5 +21,5 @@
       "*": ["src/*"]
     }
   },
-  "include": ["src", "hooks", "pages", "components", "App.tsx", "index.tsx", "supabaseClient.ts", "types.ts", "constants.ts", "vite-env.d.ts"]
+  "include": ["src", "hooks", "pages", "components", "App.tsx", "index.tsx", "supabaseClient.ts", "types.ts", "constants.ts"]
 }

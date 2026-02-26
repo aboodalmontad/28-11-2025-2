@@ -182,19 +182,13 @@ export const upsertDataToSupabase = async (data: Partial<FlatData>, realUser: Us
     const results = await Promise.allSettled(Object.entries(data).map(async ([table, items]) => {
         if (!items || items.length === 0) return;
         
-        console.log(`Sync: Upserting ${items.length} items to ${table}...`);
         const formatted = items.map(item => {
             const { feeAgreement, ...rest } = item as any;
             const newItem: any = {
                 ...rest,
+                user_id: ownerId,
                 updated_at: item.updated_at ? new Date(item.updated_at).toISOString() : new Date().toISOString(),
             };
-            
-            // Profiles table uses 'id' as the primary key and doesn't have a 'user_id' column
-            if (table !== 'profiles') {
-                newItem.user_id = ownerId;
-            }
-            
             if (feeAgreement !== undefined) {
                 newItem.fee_agreement = feeAgreement;
             }
@@ -202,14 +196,10 @@ export const upsertDataToSupabase = async (data: Partial<FlatData>, realUser: Us
             return newItem;
         });
         
-        console.table(formatted.slice(0, 5)); // Log first 5 items for debugging
-        
-        const { error, data: responseData }: any = await fetchWithRetry(async () => await supabase.from(table).upsert(formatted, { onConflict: table === 'assistants' ? 'name,user_id' : 'id' }));
+        const { error }: any = await fetchWithRetry(async () => await supabase.from(table).upsert(formatted));
         if (error) {
-            console.error(`Sync: Upsert failed for table ${table}:`, error);
+            console.error(`Upsert failed for table ${table}:`, error);
             if (['profiles', 'clients', 'cases'].includes(table)) throw error;
-        } else {
-            console.log(`Sync: Successfully upserted to ${table}`);
         }
     }));
 
