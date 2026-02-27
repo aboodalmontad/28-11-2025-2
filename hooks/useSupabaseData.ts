@@ -350,7 +350,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         };
     }, [user, data.profiles]);
 
-    const updateData = React.useCallback((updater: React.SetStateAction<AppData>, options: { markDirty?: boolean } = { markDirty: true }) => {
+    const updateData = React.useCallback((updater: React.SetStateAction<AppData>, options: { markDirty?: boolean; skipCloudSync?: boolean } = { markDirty: true, skipCloudSync: false }) => {
         if (!userRef.current || !effectiveUserId) return;
         
         setData(currentData => {
@@ -358,12 +358,12 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
             getDb().then(db => {
                 db.put(DATA_STORE_NAME, newData, effectiveUserId);
             }).catch(e => console.error("Failed to write to IDB", e));
-            if (options.markDirty) {
+            if (options.markDirty && !options.skipCloudSync) {
                 setDirty(true);
             }
             return newData;
         });
-    }, [effectiveUserId]); 
+    }, [effectiveUserId]);
 
     const setFullData = React.useCallback(async (newData: any) => {
         const validated = validateAndFixData(newData, userRef.current);
@@ -508,19 +508,17 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     ownerId = cachedOwnerId;
                 }
 
-                let fetchedProfileData: any = null;
-
                 if (isOnlineNow && supabase) {
                     try {
                         const res: any = await fetchWithRetry(async () => 
-                            await supabase!.from('profiles').select('*').eq('id', user!.id).maybeSingle()
+                            await supabase!.from('profiles').select('lawyer_id').eq('id', user!.id).maybeSingle()
                         );
-                        fetchedProfileData = res?.data;
+                        const profileData = res?.data;
 
-                        if (fetchedProfileData && fetchedProfileData.lawyer_id) {
-                            ownerId = fetchedProfileData.lawyer_id;
+                        if (profileData && profileData.lawyer_id) {
+                            ownerId = profileData.lawyer_id;
                             localStorage.setItem(`lawyer_app_owner_id_${user.id}`, ownerId);
-                        } else if (fetchedProfileData) {
+                        } else if (profileData) {
                             ownerId = user.id;
                             localStorage.setItem(`lawyer_app_owner_id_${user.id}`, ownerId);
                         }
@@ -543,34 +541,6 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 setExcludedDocIds(excludedIdsSet);
 
                 const validatedData = validateAndFixData(storedData, user);
-
-                // Merge fetched profile data to ensure effectiveUserId is correct immediately
-                if (fetchedProfileData) {
-                    const existingProfileIndex = validatedData.profiles.findIndex(p => p.id === user.id);
-                    const newProfile = {
-                        id: String(fetchedProfileData.id),
-                        full_name: String(fetchedProfileData.full_name || ''),
-                        mobile_number: String(fetchedProfileData.mobile_number || ''),
-                        is_approved: !!fetchedProfileData.is_approved,
-                        is_active: fetchedProfileData.is_active !== false,
-                        mobile_verified: !!fetchedProfileData.mobile_verified,
-                        otp_code: fetchedProfileData.otp_code,
-                        otp_expires_at: fetchedProfileData.otp_expires_at,
-                        subscription_start_date: fetchedProfileData.subscription_start_date || null,
-                        subscription_end_date: fetchedProfileData.subscription_end_date || null,
-                        role: ['user', 'admin'].includes(fetchedProfileData.role) ? fetchedProfileData.role : 'user',
-                        lawyer_id: fetchedProfileData.lawyer_id || null, 
-                        permissions: fetchedProfileData.permissions || undefined, 
-                        created_at: fetchedProfileData.created_at,
-                        updated_at: reviveDate(fetchedProfileData.updated_at),
-                    };
-
-                    if (existingProfileIndex >= 0) {
-                        validatedData.profiles[existingProfileIndex] = { ...validatedData.profiles[existingProfileIndex], ...newProfile };
-                    } else {
-                        validatedData.profiles.push(newProfile as Profile);
-                    }
-                }
                 const localDocsMetadataMap = new Map((localDocsMetadata as any[]).map((meta: any) => [meta.id, meta]));
                 const finalDocs = validatedData.documents.map(doc => {
                     if (excludedIdsSet.has(doc.id)) return null;
@@ -708,13 +678,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         }
     }, [updateData]);
 
-    const isAdmin = React.useMemo(() => {
-        if (!user) return false;
-        const currentUserProfile = data.profiles.find(p => p.id === user.id);
-        return currentUserProfile?.role === 'admin';
-    }, [user, data.profiles]);
-
-    const { manualSync: originalManualSync, fetchAndRefresh } = useSync({
+    const { manualSync: originalManualSync, fetchAndRefresh, upsertSingleItemToCloud, deleteSingleItemFromCloud } = useSync({
         user: userRef.current, // Real User
         effectiveUserId, // Owner
         localData: data, 
@@ -744,8 +708,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         },
         onDocumentsUploaded: handleDocumentsUploaded, 
         excludedDocIds, 
-        isOnline, isAuthLoading, syncStatus,
-        isAdmin
+        isOnline, isAuthLoading, syncStatus
     });
 
     const manualSync = React.useCallback(async () => {
@@ -780,21 +743,9 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     (payload: any) => {
                         // Only trigger sync if the change belongs to our office
                         const record = payload.new as any || payload.old as any;
-                        let shouldSync = false;
-
-                        if (payload.table === 'profiles') {
-                             // Sync if admin, or the profile is ME, or the profile belongs to my OFFICE (lawyer_id == effectiveUserId), or the profile IS the lawyer (id == effectiveUserId)
-                             if (isAdmin || record.id === user.id || record.lawyer_id === effectiveUserId || record.id === effectiveUserId) {
-                                 shouldSync = true;
-                             }
-                        } else {
-                             // For other tables, check user_id
-                             if (isAdmin || record.user_id === effectiveUserId) {
-                                 shouldSync = true;
-                             }
-                        }
+                        const recordUserId = record?.user_id || record?.id || record?.lawyer_id;
                         
-                        if (shouldSync) {
+                        if (recordUserId === effectiveUserId) {
                             console.log('Realtime update detected for office:', payload.table, payload.eventType);
                             
                             // Show a notification for remote updates
@@ -829,7 +780,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 if (supabase && channel) supabase.removeChannel(channel);
             }
         };
-    }, [user, effectiveUserId, isOnline, manualSync, addRealtimeAlert, isAdmin]);
+    }, [user, effectiveUserId, isOnline, manualSync, addRealtimeAlert]);
 
     React.useEffect(() => {
         if (isOnline && isDirty && userSettings.isAutoSyncEnabled && syncStatus !== 'syncing') {
@@ -869,26 +820,226 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         };
     }, [isOnline, userSettings.isAutoSyncEnabled, manualSync]); 
 
+    // Helper for cloud-first mutations
+    const cloudFirstMutation = React.useCallback(async <T extends { id?: string; name?: string; updated_at?: Date }>( 
+        tableName: keyof AppData, 
+        item: T, 
+        action: 'upsert' | 'delete', 
+        localUpdater: (prev: AppData) => AppData,
+        itemId?: string // Required for delete action
+    ) => {
+        if (!userRef.current || !effectiveUserId) {
+            console.error(`Cloud mutation aborted for ${tableName}: no user or ownerId.`);
+            return;
+        }
+
+        // 1. Perform local update immediately
+        updateData(localUpdater, { markDirty: false, skipCloudSync: true });
+
+        // 2. Attempt cloud sync if online
+        if (isOnline) {
+            let cloudSuccess = false;
+            if (action === 'upsert') {
+                cloudSuccess = await upsertSingleItemToCloud(tableName as any, item, userRef.current, effectiveUserId);
+            } else if (action === 'delete' && itemId) {
+                cloudSuccess = await deleteSingleItemFromCloud(tableName as any, itemId, userRef.current);
+            }
+
+            if (!cloudSuccess) {
+                // If cloud sync fails, mark as dirty for background sync
+                setDirty(true);
+                console.warn(`Cloud-first ${action} failed for ${tableName}:${item.id || item.name || itemId}. Marked as dirty.`);
+            } else {
+                // If cloud sync succeeds, ensure local state is marked as synced (not dirty)
+                setDirty(false);
+                console.log(`Cloud-first ${action} succeeded for ${tableName}:${item.id || item.name || itemId}.`);
+            }
+        } else {
+            // If offline, mark as dirty for background sync
+            setDirty(true);
+            console.warn(`Offline. Cloud-first ${action} for ${tableName}:${item.id || item.name || itemId} deferred. Marked as dirty.`);
+        }
+    }, [updateData, isOnline, upsertSingleItemToCloud, deleteSingleItemFromCloud, userRef, effectiveUserId]);
+
+    // Generic delete function for entities that don't have nested dependencies
     const createDeleteFunction = <T extends keyof DeletedIds>(entity: T) => async (id: DeletedIds[T][number]) => {
-        if (!effectiveUserId) return;
+        if (!effectiveUserId || !userRef.current) return;
+
+        // Perform local deletion immediately
         const db = await getDb();
         const newDeletedIds = { ...deletedIds, [entity]: [...deletedIds[entity], id] };
         setDeletedIds(newDeletedIds);
         await db.put(DATA_STORE_NAME, newDeletedIds, `deletedIds_${effectiveUserId}`).catch(() => {});
-        setDirty(true);
+
+        // Attempt cloud deletion if online
+        await cloudFirstMutation(
+            entity as keyof AppData, // Table name
+            { id: id as string }, // Item to delete (only ID needed)
+            'delete',
+            (prev: AppData) => prev, // Local state already updated by setDeletedIds
+            id as string // Item ID for deletion
+        );
     };
 
     return {
         ...data,
-        setClients: (updater: (prev: Client[]) => Client[]) => updateData((prev: AppData) => ({ ...prev, clients: updater(prev.clients).map((c: Client) => ({ ...c, updated_at: new Date() })) })),
-        setAdminTasks: (updater: (prev: AdminTask[]) => AdminTask[]) => updateData((prev: AppData) => ({ ...prev, adminTasks: updater(prev.adminTasks).map((t: AdminTask) => ({ ...t, updated_at: new Date() })) })),
-        setAppointments: (updater: (prev: Appointment[]) => Appointment[]) => updateData((prev: AppData) => ({ ...prev, appointments: updater(prev.appointments).map((a: Appointment) => ({ ...a, updated_at: new Date() })) })),
-        setAccountingEntries: (updater: (prev: AccountingEntry[]) => AccountingEntry[]) => updateData((prev: AppData) => ({ ...prev, accountingEntries: updater(prev.accountingEntries).map((e: AccountingEntry) => ({ ...e, updated_at: new Date() })) })),
-        setInvoices: (updater: (prev: Invoice[]) => Invoice[]) => updateData((prev: AppData) => ({ ...prev, invoices: updater(prev.invoices).map((i: Invoice) => ({ ...i, updated_at: new Date() })) })),
-        setAssistants: (updater: (prev: string[]) => string[]) => updateData((prev: AppData) => ({ ...prev, assistants: updater(prev.assistants) })),
-        setDocuments: (updater: (prev: CaseDocument[]) => CaseDocument[]) => updateData((prev: AppData) => ({ ...prev, documents: updater(prev.documents).map((d: CaseDocument) => ({ ...d, updated_at: new Date() })) })),
-        setProfiles: (updater: (prev: Profile[]) => Profile[]) => updateData((prev: AppData) => ({ ...prev, profiles: updater(prev.profiles).map((p: Profile) => ({ ...p, updated_at: new Date() })) })),
-        setSiteFinances: (updater: (prev: SiteFinancialEntry[]) => SiteFinancialEntry[]) => updateData((prev: AppData) => ({ ...prev, siteFinances: updater(prev.siteFinances).map((f: SiteFinancialEntry) => ({ ...f, updated_at: new Date() })) })),
+        setClients: (updater: (prev: Client[]) => Client[]) => {
+            const newClients = updater(data.clients).map((c: Client) => ({ ...c, updated_at: new Date() }));
+            const oldClients = data.clients;
+
+            // Determine which clients were added/updated
+            newClients.forEach(newClient => {
+                const oldClient = oldClients.find(oc => oc.id === newClient.id);
+                if (!oldClient || JSON.stringify(oldClient) !== JSON.stringify(newClient)) {
+                    // If client is new or updated, attempt cloud upsert
+                    cloudFirstMutation(
+                        'clients',
+                        newClient,
+                        'upsert',
+                        (prev: AppData) => ({ ...prev, clients: prev.clients.map(c => c.id === newClient.id ? newClient : c) })
+                    );
+                }
+            });
+
+            // Determine which clients were removed (handled by deleteClient separately)
+            updateData(prev => ({ ...prev, clients: newClients }));
+        },
+        setAdminTasks: (updater: (prev: AdminTask[]) => AdminTask[]) => {
+            const newAdminTasks = updater(data.adminTasks).map((t: AdminTask) => ({ ...t, updated_at: new Date() }));
+            const oldAdminTasks = data.adminTasks;
+
+            newAdminTasks.forEach(newTask => {
+                const oldTask = oldAdminTasks.find(ot => ot.id === newTask.id);
+                if (!oldTask || JSON.stringify(oldTask) !== JSON.stringify(newTask)) {
+                    cloudFirstMutation(
+                        'adminTasks',
+                        newTask,
+                        'upsert',
+                        (prev: AppData) => ({ ...prev, adminTasks: prev.adminTasks.map(t => t.id === newTask.id ? newTask : t) })
+                    );
+                }
+            });
+            updateData(prev => ({ ...prev, adminTasks: newAdminTasks }));
+        },
+        setAppointments: (updater: (prev: Appointment[]) => Appointment[]) => {
+            const newAppointments = updater(data.appointments).map((a: Appointment) => ({ ...a, updated_at: new Date() }));
+            const oldAppointments = data.appointments;
+
+            newAppointments.forEach(newAppointment => {
+                const oldAppointment = oldAppointments.find(oa => oa.id === newAppointment.id);
+                if (!oldAppointment || JSON.stringify(oldAppointment) !== JSON.stringify(newAppointment)) {
+                    cloudFirstMutation(
+                        'appointments',
+                        newAppointment,
+                        'upsert',
+                        (prev: AppData) => ({ ...prev, appointments: prev.appointments.map(a => a.id === newAppointment.id ? newAppointment : a) })
+                    );
+                }
+            });
+            updateData(prev => ({ ...prev, appointments: newAppointments }));
+        },
+        setAccountingEntries: (updater: (prev: AccountingEntry[]) => AccountingEntry[]) => {
+            const newAccountingEntries = updater(data.accountingEntries).map((e: AccountingEntry) => ({ ...e, updated_at: new Date() }));
+            const oldAccountingEntries = data.accountingEntries;
+
+            newAccountingEntries.forEach(newEntry => {
+                const oldEntry = oldAccountingEntries.find(oe => oe.id === newEntry.id);
+                if (!oldEntry || JSON.stringify(oldEntry) !== JSON.stringify(newEntry)) {
+                    cloudFirstMutation(
+                        'accountingEntries',
+                        newEntry,
+                        'upsert',
+                        (prev: AppData) => ({ ...prev, accountingEntries: prev.accountingEntries.map(e => e.id === newEntry.id ? newEntry : e) })
+                    );
+                }
+            });
+            updateData(prev => ({ ...prev, accountingEntries: newAccountingEntries }));
+        },
+        setInvoices: (updater: (prev: Invoice[]) => Invoice[]) => {
+            const newInvoices = updater(data.invoices).map((i: Invoice) => ({ ...i, updated_at: new Date() }));
+            const oldInvoices = data.invoices;
+
+            newInvoices.forEach(newInvoice => {
+                const oldInvoice = oldInvoices.find(oi => oi.id === newInvoice.id);
+                if (!oldInvoice || JSON.stringify(oldInvoice) !== JSON.stringify(newInvoice)) {
+                    cloudFirstMutation(
+                        'invoices',
+                        newInvoice,
+                        'upsert',
+                        (prev: AppData) => ({ ...prev, invoices: prev.invoices.map(i => i.id === newInvoice.id ? newInvoice : i) })
+                    );
+                }
+            });
+            updateData(prev => ({ ...prev, invoices: newInvoices }));
+        },
+        setAssistants: (updater: (prev: string[]) => string[]) => {
+            const newAssistants = updater(data.assistants);
+            const oldAssistants = data.assistants;
+
+            newAssistants.forEach(newAssistant => {
+                const oldAssistant = oldAssistants.find(oa => oa === newAssistant);
+                if (!oldAssistant || oldAssistant !== newAssistant) {
+                    cloudFirstMutation(
+                        'assistants',
+                        { name: newAssistant }, // Assistants don't have IDs, use name as identifier
+                        'upsert',
+                        (prev: AppData) => ({ ...prev, assistants: prev.assistants.map(a => a === newAssistant ? newAssistant : a) })
+                    );
+                }
+            });
+            updateData(prev => ({ ...prev, assistants: newAssistants }));
+        },
+        setDocuments: (updater: (prev: CaseDocument[]) => CaseDocument[]) => {
+            const newDocuments = updater(data.documents).map((d: CaseDocument) => ({ ...d, updated_at: new Date() }));
+            const oldDocuments = data.documents;
+
+            newDocuments.forEach(newDoc => {
+                const oldDoc = oldDocuments.find(od => od.id === newDoc.id);
+                if (!oldDoc || JSON.stringify(oldDoc) !== JSON.stringify(newDoc)) {
+                    cloudFirstMutation(
+                        'documents',
+                        newDoc,
+                        'upsert',
+                        (prev: AppData) => ({ ...prev, documents: prev.documents.map(d => d.id === newDoc.id ? newDoc : d) })
+                    );
+                }
+            });
+            updateData(prev => ({ ...prev, documents: newDocuments }));
+        },
+        setProfiles: (updater: (prev: Profile[]) => Profile[]) => {
+            const newProfiles = updater(data.profiles).map((p: Profile) => ({ ...p, updated_at: new Date() }));
+            const oldProfiles = data.profiles;
+
+            newProfiles.forEach(newProfile => {
+                const oldProfile = oldProfiles.find(op => op.id === newProfile.id);
+                if (!oldProfile || JSON.stringify(oldProfile) !== JSON.stringify(newProfile)) {
+                    cloudFirstMutation(
+                        'profiles',
+                        newProfile,
+                        'upsert',
+                        (prev: AppData) => ({ ...prev, profiles: prev.profiles.map(p => p.id === newProfile.id ? newProfile : p) })
+                    );
+                }
+            });
+            updateData(prev => ({ ...prev, profiles: newProfiles }));
+        },
+        setSiteFinances: (updater: (prev: SiteFinancialEntry[]) => SiteFinancialEntry[]) => {
+            const newSiteFinances = updater(data.siteFinances).map((f: SiteFinancialEntry) => ({ ...f, updated_at: new Date() }));
+            const oldSiteFinances = data.siteFinances;
+
+            newSiteFinances.forEach(newEntry => {
+                const oldEntry = oldSiteFinances.find(oe => oe.id === newEntry.id);
+                if (!oldEntry || JSON.stringify(oldEntry) !== JSON.stringify(newEntry)) {
+                    cloudFirstMutation(
+                        'siteFinances' as keyof AppData,
+                        { ...newEntry, id: String(newEntry.id) }, // Convert id to string
+                        'upsert',
+                        (prev: AppData) => ({ ...prev, siteFinances: prev.siteFinances.map(f => f.id === newEntry.id ? newEntry : f) })
+                    );
+                }
+            });
+            updateData(prev => ({ ...prev, siteFinances: newSiteFinances }));
+        },
         lastSyncedAt,
         setFullData,
         allSessions: React.useMemo(() => data.clients.flatMap(c => c.cases.flatMap(cs => cs.stages.flatMap(st => st.sessions.map(s => ({...s, stageId: st.id, stageDecisionDate: st.decisionDate}))))), [data.clients]),
@@ -948,25 +1099,48 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
             const docIdsToDelete = docsToDelete.map(doc => doc.id);
             const docPathsToDelete = docsToDelete.map(doc => doc.storagePath).filter(Boolean);
             
+            // Perform local deletion immediately
             updateData(p => {
                 const updatedClients = p.clients.map(c => c.id === clientId ? { ...c, updated_at: new Date(), cases: c.cases.filter(cs => cs.id !== caseId) } : c);
                 return { ...p, clients: updatedClients, documents: p.documents.filter(doc => doc.caseId !== caseId) };
             });
-            
-            if (effectiveUserId) {
-                const db = await getDb();
-                const newDeletedIds = { 
-                    ...deletedIds, 
-                    cases: [...deletedIds.cases, caseId], 
-                    documents: [...deletedIds.documents, ...docIdsToDelete], 
-                    documentPaths: [...deletedIds.documentPaths, ...docPathsToDelete] 
-                };
-                setDeletedIds(newDeletedIds);
-                await db.put(DATA_STORE_NAME, newDeletedIds, `deletedIds_${effectiveUserId}`).catch(() => {});
-                setDirty(true);
+
+            // Update deletedIds locally
+            const db = await getDb();
+            const newDeletedIds = { 
+                ...deletedIds, 
+                cases: [...deletedIds.cases, caseId], 
+                documents: [...deletedIds.documents, ...docIdsToDelete], 
+                documentPaths: [...deletedIds.documentPaths, ...docPathsToDelete] 
+            };
+            setDeletedIds(newDeletedIds);
+            await db.put(DATA_STORE_NAME, newDeletedIds, `deletedIds_${effectiveUserId}`).catch(() => {});
+
+            // Attempt cloud deletion for the case
+            await cloudFirstMutation(
+                'cases' as keyof AppData,
+                { id: caseId },
+                'delete',
+                (prev: AppData) => prev, // Local state already updated
+                caseId
+            );
+
+            // Attempt cloud deletion for associated documents
+            for (const docId of docIdsToDelete) {
+                await cloudFirstMutation(
+                    'documents' as keyof AppData,
+                    { id: docId },
+                    'delete',
+                    (prev: AppData) => prev, // Local state already updated
+                    docId
+                );
             }
         },
-        deleteStage: (sid: string, cid: string, clid: string) => { 
+        deleteStage: async (sid: string, cid: string, clid: string) => { 
+            const sessionsToDelete = data.clients.find(c => c.id === clid)?.cases.find(cs => cs.id === cid)?.stages.find(st => st.id === sid)?.sessions || [];
+            const sessionIdsToDelete = sessionsToDelete.map(s => s.id);
+
+            // Perform local deletion immediately
             updateData(p => ({ 
                 ...p, 
                 clients: p.clients.map(c => c.id === clid ? { 
@@ -979,9 +1153,39 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     } : cs) 
                 } : c) 
             })); 
-            createDeleteFunction('stages')(sid); 
+
+            // Update deletedIds locally for stage and sessions
+            const db = await getDb();
+            const newDeletedIds = {
+                ...deletedIds,
+                stages: [...deletedIds.stages, sid],
+                sessions: [...deletedIds.sessions, ...sessionIdsToDelete]
+            };
+            setDeletedIds(newDeletedIds);
+            await db.put(DATA_STORE_NAME, newDeletedIds, `deletedIds_${effectiveUserId}`).catch(() => {});
+
+            // Attempt cloud deletion for the stage
+            await cloudFirstMutation(
+                'stages' as keyof AppData,
+                { id: sid },
+                'delete',
+                (prev: AppData) => prev, // Local state already updated
+                sid
+            );
+
+            // Attempt cloud deletion for associated sessions
+            for (const sessionId of sessionIdsToDelete) {
+                await cloudFirstMutation(
+                    'sessions' as keyof AppData,
+                    { id: sessionId },
+                    'delete',
+                    (prev: AppData) => prev, // Local state already updated
+                    sessionId
+                );
+            }
         },
-        deleteSession: (sessId: string, stId: string, cid: string, clid: string) => { 
+        deleteSession: async (sessId: string, stId: string, cid: string, clid: string) => { 
+            // Perform local deletion immediately
             updateData(p => ({ 
                 ...p, 
                 clients: p.clients.map(c => c.id === clid ? { 
@@ -998,14 +1202,119 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     } : cs) 
                 } : c) 
             })); 
-            createDeleteFunction('sessions')(sessId); 
+
+            // Update deletedIds locally
+            const db = await getDb();
+            const newDeletedIds = { ...deletedIds, sessions: [...deletedIds.sessions, sessId] };
+            setDeletedIds(newDeletedIds);
+            await db.put(DATA_STORE_NAME, newDeletedIds, `deletedIds_${effectiveUserId}`).catch(() => {});
+
+            // Attempt cloud deletion for the session
+            await cloudFirstMutation(
+                'sessions' as keyof AppData,
+                { id: sessId },
+                'delete',
+                (prev: AppData) => prev, // Local state already updated
+                sessId
+            );
         },
-        deleteAdminTask: (id: string) => { updateData(p => ({...p, adminTasks: p.adminTasks.filter(t => t.id !== id)})); createDeleteFunction('adminTasks')(id); },
-        deleteAppointment: (id: string) => { updateData(p => ({...p, appointments: p.appointments.filter(a => a.id !== id)})); createDeleteFunction('appointments')(id); },
-        deleteAccountingEntry: (id: string) => { updateData(p => ({...p, accountingEntries: p.accountingEntries.filter(e => e.id !== id)})); createDeleteFunction('accountingEntries')(id); },
-        deleteInvoice: (id: string) => { updateData(p => ({...p, invoices: p.invoices.filter(i => i.id !== id)})); createDeleteFunction('invoices')(id); },
-        deleteAssistant: (name: string) => { updateData(p => ({...p, assistants: p.assistants.filter(a => a !== name)})); createDeleteFunction('assistants')(name); },
+        deleteAdminTask: async (id: string) => {
+            // Perform local deletion immediately
+            updateData(p => ({...p, adminTasks: p.adminTasks.filter(t => t.id !== id)}));
+
+            // Update deletedIds locally
+            const db = await getDb();
+            const newDeletedIds = { ...deletedIds, adminTasks: [...deletedIds.adminTasks, id] };
+            setDeletedIds(newDeletedIds);
+            await db.put(DATA_STORE_NAME, newDeletedIds, `deletedIds_${effectiveUserId}`).catch(() => {});
+
+            // Attempt cloud deletion for the admin task
+            await cloudFirstMutation(
+                'adminTasks' as keyof AppData,
+                { id: id },
+                'delete',
+                (prev: AppData) => prev, // Local state already updated
+                id
+            );
+        },
+        deleteAppointment: async (id: string) => {
+            // Perform local deletion immediately
+            updateData(p => ({...p, appointments: p.appointments.filter(a => a.id !== id)}));
+
+            // Update deletedIds locally
+            const db = await getDb();
+            const newDeletedIds = { ...deletedIds, appointments: [...deletedIds.appointments, id] };
+            setDeletedIds(newDeletedIds);
+            await db.put(DATA_STORE_NAME, newDeletedIds, `deletedIds_${effectiveUserId}`).catch(() => {});
+
+            // Attempt cloud deletion for the appointment
+            await cloudFirstMutation(
+                'appointments' as keyof AppData,
+                { id: id },
+                'delete',
+                (prev: AppData) => prev, // Local state already updated
+                id
+            );
+        },
+        deleteAccountingEntry: async (id: string) => {
+            // Perform local deletion immediately
+            updateData(p => ({...p, accountingEntries: p.accountingEntries.filter(e => e.id !== id)}));
+
+            // Update deletedIds locally
+            const db = await getDb();
+            const newDeletedIds = { ...deletedIds, accountingEntries: [...deletedIds.accountingEntries, id] };
+            setDeletedIds(newDeletedIds);
+            await db.put(DATA_STORE_NAME, newDeletedIds, `deletedIds_${effectiveUserId}`).catch(() => {});
+
+            // Attempt cloud deletion for the accounting entry
+            await cloudFirstMutation(
+                'accountingEntries' as keyof AppData,
+                { id: id },
+                'delete',
+                (prev: AppData) => prev, // Local state already updated
+                id
+            );
+        },
+        deleteInvoice: async (id: string) => {
+            // Perform local deletion immediately
+            updateData(p => ({...p, invoices: p.invoices.filter(i => i.id !== id)}));
+
+            // Update deletedIds locally
+            const db = await getDb();
+            const newDeletedIds = { ...deletedIds, invoices: [...deletedIds.invoices, id] };
+            setDeletedIds(newDeletedIds);
+            await db.put(DATA_STORE_NAME, newDeletedIds, `deletedIds_${effectiveUserId}`).catch(() => {});
+
+            // Attempt cloud deletion for the invoice
+            await cloudFirstMutation(
+                'invoices' as keyof AppData,
+                { id: id },
+                'delete',
+                (prev: AppData) => prev, // Local state already updated
+                id
+            );
+        },
+        deleteAssistant: async (name: string) => {
+            // Perform local deletion immediately
+            updateData(p => ({...p, assistants: p.assistants.filter(a => a !== name)}));
+
+            // Update deletedIds locally
+            const db = await getDb();
+            const newDeletedIds = { ...deletedIds, assistants: [...deletedIds.assistants, name] };
+            setDeletedIds(newDeletedIds);
+            await db.put(DATA_STORE_NAME, newDeletedIds, `deletedIds_${effectiveUserId}`).catch(() => {});
+
+            // Attempt cloud deletion for the assistant
+            await cloudFirstMutation(
+                'assistants' as keyof AppData,
+                { id: name }, // Use name as identifier for assistants, cast to id
+                'delete',
+                (prev: AppData) => prev, // Local state already updated
+                name
+            );
+        },
         deleteDocument: async (doc: CaseDocument) => {
+            // Perform local deletion immediately
             try {
                 const db = await getDb();
                 await db.delete(DOCS_FILES_STORE_NAME, doc.id);
@@ -1016,6 +1325,21 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
             } catch (e) {
                 console.error("Failed to delete document from IDB", e);
             }
+
+            // Update deletedIds locally
+            const db = await getDb();
+            const newDeletedIds = { ...deletedIds, documents: [...deletedIds.documents, doc.id], documentPaths: [...deletedIds.documentPaths, doc.storagePath] };
+            setDeletedIds(newDeletedIds);
+            await db.put(DATA_STORE_NAME, newDeletedIds, `deletedIds_${effectiveUserId}`).catch(() => {});
+
+            // Attempt cloud deletion for the document
+            await cloudFirstMutation(
+                'documents' as keyof AppData,
+                { id: doc.id, storagePath: doc.storagePath },
+                'delete',
+                (prev: AppData) => prev, // Local state already updated
+                doc.id
+            );
         },
         addDocuments: async (caseId: string, files: FileList) => {
              const currentUser = userRef.current;
@@ -1086,9 +1410,13 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
             }
             return null;
         },
-        postponeSession: (sessionId: string, newDate: Date, newReason: string) => {
-             updateData(prev => {
-                 const newClients = prev.clients.map(client => {
+        postponeSession: async (sessionId: string, newDate: Date, newReason: string) => {
+            let updatedOldSession: Session | undefined;
+            let newSession: Session | undefined;
+
+            // Perform local update immediately and capture the new/updated sessions
+            updateData(prev => {
+                const newClients = prev.clients.map(client => {
                     let clientModified = false;
                     const newCases = client.cases.map(caseItem => {
                         let caseModified = false;
@@ -1096,8 +1424,8 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                             const sessionIndex = stage.sessions.findIndex(s => s.id === sessionId);
                             if (sessionIndex !== -1) {
                                 const oldSession = stage.sessions[sessionIndex];
-                                const newSession: Session = { id: `session-${Date.now()}`, court: oldSession.court, caseNumber: oldSession.caseNumber, date: newDate, clientName: oldSession.clientName, opponentName: oldSession.opponentName, postponementReason: newReason, isPostponed: false, assignee: oldSession.assignee, updated_at: new Date(), user_id: oldSession.user_id };
-                                const updatedOldSession: Session = { ...oldSession, isPostponed: true, nextSessionDate: newDate, nextPostponementReason: newReason, updated_at: new Date() };
+                                newSession = { id: `session-${Date.now()}`, court: oldSession.court, caseNumber: oldSession.caseNumber, date: newDate, clientName: oldSession.clientName, opponentName: oldSession.opponentName, postponementReason: newReason, isPostponed: false, assignee: oldSession.assignee, updated_at: new Date(), user_id: oldSession.user_id, stageId: oldSession.stageId };
+                                updatedOldSession = { ...oldSession, isPostponed: true, nextSessionDate: newDate, nextPostponementReason: newReason, updated_at: new Date() };
                                 const newSessions = [...stage.sessions]; newSessions[sessionIndex] = updatedOldSession; newSessions.push(newSession);
                                 caseModified = true; clientModified = true;
                                 return { ...stage, sessions: newSessions, updated_at: new Date() };
@@ -1111,7 +1439,27 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     return client;
                 });
                 return newClients.some((c, i) => c !== prev.clients[i]) ? { ...prev, clients: newClients } : prev;
-             });
+            });
+
+            // Attempt cloud upsert for the updated old session
+            if (updatedOldSession) {
+                await cloudFirstMutation(
+                    'sessions' as keyof AppData,
+                    updatedOldSession,
+                    'upsert',
+                    (prev: AppData) => ({ ...prev, clients: prev.clients.map(c => ({ ...c, cases: c.cases.map(cs => ({ ...cs, stages: cs.stages.map(st => ({ ...st, sessions: st.sessions.map(s => s.id === updatedOldSession!.id ? updatedOldSession! : s) })) })) })) })
+                );
+            }
+
+            // Attempt cloud upsert for the new session
+            if (newSession) {
+                await cloudFirstMutation(
+                    'sessions' as keyof AppData,
+                    newSession,
+                    'upsert',
+                    (prev: AppData) => ({ ...prev, clients: prev.clients.map(c => ({ ...c, cases: c.cases.map(cs => ({ ...cs, stages: cs.stages.map(st => ({ ...st, sessions: [...st.sessions, newSession!] })) })) })) })
+                );
+            }
         }
     };
 };

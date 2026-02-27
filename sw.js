@@ -12,19 +12,12 @@ const urlsToCache = [
   'https://cdn.tailwindcss.com',
   'https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap',
   // Dependencies - using exact versions to match importmap and ensure reliability
-  'https://esm.sh/@google/genai@1.20.0',
-  'https://esm.sh/@supabase/supabase-js@2.44.4',
-  'https://esm.sh/react@19.0.0',
-  'https://esm.sh/react-dom@19.0.0/client',
-  'https://esm.sh/react@19.0.0/jsx-runtime',
-  'https://esm.sh/recharts@2.12.7',
-  'https://esm.sh/idb@8.0.0',
-  'https://esm.sh/docx-preview@0.3.7',
+
 ];
 
 self.addEventListener('install', event => {
   console.log('Service Worker: Installing...');
-  self.skipWaiting(); 
+
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(async cache => {
@@ -64,9 +57,7 @@ self.addEventListener('activate', event => {
     }).then(() => {
       console.log('Service Worker: Claiming clients.');
       return self.clients.claim().then(() => {
-        self.clients.matchAll().then(clients => {
-          clients.forEach(client => client.postMessage({ type: 'RELOAD_PAGE_NOW' }));
-        });
+
       });
     })
   );

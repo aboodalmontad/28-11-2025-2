@@ -20,7 +20,6 @@ interface UseSyncProps {
     isOnline: boolean;
     isAuthLoading: boolean;
     syncStatus: SyncStatus;
-    isAdmin?: boolean;
 }
 
 const flattenData = (data: AppData): FlatData => {
@@ -167,7 +166,7 @@ const applyDeletionsToLocal = (localFlatData: FlatData, deletions: SyncDeletion[
 
 let isSyncLocked = false;
 
-export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSynced, onDeletionsSynced, onSyncStatusChange, onDocumentsUploaded, excludedDocIds, isOnline, isAuthLoading, syncStatus, isAdmin }: UseSyncProps) => {
+export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSynced, onDeletionsSynced, onSyncStatusChange, onDocumentsUploaded, excludedDocIds, isOnline, isAuthLoading, syncStatus }: UseSyncProps) => {
     const userRef = React.useRef(user);
     const ownerRef = React.useRef(effectiveUserId);
     const localDataRef = React.useRef(localData);
@@ -185,18 +184,15 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
     onDataSyncedRef.current = onDataSynced;
     onDeletionsSyncedRef.current = onDeletionsSynced;
     onSyncStatusChangeRef.current = onSyncStatusChange;
-    const isAdminRef = React.useRef(isAdmin);
-    isAdminRef.current = isAdmin;
 
 
     const setStatus = (status: SyncStatus, error: string | null = null) => { onSyncStatusChangeRef.current(status, error); };
 
     const manualSync = React.useCallback(async () => {
-        console.log("useSync: manualSync invoked.", { isSyncLocked, isAuthLoading, isOnline, user: userRef.current?.id, effectiveUserId: ownerRef.current, isAdmin: isAdminRef.current });
+        console.log("useSync: manualSync invoked.", { isSyncLocked, isAuthLoading, isOnline, user: userRef.current?.id, effectiveUserId: ownerRef.current });
         if (isSyncLocked || isAuthLoading) return;
         const realUser = userRef.current;
         const ownerId = ownerRef.current;
-        const isAdmin = !!isAdminRef.current;
         if (!isOnline || !realUser || !ownerId) {
             console.warn("useSync: manualSync aborted due to offline, no user, or no ownerId.", { isOnline, realUser: !!realUser, ownerId: !!ownerId });
             return;
@@ -211,9 +207,9 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
                 return;
             }
 
-            console.log("useSync: Fetching remote data and deletions.", { ownerId, isAdmin });
+            console.log("useSync: Fetching remote data and deletions.", { ownerId });
             const [remoteDataRaw, remoteDeletions] = await Promise.all([
-                fetchWithRetry(() => fetchDataFromSupabase(ownerId, isAdmin)),
+                fetchWithRetry(() => fetchDataFromSupabase(ownerId)),
                 fetchWithRetry(() => fetchDeletionsFromSupabase())
             ]);
 
@@ -281,5 +277,63 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
 
     // Fix: manualSync and fetchAndRefresh are often used interchangeably in the UI. 
     // fetchAndRefresh logic is inherently handled by manualSync (full bi-directional sync).
-    return { manualSync, fetchAndRefresh: manualSync };
+
+    // New function to upsert a single item directly to cloud
+    const upsertSingleItemToCloud = React.useCallback(async <T extends { id?: string; name?: string; updated_at?: Date }>( 
+        tableName: keyof FlatData,
+        item: T,
+        realUser: User,
+        ownerId: string,
+    ): Promise<boolean> => {
+        if (!isOnline || !realUser || !ownerId) {
+            console.warn(`upsertSingleItemToCloud aborted for ${tableName}: offline, no user, or no ownerId.`);
+            return false;
+        }
+        if (!item || (!item.id && !item.name)) {
+            console.error(`upsertSingleItemToCloud aborted for ${tableName}: item has no ID or name.`, item);
+            return false;
+        }
+
+        try {
+            const itemToUpsert: Partial<FlatData> = {
+                [tableName]: [item] as any, // Wrap the single item in an array
+            };
+            await fetchWithRetry(() => upsertDataToSupabase(itemToUpsert, realUser, ownerId));
+            console.log(`Successfully upserted single item to ${tableName}:`, item.id || item.name);
+            return true;
+        } catch (err) {
+            console.error(`Failed to upsert single item to ${tableName}:`, err);
+            return false;
+        }
+    }, [isOnline]);
+
+    // New function to delete a single item directly from cloud
+    const deleteSingleItemFromCloud = React.useCallback(async (
+        tableName: keyof FlatData,
+        itemId: string,
+        realUser: User,
+    ): Promise<boolean> => {
+        if (!isOnline || !realUser) {
+            console.warn(`deleteSingleItemFromCloud aborted for ${tableName}: offline or no user.`);
+            return false;
+        }
+        if (!itemId) {
+            console.error(`deleteSingleItemFromCloud aborted for ${tableName}: no item ID provided.`);
+            return false;
+        }
+
+        try {
+            const itemToDelete: Partial<FlatData> = {
+                [tableName]: [{ id: itemId }] as any, // Wrap the single item with ID in an array
+            };
+            await fetchWithRetry(() => deleteDataFromSupabase(itemToDelete, realUser));
+            console.log(`Successfully deleted single item from ${tableName}:`, itemId);
+            return true;
+        } catch (err) {
+            console.error(`Failed to delete single item from ${tableName}:`, err);
+            return false;
+        }
+    }, [isOnline]);
+
+    return { manualSync, fetchAndRefresh: manualSync, upsertSingleItemToCloud, deleteSingleItemFromCloud };
 };
