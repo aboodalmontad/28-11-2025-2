@@ -1365,6 +1365,15 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                  newDocs.push(doc);
              }
              updateData(p => ({...p, documents: [...p.documents, ...newDocs]}));
+
+             for (const doc of newDocs) {
+                 await cloudFirstMutation(
+                     'documents' as keyof AppData,
+                     doc,
+                     'upsert',
+                     (prev: AppData) => ({ ...prev, documents: [...prev.documents, doc] })
+                 );
+             }
         },
         getDocumentFile: async (docId: string): Promise<File | null> => {
             const db = await getDb();
