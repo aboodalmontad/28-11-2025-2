@@ -118,9 +118,9 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
                         <span className="font-bold text-gray-600">سجل المزامنة الأخير:</span>
                         <div className="mt-2 max-h-40 overflow-y-auto border rounded p-2 bg-white space-y-1">
                             {syncHistory && syncHistory.length > 0 ? (
-                                syncHistory.map((log, i) => (
+                                syncHistory.map((log: any, i: number) => (
                                     <div key={i} className={`text-[10px] flex justify-between gap-2 ${log.type === 'error' ? 'text-red-600' : log.type === 'success' ? 'text-green-600' : 'text-gray-600'}`}>
-                                        <span>[{log.time.toLocaleTimeString('ar-EG')}] {log.message}</span>
+                                         <span>[{log.time.toLocaleTimeString('ar-EG')}] {log.message}</span>
                                     </div>
                                 ))
                             ) : (

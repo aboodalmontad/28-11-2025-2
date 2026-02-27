@@ -1,6 +1,6 @@
 
 // This version number is incremented to trigger the 'install' event and update the cache.
-const CACHE_NAME = 'lawyer-app-cache-v26-02-2026-fix-v2';
+const CACHE_NAME = 'lawyer-app-cache-v2026-02-26-16-37'; // Updated cache name with current timestamp
 
 // The list of URLs to cache explicitly (App Shell)
 const urlsToCache = [
@@ -64,41 +64,83 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('fetch', event => {
-  if (event.request.method !== 'GET' || event.request.url.includes('supabase.co')) {
+  if (event.request.method !== 'GET') {
     return;
+  }
+
+  // Always fetch the service worker script from the network to ensure updates
+  if (url.pathname.includes('sw.js')) {
+    return fetch(event.request);
+  }
+
+  if (event.request.url.includes('supabase.co')) {
+    return; // Bypass Service Worker for Supabase requests
   }
 
   const url = new URL(event.request.url);
 
   // Strategy 1: Stale-While-Revalidate for main scripts and local JS chunks.
   // We exclude sw.js itself from being intercepted by the service worker to avoid update loops or MIME type issues.
-  if ((url.pathname.endsWith('.js') && !url.pathname.includes('sw.js')) || url.pathname.endsWith('.json') || event.request.mode === 'navigate') {
+  // Strategy 1: Cache First, then Network for critical assets (index.html, index.js, manifest.json)
+  if (url.pathname === '/' || url.pathname === '/index.html' || url.pathname === '/index.js' || url.pathname === '/manifest.json') {
+    event.respondWith(
+      caches.match(event.request).then(response => {
+        // Cache hit - return immediately
+        if (response) {
+          console.log('Service Worker: Cache hit for critical asset:', event.request.url);
+          return response;
+        }
+
+        // No cache hit - fetch from network, cache, and return
+        console.log('Service Worker: Fetching critical asset from network:', event.request.url);
+        return fetch(event.request).then(networkResponse => {
+          if (!networkResponse || networkResponse.status !== 200 || networkResponse.type === 'opaque') {
+            console.warn('Service Worker: Failed to fetch critical asset from network:', event.request.url, networkResponse?.status);
+            return networkResponse; // Return whatever we got, even if it's an error
+          }
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then(cache => {
+            cache.put(event.request, responseToCache);
+          });
+          return networkResponse;
+        }).catch(error => {
+          console.error('Service Worker: Network fetch failed for critical asset:', event.request.url, error);
+          // If both cache and network fail, try to fallback to index.html for navigation requests
+          if (event.request.mode === 'navigate') {
+            return caches.match('/index.html').then(fallbackResponse => {
+              if (fallbackResponse) {
+                console.log('Service Worker: Falling back to index.html for navigation.');
+                return fallbackResponse;
+              }
+              // If even index.html is not cached, return a generic network error response
+              return new Response('Offline: Failed to load application shell.', { status: 503, statusText: 'Service Unavailable' });
+            });
+          }
+          // For other critical assets, if network fails and no cache, return a generic network error
+          return new Response('Offline: Failed to load critical resource.', { status: 503, statusText: 'Service Unavailable' });
+        });
+      })
+    );
+    return;
+  }
+
+  // Strategy 2: Stale-While-Revalidate for other JS and JSON files (excluding sw.js)
+  if ((url.pathname.endsWith('.js') && !url.pathname.includes('sw.js')) || url.pathname.endsWith('.json')) {
     event.respondWith(
       caches.open(CACHE_NAME).then(cache => {
         return cache.match(event.request).then(cachedResponse => {
           const fetchPromise = fetch(event.request).then(networkResponse => {
-            // Update cache with new version
             if (networkResponse && networkResponse.status === 200 && networkResponse.type !== 'opaque') {
                 cache.put(event.request, networkResponse.clone());
             }
             return networkResponse;
           }).catch(e => {
-             // Network failed
-             console.warn('Network fetch failed for', event.request.url, '(offline)');
-             
-             // Fallback for navigation: return index.html if network fails and no cache match
-             if (event.request.mode === 'navigate') {
-                 return cache.match('/index.html');
-             }
-
-             // If we don't have a cached response and network fails, return a 404 instead of throwing
-             // to keep the console clean of "Failed to fetch" errors.
+             console.warn('Service Worker: Network fetch failed for JS/JSON (offline):', event.request.url, e);
              if (!cachedResponse) {
-                 return new Response('Network error and no cache available', { status: 503, statusText: 'Service Unavailable' });
+                 return new Response('Network error and no cache available for JS/JSON', { status: 503, statusText: 'Service Unavailable' });
              }
              return cachedResponse;
           });
-
           return cachedResponse || fetchPromise;
         });
       })

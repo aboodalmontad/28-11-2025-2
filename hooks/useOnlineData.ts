@@ -14,7 +14,7 @@ export type FlatData = {
     assistants: { name: string }[];
     invoices: Omit<Invoice, 'items'>[];
     invoice_items: InvoiceItem[];
-    case_documents: CaseDocument[];
+    documents: CaseDocument[]; // Changed from case_documents
     profiles: Profile[];
     site_finances: SiteFinancialEntry[];
 };
@@ -218,7 +218,10 @@ export const upsertDataToSupabase = async (data: Partial<FlatData>, realUser: Us
             return newItem;
         });
         
-        const { error }: any = await fetchWithRetry(async () => await supabase.from(table).upsert(formatted));
+        const { error }: any = await fetchWithRetry(async () => {
+            const query = supabase.from(table).upsert(formatted, { onConflict: 'id' });
+            return await query;
+        });
         if (error) {
             console.error(`Upsert failed for table ${table}:`, error);
             if (['profiles', 'clients', 'cases'].includes(table)) throw error;

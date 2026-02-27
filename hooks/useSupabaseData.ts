@@ -282,6 +282,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     const [showUnpostponedSessionsModal, setShowUnpostponedSessionsModal] = React.useState(false);
     const [realtimeAlerts, setRealtimeAlerts] = React.useState<RealtimeAlert[]>([]);
     const [userApprovalAlerts, setUserApprovalAlerts] = React.useState<RealtimeAlert[]>([]);
+    const [syncHistory, setSyncHistory] = React.useState<{ time: Date; message: string; type: 'success' | 'error' | 'info' }[]>([]);
     const [userSettings, setUserSettings] = React.useState<any>({ isAutoSyncEnabled: true, isAutoBackupEnabled: true, adminTasksLayout: 'horizontal', locationOrder: [] });
     const isOnline = useOnlineStatus();
     
@@ -582,6 +583,14 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     const handleSyncStatusChange = React.useCallback((status: SyncStatus, error: string | null) => {
         setSyncStatus(status);
         setLastSyncError(error);
+        
+        if (status === 'synced') {
+            setSyncHistory(prev => [{ time: new Date(), message: 'تمت المزامنة بنجاح', type: 'success' as const }, ...prev].slice(0, 50));
+        } else if (status === 'error' && error) {
+            setSyncHistory(prev => [{ time: new Date(), message: error, type: 'error' as const }, ...prev].slice(0, 50));
+        } else if (status === 'syncing') {
+            setSyncHistory(prev => [{ time: new Date(), message: 'بدء المزامنة...', type: 'info' as const }, ...prev].slice(0, 50));
+        }
     }, []);
 
     const handleDataSynced = React.useCallback(async (mergedData: AppData) => {
@@ -1469,6 +1478,8 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     (prev: AppData) => ({ ...prev, clients: prev.clients.map(c => ({ ...c, cases: c.cases.map(cs => ({ ...cs, stages: cs.stages.map(st => ({ ...st, sessions: [...st.sessions, newSession!] })) })) })) })
                 );
             }
-        }
+        },
+        syncHistory,
+        setSyncStatus
     };
 };

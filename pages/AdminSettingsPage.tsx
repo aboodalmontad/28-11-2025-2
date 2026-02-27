@@ -163,7 +163,7 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onOpenConfig }) =
             { key: 'admin_tasks', table: 'admin_tasks' },
             { key: 'appointments', table: 'appointments' },
             { key: 'site_finances', table: 'site_finances' },
-            { key: 'case_documents', table: 'case_documents' }, // Only metadata
+            { key: 'documents', table: 'documents' }, // Only metadata
         ];
 
         let totalRecords = 0;

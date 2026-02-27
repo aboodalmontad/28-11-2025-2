@@ -39,7 +39,7 @@ const flattenData = (data: AppData): FlatData => {
         assistants: data.assistants.map(name => ({ name })),
         invoices: data.invoices.map(({ items, ...inv }) => inv),
         invoice_items,
-        case_documents: data.documents,
+        documents: data.documents, // Changed from case_documents
         profiles: data.profiles,
         site_finances: data.siteFinances,
     };
@@ -91,7 +91,7 @@ const constructData = (flatData: Partial<FlatData>): AppData => {
         accountingEntries: (flatData.accounting_entries || []) as any,
         assistants: (flatData.assistants || []).map(a => a.name),
         invoices: (flatData.invoices || []).map(inv => ({...inv, items: invoiceItemMap.get(inv.id) || []})) as any,
-        documents: (flatData.case_documents || []) as any,
+        documents: (flatData.documents || []) as any, // Changed from case_documents
         profiles: (flatData.profiles || []) as any,
         siteFinances: (flatData.site_finances || []) as any,
     };
@@ -154,7 +154,7 @@ const applyDeletionsToLocal = (localFlatData: FlatData, deletions: SyncDeletion[
         sessions: filterItems(localFlatData.sessions, 'sessions'),
         invoices: filterItems(localFlatData.invoices, 'invoices'),
         invoice_items: filterItems(localFlatData.invoice_items, 'invoice_items'),
-        case_documents: filterItems(localFlatData.case_documents, 'case_documents'),
+        documents: filterItems(localFlatData.documents, 'documents'), // Changed from case_documents
         accounting_entries: filterItems(localFlatData.accounting_entries, 'accounting_entries'),
         admin_tasks: filterItems(localFlatData.admin_tasks, 'admin_tasks'),
         appointments: filterItems(localFlatData.appointments, 'appointments'),
@@ -165,6 +165,11 @@ const applyDeletionsToLocal = (localFlatData: FlatData, deletions: SyncDeletion[
 };
 
 let isSyncLocked = false;
+
+export const resetSyncLock = () => {
+    isSyncLocked = false;
+    console.log("Sync lock has been manually reset.");
+};
 
 export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSynced, onDeletionsSynced, onSyncStatusChange, onDocumentsUploaded, excludedDocIds, isOnline, isAuthLoading, syncStatus }: UseSyncProps) => {
     const userRef = React.useRef(user);
@@ -245,7 +250,7 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
                 assistants: deletedIdsRef.current.assistants.map(name => ({ name })),
                 invoices: deletedIdsRef.current.invoices.map(id => ({ id })) as any,
                 invoice_items: deletedIdsRef.current.invoiceItems.map(id => ({ id })) as any,
-                case_documents: deletedIdsRef.current.documents.map(id => ({ id })) as any,
+                documents: deletedIdsRef.current.documents.map(id => ({ id })) as any, // Changed from case_documents
                 site_finances: deletedIdsRef.current.siteFinances.map(id => ({ id })) as any,
             };
 
