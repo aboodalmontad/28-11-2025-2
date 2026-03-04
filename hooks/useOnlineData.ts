@@ -50,6 +50,8 @@ export const isNetworkError = (err: any): boolean => {
         'request failed',
         'cors',
         'preflight',
+        'typeerror',
+        'failed to load',
     ];
 
     const isMatch = networkPatterns.some(pattern => combined.includes(pattern)) || 
@@ -105,8 +107,13 @@ export const fetchWithRetry = async <T>(fn: () => Promise<T>, retries = 3, delay
         }
         
         // Log diagnostic info for "Failed to fetch"
-        if (String(err).includes('fetch')) {
-            console.error("CRITICAL: Supabase Fetch Failed. Possible reasons: CORS, Network Block, or Paused Project.");
+        if (String(err).includes('fetch') || String(err).includes('Failed to fetch')) {
+            console.error("CRITICAL: Supabase Fetch Failed. Possible reasons: CORS, Network Block, Paused Project, or invalid Supabase URL.");
+            console.error("Diagnostic Info:", {
+                online: navigator.onLine,
+                url: (import.meta.env.VITE_SUPABASE_URL || "gvafdhyudvdymletqjee.supabase.co"),
+                userAgent: navigator.userAgent
+            });
         }
         
         throw err;

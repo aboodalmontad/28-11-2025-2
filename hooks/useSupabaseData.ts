@@ -573,7 +573,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 if (isOnlineNow && supabase) {
                     try {
                         console.log("useSupabaseData: Fetching profile to determine ownerId...", user.id);
-                        const { data: profileData, error } = await supabase.from('profiles').select('lawyer_id').eq('id', user.id).maybeSingle();
+                        const { data: profileData, error } = await fetchWithRetry<any>(async () => await supabase.from('profiles').select('lawyer_id').eq('id', user.id).maybeSingle());
                         
                         if (error) throw error;
 

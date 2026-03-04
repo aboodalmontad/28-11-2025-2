@@ -19,7 +19,9 @@ async function build() {
             // Single bundle file to prevent "Failed to fetch dynamically imported module" errors
             outfile: path.join(publicDir, 'index.js'),
             splitting: false, 
-            jsx: 'automatic',
+            jsx: 'transform',
+            jsxFactory: 'React.createElement',
+            jsxFragment: 'React.Fragment',
             format: 'esm',
             sourcemap: true,
             minify: true,
