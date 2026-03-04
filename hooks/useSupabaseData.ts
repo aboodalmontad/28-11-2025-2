@@ -283,8 +283,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     const [realtimeAlerts, setRealtimeAlerts] = React.useState<RealtimeAlert[]>([]);
     const [userApprovalAlerts, setUserApprovalAlerts] = React.useState<RealtimeAlert[]>([]);
     const [syncHistory, setSyncHistory] = React.useState<{ time: Date; message: string; type: 'success' | 'error' | 'info' }[]>([]);
-    const [debugLogs, setDebugLogs] = React.useState<string[]>([]);
-    const [userSettings, setUserSettings] = React.useState<any>({ isAutoSyncEnabled: true, isAutoBackupEnabled: true, adminTasksLayout: 'horizontal', locationOrder: [] });
+    const [userSettings, setUserSettings] = React.useState<any>({ isAutoSyncEnabled: false, isAutoBackupEnabled: true, adminTasksLayout: 'horizontal', locationOrder: [] });
     const isOnline = useOnlineStatus();
     
     const userRef = React.useRef(user);
@@ -293,6 +292,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     syncStatusRef.current = syncStatus;
     const isSyncingRef = React.useRef(false);
     const pendingSyncRef = React.useRef(false);
+    const debouncedSyncRef = React.useRef<() => void>(() => {});
     const downloadQueueRef = React.useRef<Promise<void>>(Promise.resolve());
     const supabaseClientRef = React.useRef<Awaited<ReturnType<typeof getSupabaseClient>> | null>(null);
 
@@ -367,12 +367,14 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 db.put(DATA_STORE_NAME, newData, effectiveUserId);
             }).catch(e => console.error("Failed to write to IDB", e));
             
-            // Mark as dirty to trigger background sync
-            if (options.markDirty && !options.skipCloudSync) {
-                setDirty(true);
-            }
             return newData;
         });
+
+        // Mark as dirty and trigger sync immediately (debounced)
+        if (options.markDirty && !options.skipCloudSync) {
+            setDirty(true);
+            debouncedSyncRef.current();
+        }
     }, [effectiveUserId]);
 
     // Recursive timestamp update helpers
@@ -615,15 +617,11 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 setData(finalData);
                 setDeletedIds(storedDeletedIds || getInitialDeletedIds());
                 
-                // Initial background sync
+                // Initial background sync removed per user request to stop automatic sync
                 if (isOnlineNow) {
-                    manualSync().catch(err => {
-                        if (!isNetworkError(err)) console.error("Initial sync failed:", err);
-                    });
                     downloadMissingFiles(finalDocs);
-                } else {
-                    setSyncStatus('synced');
                 }
+                setSyncStatus('synced');
             } catch (error) {
                 if (!isNetworkError(error)) {
                     console.error('Failed to load data:', error);
@@ -765,15 +763,15 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 setLastSyncedAt(new Date());
                 if (pendingSyncRef.current) {
                     pendingSyncRef.current = false;
-                    console.log("Executing pending sync with delay (synced)...");
-                    setTimeout(() => manualSync(), 3000);
+                    console.log("Executing pending sync (synced)...");
+                    setTimeout(() => manualSync(), 500);
                 }
             } else if (status === 'error') {
                 isSyncingRef.current = false;
                 if (pendingSyncRef.current) {
                     pendingSyncRef.current = false;
-                    console.log("Executing pending sync with delay (error)...");
-                    setTimeout(() => manualSync(), 3000);
+                    console.log("Executing pending sync (error)...");
+                    setTimeout(() => manualSync(), 1000);
                 }
             }
         },
@@ -797,8 +795,13 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         if (realtimeSyncTimeoutRef.current) clearTimeout(realtimeSyncTimeoutRef.current);
         realtimeSyncTimeoutRef.current = setTimeout(() => {
             manualSync();
-        }, 2000); // 2 second debounce for realtime updates
+        }, 1500); // 1.5 second debounce for updates
     }, [manualSync]);
+
+    // Update the ref so updateData can access it
+    React.useEffect(() => {
+        debouncedSyncRef.current = debouncedManualSync;
+    }, [debouncedManualSync]);
 
     const addRealtimeAlert = React.useCallback((message: string, type: 'sync' | 'userApproval' = 'sync') => {
         setRealtimeAlerts((prev: any[]) => [...prev, { id: Date.now(), message, type }]);
@@ -888,6 +891,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
             if (!cloudSuccess) {
                 // If cloud sync fails, mark as dirty for background sync
                 setDirty(true);
+                debouncedManualSync();
                 console.warn(`Cloud-first ${action} failed for ${tableName}:${item.id || item.name || itemId}. Marked as dirty.`);
             } else {
                 // If cloud sync succeeds, ensure local state is marked as synced (not dirty)
@@ -897,6 +901,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         } else {
             // If offline, mark as dirty for background sync
             setDirty(true);
+            debouncedManualSync();
             console.warn(`Offline. Cloud-first ${action} for ${tableName}:${item.id || item.name || itemId} deferred. Marked as dirty.`);
         }
     }, [updateData, isOnline, upsertSingleItemToCloud, deleteSingleItemFromCloud, userRef, effectiveUserId]);
@@ -1452,8 +1457,6 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         },
         syncHistory,
         setSyncStatus,
-        resetSyncLock,
-        debugLogs,
-        setDebugLogs
+        resetSyncLock
     };
 };

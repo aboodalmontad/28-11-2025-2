@@ -49,8 +49,7 @@ const Navbar: React.FC<{
     permissions: Permissions;
     lastSyncedAt: Date | null;
     lastSyncResult: string | null;
-    debugLogs?: string[];
-}> = ({ currentPage, onNavigate, onLogout, syncStatus, lastSyncError, isDirty, isOnline, onManualSync, profile, isAutoSyncEnabled, homePageActions, permissions, lastSyncedAt, lastSyncResult, debugLogs }) => {
+}> = ({ currentPage, onNavigate, onLogout, syncStatus, lastSyncError, isDirty, isOnline, onManualSync, profile, isAutoSyncEnabled, homePageActions, permissions, lastSyncedAt, lastSyncResult }) => {
     
     const allNavItems = [
         { id: 'home', label: 'المفكرة', icon: CalendarDaysIcon, visible: permissions.can_view_agenda },
@@ -103,7 +102,6 @@ const Navbar: React.FC<{
                     onManualSync={onManualSync}
                     isAutoSyncEnabled={isAutoSyncEnabled}
                     lastSyncedAt={lastSyncedAt}
-                    debugLogs={debugLogs}
                 />
                 <button 
                     onClick={() => onNavigate('settings')} 
@@ -658,7 +656,6 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                     permissions={data.permissions}
                     lastSyncedAt={data.lastSyncedAt}
                     lastSyncResult={data.lastSyncResult}
-                    debugLogs={data.debugLogs}
                 />
                 <OfflineBanner />
                 <main className="flex-grow p-4 sm:p-6 overflow-y-auto pb-20 sm:pb-6">{renderPage()}</main>
