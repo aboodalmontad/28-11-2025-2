@@ -1,9 +1,9 @@
 // Fix: Use `import type` for SupabaseClient as it is used as a type, not a value. This resolves module resolution errors in some environments.
 import { createClient, type SupabaseClient, AuthError } from '@supabase/supabase-js';
 
-// Hardcoded Supabase credentials provided by the user.
-const supabaseUrl = "https://gvafdhyudvdymletqjee.supabase.co";
-const supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2YWZkaHl1ZHZkeW1sZXRxamVlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE5MzA0NzYsImV4cCI6MjA3NzUwNjQ3Nn0.PuoD-Mayi8cTscKG9CuQWA_qQU8x8lCeprI63jh5qCE";
+// Supabase credentials from environment variables.
+const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL || "https://gvafdhyudvdymletqjee.supabase.co").trim();
+const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2YWZkaHl1ZHZkeW1sZXRxamVlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE5MzA0NzYsImV4cCI6MjA3NzUwNjQ3Nn0.PuoD-Mayi8cTscKG9CuQWA_qQU8x8lCeprI63jh5qCE").trim();
 
 // Singleton instance of the Supabase client.
 let supabase: SupabaseClient | null = null;
@@ -28,29 +28,45 @@ export async function getSupabaseClient(): Promise<SupabaseClient | null> {
                 let sessionResult;
                 try {
                     sessionResult = await supabase.auth.getSession();
-                } catch (sessionErr) {
+                    const { data: { session }, error } = sessionResult;
+                    
+                    if (error) {
+                        console.warn("Supabase session error:", error.message);
+                        // If the refresh token is invalid, we must clear it to allow a clean login
+                        if (error.message.includes('Refresh Token Not Found') || error.message.includes('invalid_refresh_token')) {
+                            console.error("Critical Auth Error: Refresh token is missing or invalid. Clearing storage.");
+                            window.localStorage.removeItem('lawyer-app-auth-token');
+                            supabase = null;
+                            clientPromise = null;
+                            return null;
+                        }
+                        supabase = null; // Force re-initialization for other errors
+                    } else if (!session) {
+                        console.warn("No active Supabase session found.");
+                        supabase = null;
+                    } else {
+                        return supabase;
+                    }
+                } catch (sessionErr: any) {
                     console.error("Failed to get Supabase session:", sessionErr);
+                    if (sessionErr.message?.includes('Refresh Token Not Found')) {
+                        window.localStorage.removeItem('lawyer-app-auth-token');
+                    }
                     supabase = null;
                     return null;
-                }
-                const { data: { session }, error } = sessionResult;
-                if (error || !session) {
-                    console.warn("Supabase session invalid or expired, re-initializing client.", error);
-                    supabase = null; // Force re-initialization
-                } else {
-                    return supabase;
                 }
             }
         }
         
         // If hardcoded credentials are not valid, return null.
-        if (!supabaseUrl || !supabaseAnonKey) {
-            console.error("Supabase credentials are not defined in the code.");
+        if (!supabaseUrl || !supabaseAnonKey || !supabaseUrl.startsWith('http')) {
+            console.error("Supabase credentials are not defined correctly in the code.", { supabaseUrl: !!supabaseUrl, supabaseAnonKey: !!supabaseAnonKey });
             return null;
         }
 
         // Create a new client instance.
         try {
+            console.log("Initializing new Supabase client...");
             supabase = createClient(supabaseUrl, supabaseAnonKey, {
                 auth: {
                     persistSession: true,
@@ -70,12 +86,20 @@ export async function getSupabaseClient(): Promise<SupabaseClient | null> {
                             window.localStorage.removeItem(key);
                         },
                     },
+                },
+                global: {
+                    fetch: (...args) => {
+                        console.log("Supabase fetch:", args[0]);
+                        return fetch(...args);
+                    },
                 }
             });
+            console.log("Supabase client initialized successfully.");
             return supabase;
         } catch (error) {
             console.error("Error creating Supabase client:", error);
             supabase = null; // Ensure supabase is null on failure
+            clientPromise = null; // Reset promise on failure
             return null;
         }
     })();

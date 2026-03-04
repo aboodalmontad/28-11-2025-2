@@ -44,7 +44,7 @@ const NavLink: React.FC<{
 
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onOpenConfig }) => {
-    const { profiles, isDataLoading: loading, syncStatus, lastSyncError, isDirty, manualSync, isAutoSyncEnabled, lastSyncedAt } = useData();
+    const { profiles, isDataLoading: loading, syncStatus, lastSyncError, isDirty, manualSync, isAutoSyncEnabled, lastSyncedAt, lastSyncResult } = useData();
     // Changed default view from 'analytics' to 'users'
     const [view, setView] = React.useState<AdminView>('users');
     const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
@@ -150,6 +150,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onOpenConfig 
                     <SyncStatusIndicator 
                         status={syncStatus} 
                         lastError={lastSyncError} 
+                        lastSyncResult={lastSyncResult}
                         isDirty={isDirty} 
                         isOnline={isOnline}
                         onManualSync={manualSync}
@@ -197,6 +198,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onOpenConfig 
                         <SyncStatusIndicator 
                             status={syncStatus} 
                             lastError={lastSyncError} 
+                            lastSyncResult={lastSyncResult}
                             isDirty={isDirty} 
                             isOnline={isOnline}
                             onManualSync={manualSync}

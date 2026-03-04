@@ -1,25 +1,3 @@
-
-import * as React from 'react';
-import { ClipboardDocumentCheckIcon, ClipboardDocumentIcon, ServerIcon, ShieldCheckIcon, ExclamationTriangleIcon } from './icons';
-
-// Helper component for copying text (Internal)
-const CopyButton: React.FC<{ textToCopy: string }> = ({ textToCopy }) => {
-    const [copied, setCopied] = React.useState(false);
-    const handleCopy = () => {
-        navigator.clipboard.writeText(textToCopy).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-        });
-    };
-    return (
-        <button type="button" onClick={handleCopy} className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors shadow-sm" title="نسخ الكود">
-            {copied ? <ClipboardDocumentCheckIcon className="w-4 h-4 text-white" /> : <ClipboardDocumentIcon className="w-4 h-4" />}
-            {copied ? 'تم النسخ!' : 'نسخ كود SQL'}
-        </button>
-    );
-};
-
-const unifiedScript = `
 -- ==========================================
 -- Lawyer Business Management System - Supabase Schema
 -- ==========================================
@@ -40,18 +18,18 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     subscription_start_date TIMESTAMPTZ,
     subscription_end_date TIMESTAMPTZ,
     role TEXT DEFAULT 'user' CHECK (role IN ('user', 'admin')),
-    lawyer_id UUID REFERENCES public.profiles(id),
-    permissions JSONB,
+    lawyer_id UUID REFERENCES public.profiles(id), -- If this is an assistant, this points to their lawyer
+    permissions JSONB, -- Custom permissions for assistants
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- 3. Clients Table
 CREATE TABLE IF NOT EXISTS public.clients (
-    id TEXT PRIMARY KEY,
+    id TEXT PRIMARY KEY, -- Using TEXT to support local-first generated IDs
     name TEXT NOT NULL,
     contact_info TEXT,
-    user_id UUID REFERENCES auth.users NOT NULL,
+    user_id UUID REFERENCES auth.users NOT NULL, -- The owner/lawyer ID
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -184,7 +162,7 @@ CREATE TABLE IF NOT EXISTS public.documents (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 13. Assistants List
+-- 13. Assistants List (Simple list for dropdowns)
 CREATE TABLE IF NOT EXISTS public.assistants (
     id BIGSERIAL PRIMARY KEY,
     name TEXT NOT NULL,
@@ -192,7 +170,7 @@ CREATE TABLE IF NOT EXISTS public.assistants (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 14. Site Finances
+-- 14. Site Finances (Admin/Global)
 CREATE TABLE IF NOT EXISTS public.site_finances (
     id BIGSERIAL PRIMARY KEY,
     user_id UUID REFERENCES auth.users,
@@ -206,7 +184,7 @@ CREATE TABLE IF NOT EXISTS public.site_finances (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 15. Sync Deletions
+-- 15. Sync Deletions (Crucial for offline sync)
 CREATE TABLE IF NOT EXISTS public.sync_deletions (
     id BIGSERIAL PRIMARY KEY,
     table_name TEXT NOT NULL,
@@ -215,26 +193,45 @@ CREATE TABLE IF NOT EXISTS public.sync_deletions (
     deleted_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- ==========================================
+-- ROW LEVEL SECURITY (RLS) POLICIES
+-- ==========================================
+
+-- Enable RLS on all tables
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.clients ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cases ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.stages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admin_tasks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.appointments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.accounting_entries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.invoices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.invoice_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.documents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.assistants ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.site_finances ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sync_deletions ENABLE ROW LEVEL SECURITY;
+
 -- Helper function to get the effective owner ID (Lawyer ID)
 CREATE OR REPLACE FUNCTION public.get_effective_owner_id()
 RETURNS UUID AS $$
-  SELECT COALESCE((SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()), auth.uid());
-$$ LANGUAGE sql SECURITY DEFINER SET search_path = public;
+DECLARE
+    lawyer_id_val UUID;
+BEGIN
+    SELECT lawyer_id INTO lawyer_id_val FROM public.profiles WHERE id = auth.uid();
+    RETURN COALESCE(lawyer_id_val, auth.uid());
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Helper function to get the lawyer ID without recursion
-CREATE OR REPLACE FUNCTION public.get_auth_lawyer_id()
-RETURNS UUID AS $$
-  SELECT lawyer_id FROM public.profiles WHERE id = auth.uid();
-$$ LANGUAGE sql SECURITY DEFINER SET search_path = public;
-
--- RLS POLICIES
+-- Generic Policy: Users can see their own data OR data belonging to their lawyer
+-- We apply this to all data tables with explicit INSERT/UPDATE support
 DO $$ 
 DECLARE 
     t TEXT;
     tables TEXT[] := ARRAY['clients', 'cases', 'stages', 'sessions', 'admin_tasks', 'appointments', 'accounting_entries', 'invoices', 'invoice_items', 'documents', 'assistants', 'sync_deletions'];
 BEGIN
-    FOR t IN SELECT unnest(tables) LOOP
-        EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
+    FOREACH t IN ARRAY tables LOOP
         EXECUTE format('DROP POLICY IF EXISTS "Users can access their office data" ON public.%I', t);
         EXECUTE format('CREATE POLICY "Users can access their office data" ON public.%I 
                         FOR ALL USING (user_id = public.get_effective_owner_id())
@@ -242,29 +239,17 @@ BEGIN
     END LOOP;
 END $$;
 
--- Special Policy for Profiles (Non-recursive)
-ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-DO $$ 
-DECLARE 
-    pol RECORD;
-BEGIN 
-    FOR pol IN (SELECT policyname FROM pg_policies WHERE tablename = 'profiles' AND schemaname = 'public') LOOP
-        EXECUTE format('DROP POLICY IF EXISTS %I ON public.profiles', pol.policyname);
-    END LOOP;
-END $$;
+-- Special Policy for Profiles
+CREATE POLICY "Users can view their own profile and their office profiles" ON public.profiles
+    FOR SELECT USING (id = auth.uid() OR lawyer_id = auth.uid() OR lawyer_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()));
 
-CREATE POLICY "Profiles access policy" ON public.profiles
-    FOR SELECT USING (
-        id = auth.uid() OR 
-        lawyer_id = auth.uid() OR 
-        id = public.get_auth_lawyer_id() OR
-        lawyer_id = public.get_auth_lawyer_id()
-    );
-
-CREATE POLICY "Profiles update policy" ON public.profiles
+CREATE POLICY "Users can update their own profile" ON public.profiles
     FOR UPDATE USING (id = auth.uid());
 
--- Deletion Triggers
+-- ==========================================
+-- TRIGGERS FOR SYNC DELETIONS
+-- ==========================================
+
 CREATE OR REPLACE FUNCTION public.log_sync_deletion()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -274,69 +259,32 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- Apply deletion trigger to all relevant tables
 DO $$ 
 DECLARE 
     t TEXT;
     tables TEXT[] := ARRAY['clients', 'cases', 'stages', 'sessions', 'admin_tasks', 'appointments', 'accounting_entries', 'invoices', 'documents'];
 BEGIN
-    FOR t IN SELECT unnest(tables) LOOP
+    FOREACH t IN ARRAY tables LOOP
         EXECUTE format('DROP TRIGGER IF EXISTS %I_deletion_trigger ON public.%I', t, t);
         EXECUTE format('CREATE TRIGGER %I_deletion_trigger BEFORE DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.log_sync_deletion()', t, t);
     END LOOP;
 END $$;
-`;
 
-interface ConfigurationModalProps {
-    onRetry: () => void;
-}
+-- ==========================================
+-- AUTOMATIC PROFILE CREATION
+-- ==========================================
 
-const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ onRetry }) => {
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[200]">
-            <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
-                <div className="flex items-center gap-3 mb-4 text-amber-600">
-                    <ServerIcon className="w-8 h-8" />
-                    <h2 className="text-2xl font-bold">تحديث قاعدة البيانات (إصلاح المزامنة والصلاحيات)</h2>
-                </div>
-                
-                <div className="overflow-y-auto flex-grow pr-2">
-                    <div className="bg-blue-50 border-s-4 border-blue-500 p-4 mb-4 rounded">
-                        <div className="flex">
-                            <div className="flex-shrink-0">
-                                <ExclamationTriangleIcon className="h-5 w-5 text-blue-400" aria-hidden="true" />
-                            </div>
-                            <div className="ms-3">
-                                <p className="text-sm text-blue-700">
-                                    هذا التحديث ضروري لإصلاح خطأ RLS وأخطاء النشر (Realtime). النسخة الحالية: 2.5.
-                                </p>
-                            </div>
-                        </div>
-                    </div>
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO public.profiles (id, full_name, role)
+    VALUES (NEW.id, NEW.raw_user_meta_data->>'full_name', 'user');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
-                    <ol className="list-decimal list-inside space-y-4 text-sm text-gray-600 mb-6">
-                        <li className="bg-gray-50 p-3 rounded-lg border border-gray-200">
-                            <div className="flex justify-between items-center mb-2">
-                                <strong className="text-gray-900">انسخ كود SQL:</strong>
-                                <CopyButton textToCopy={unifiedScript} />
-                            </div>
-                            <div className="relative">
-                                <pre className="bg-gray-800 text-green-400 p-3 rounded border border-gray-700 overflow-x-auto text-xs font-mono h-32" dir="ltr">
-                                    {unifiedScript}
-                                </pre>
-                            </div>
-                        </li>
-                        <li>اذهب إلى <a href="https://supabase.com/dashboard" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-bold">SQL Editor في Supabase</a>.</li>
-                        <li>الصق الكود واضغط <strong>Run</strong>.</li>
-                        <li>بعد النجاح، عد إلى هنا واضغط "إعادة المحاولة".</li>
-                    </ol>
-                </div>
-
-                <div className="mt-6 flex justify-end pt-4 border-t">
-                    <button onClick={onRetry} className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors shadow-md">إعادة المحاولة</button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-export default ConfigurationModal;
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+    AFTER INSERT ON auth.users
+    FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();

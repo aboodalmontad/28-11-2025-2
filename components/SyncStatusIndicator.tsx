@@ -5,15 +5,17 @@ import { SyncStatus } from '../hooks/useSync';
 interface SyncStatusIndicatorProps {
     status: SyncStatus;
     lastError: string | null;
+    lastSyncResult: string | null;
     isDirty: boolean;
     isOnline: boolean;
     onManualSync: () => void;
     isAutoSyncEnabled: boolean;
     lastSyncedAt: Date | null;
     className?: string;
+    debugLogs?: string[];
 }
 
-const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({ status, lastError, isDirty, isOnline, onManualSync, isAutoSyncEnabled, lastSyncedAt, className = "" }) => {
+const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({ status, lastError, lastSyncResult, isDirty, isOnline, onManualSync, isAutoSyncEnabled, lastSyncedAt, className = "", debugLogs = [] }) => {
     
     let displayStatus;
     if (!isOnline) {
@@ -98,7 +100,22 @@ const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({ status, lastE
                 {displayStatus.icon}
                 <span className={`${displayStatus.className} hidden sm:inline`}>{displayStatus.text}</span>
             </button>
-            {lastSyncedAt && (
+            {status === 'error' && lastError && (
+                <span className="text-[10px] text-red-600 font-bold px-2 max-w-[200px] break-words">
+                    {lastError}
+                </span>
+            )}
+            {status === 'synced' && lastSyncResult && !isDirty && (
+                <span className="text-[10px] text-green-600 font-bold px-2 max-w-[200px] break-words">
+                    {lastSyncResult}
+                </span>
+            )}
+            {debugLogs.length > 0 && (
+                <div className="text-[9px] text-purple-600 px-2 max-w-[200px] break-words bg-purple-50 rounded p-1 mt-1">
+                    {debugLogs.map((log, i) => <div key={i}>{log}</div>)}
+                </div>
+            )}
+            {lastSyncedAt && status !== 'error' && (!lastSyncResult || isDirty) && (
                 <span className="text-[10px] text-gray-400 -mt-1 px-2 hidden sm:block">
                     آخر مزامنة: {formatLastSynced(lastSyncedAt)}
                 </span>

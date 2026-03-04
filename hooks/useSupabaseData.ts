@@ -4,7 +4,7 @@ import { Client, Session, AdminTask, Appointment, AccountingEntry, Case, Stage, 
 import { useOnlineStatus } from './useOnlineStatus.ts';
 // Fix: Use `import type` for User and RealtimeChannel as they are used as types, not a value.
 import type { User, RealtimeChannel } from '@supabase/supabase-js';
-import { useSync, SyncStatus as SyncStatusType } from './useSync.ts';
+import { useSync, SyncStatus as SyncStatusType, resetSyncLock } from './useSync.ts';
 import { getSupabaseClient } from '../supabaseClient.ts';
 import { isBeforeToday, toInputDateString } from '../utils/dateUtils.ts';
 import { RealtimeAlert } from '../components/RealtimeNotifier.tsx';
@@ -283,6 +283,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     const [realtimeAlerts, setRealtimeAlerts] = React.useState<RealtimeAlert[]>([]);
     const [userApprovalAlerts, setUserApprovalAlerts] = React.useState<RealtimeAlert[]>([]);
     const [syncHistory, setSyncHistory] = React.useState<{ time: Date; message: string; type: 'success' | 'error' | 'info' }[]>([]);
+    const [debugLogs, setDebugLogs] = React.useState<string[]>([]);
     const [userSettings, setUserSettings] = React.useState<any>({ isAutoSyncEnabled: true, isAutoBackupEnabled: true, adminTasksLayout: 'horizontal', locationOrder: [] });
     const isOnline = useOnlineStatus();
     
@@ -311,6 +312,10 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         if (currentUserProfile && currentUserProfile.lawyer_id) {
             return currentUserProfile.lawyer_id; 
         }
+        // Fallback to localStorage if profiles aren't loaded yet
+        const cachedOwnerId = localStorage.getItem(`lawyer_app_owner_id_${user.id}`);
+        if (cachedOwnerId) return cachedOwnerId;
+        
         return user.id; 
     }, [user, data.profiles]);
 
@@ -356,15 +361,69 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         
         setData(currentData => {
             const newData = typeof updater === 'function' ? (updater as (prevState: AppData) => AppData)(currentData) : updater;
+            
+            // Sync to IndexedDB
             getDb().then(db => {
                 db.put(DATA_STORE_NAME, newData, effectiveUserId);
             }).catch(e => console.error("Failed to write to IDB", e));
+            
+            // Mark as dirty to trigger background sync
             if (options.markDirty && !options.skipCloudSync) {
                 setDirty(true);
             }
             return newData;
         });
     }, [effectiveUserId]);
+
+    // Recursive timestamp update helpers
+    const updateSessionTimestamps = (sessions: Session[], oldSessions: Session[] = []): Session[] => {
+        return sessions.map(s => {
+            const oldS = oldSessions.find(os => os.id === s.id);
+            if (!oldS || JSON.stringify(s) !== JSON.stringify(oldS)) {
+                return { ...s, updated_at: new Date() };
+            }
+            return s;
+        });
+    };
+
+    const updateStageTimestamps = (stages: Stage[], oldStages: Stage[] = []): Stage[] => {
+        return stages.map(st => {
+            const oldSt = oldStages.find(ost => ost.id === st.id);
+            const newSessions = updateSessionTimestamps(st.sessions, oldSt?.sessions);
+            const sessionsChanged = JSON.stringify(newSessions) !== JSON.stringify(oldSt?.sessions || []);
+            
+            if (!oldSt || sessionsChanged || JSON.stringify({ ...st, sessions: [] }) !== JSON.stringify({ ...oldSt, sessions: [] })) {
+                return { ...st, sessions: newSessions, updated_at: new Date() };
+            }
+            return st;
+        });
+    };
+
+    const updateCaseTimestamps = (cases: Case[], oldCases: Case[] = []): Case[] => {
+        return cases.map(cs => {
+            const oldCs = oldCases.find(ocs => ocs.id === cs.id);
+            const newStages = updateStageTimestamps(cs.stages, oldCs?.stages);
+            const stagesChanged = JSON.stringify(newStages) !== JSON.stringify(oldCs?.stages || []);
+
+            if (!oldCs || stagesChanged || JSON.stringify({ ...cs, stages: [] }) !== JSON.stringify({ ...oldCs, stages: [] })) {
+                return { ...cs, stages: newStages, updated_at: new Date() };
+            }
+            return cs;
+        });
+    };
+
+    const updateClientTimestamps = (clients: Client[], oldClients: Client[] = []): Client[] => {
+        return clients.map(c => {
+            const oldC = oldClients.find(oc => oc.id === c.id);
+            const newCases = updateCaseTimestamps(c.cases, oldC?.cases);
+            const casesChanged = JSON.stringify(newCases) !== JSON.stringify(oldC?.cases || []);
+
+            if (!oldC || casesChanged || JSON.stringify({ ...c, cases: [] }) !== JSON.stringify({ ...oldC, cases: [] })) {
+                return { ...c, cases: newCases, updated_at: new Date() };
+            }
+            return c;
+        });
+    };
 
     const setFullData = React.useCallback(async (newData: any) => {
         const validated = validateAndFixData(newData, userRef.current);
@@ -511,20 +570,22 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
 
                 if (isOnlineNow && supabase) {
                     try {
-                        const res: any = await fetchWithRetry(async () => 
-                            await supabase!.from('profiles').select('lawyer_id').eq('id', user!.id).maybeSingle()
-                        );
-                        const profileData = res?.data;
+                        console.log("useSupabaseData: Fetching profile to determine ownerId...", user.id);
+                        const { data: profileData, error } = await supabase.from('profiles').select('lawyer_id').eq('id', user.id).maybeSingle();
+                        
+                        if (error) throw error;
 
                         if (profileData && profileData.lawyer_id) {
                             ownerId = profileData.lawyer_id;
+                            console.log("useSupabaseData: Found lawyer_id for assistant:", ownerId);
                             localStorage.setItem(`lawyer_app_owner_id_${user.id}`, ownerId);
-                        } else if (profileData) {
+                        } else {
                             ownerId = user.id;
+                            console.log("useSupabaseData: User is a primary lawyer, ownerId:", ownerId);
                             localStorage.setItem(`lawyer_app_owner_id_${user.id}`, ownerId);
                         }
                     } catch (profileFetchErr) {
-                        console.warn("Failed to fetch profile owner ID on startup (shaky network), using cached/fallback:", profileFetchErr);
+                        console.warn("Failed to fetch profile owner ID on startup, using cached/fallback:", profileFetchErr);
                     }
                 }
 
@@ -566,12 +627,13 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
             } catch (error) {
                 if (!isNetworkError(error)) {
                     console.error('Failed to load data:', error);
+                    setSyncStatus('error');
+                    const errorMsg = getFriendlyErrorMessage(error, 'فشل تحميل البيانات.');
+                    setLastSyncError(errorMsg);
                 } else {
-                    console.warn("Failed to load data due to network error (offline).");
+                    console.warn("Initial load network error (Failed to fetch), proceeding offline.");
+                    setSyncStatus('synced'); // Allow entry in offline mode
                 }
-                setSyncStatus('error');
-                const errorMsg = getFriendlyErrorMessage(error, 'فشل تحميل البيانات.');
-                setLastSyncError(errorMsg);
             } finally {
                 if (!cancelled) setIsDataLoading(false);
             }
@@ -687,7 +749,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         }
     }, [updateData]);
 
-    const { manualSync: originalManualSync, fetchAndRefresh, upsertSingleItemToCloud, deleteSingleItemFromCloud } = useSync({
+    const { manualSync: originalManualSync, fetchAndRefresh, upsertSingleItemToCloud, deleteSingleItemFromCloud, lastSyncResult } = useSync({
         user: userRef.current, // Real User
         effectiveUserId, // Owner
         localData: data, 
@@ -703,15 +765,15 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 setLastSyncedAt(new Date());
                 if (pendingSyncRef.current) {
                     pendingSyncRef.current = false;
-                    console.log("Executing pending sync...");
-                    manualSync();
+                    console.log("Executing pending sync with delay (synced)...");
+                    setTimeout(() => manualSync(), 3000);
                 }
             } else if (status === 'error') {
                 isSyncingRef.current = false;
                 if (pendingSyncRef.current) {
                     pendingSyncRef.current = false;
-                    console.log("Executing pending sync...");
-                    manualSync();
+                    console.log("Executing pending sync with delay (error)...");
+                    setTimeout(() => manualSync(), 3000);
                 }
             }
         },
@@ -719,6 +781,8 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         excludedDocIds, 
         isOnline, isAuthLoading, syncStatus
     });
+
+    const realtimeSyncTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
 
     const manualSync = React.useCallback(async () => {
         if (isSyncingRef.current) {
@@ -728,6 +792,13 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         }
         return originalManualSync();
     }, [originalManualSync]);
+
+    const debouncedManualSync = React.useCallback(() => {
+        if (realtimeSyncTimeoutRef.current) clearTimeout(realtimeSyncTimeoutRef.current);
+        realtimeSyncTimeoutRef.current = setTimeout(() => {
+            manualSync();
+        }, 2000); // 2 second debounce for realtime updates
+    }, [manualSync]);
 
     const addRealtimeAlert = React.useCallback((message: string, type: 'sync' | 'userApproval' = 'sync') => {
         setRealtimeAlerts((prev: any[]) => [...prev, { id: Date.now(), message, type }]);
@@ -750,28 +821,24 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                         schema: 'public',
                     },
                     (payload: any) => {
-                        // Only trigger sync if the change belongs to our office
-                        const record = payload.new as any || payload.old as any;
-                        const recordUserId = record?.user_id || record?.id || record?.lawyer_id;
+                        console.log('Realtime event received:', payload.table, payload.eventType, payload);
+                        // Log everything for debugging
+                        console.log('Realtime update detected for:', payload.table, payload.eventType);
                         
-                        if (recordUserId === effectiveUserId) {
-                            console.log('Realtime update detected for office:', payload.table, payload.eventType);
-                            
-                            // Show a notification for remote updates
-                            const tableNamesAr: Record<string, string> = {
-                                'clients': 'الموكلين',
-                                'cases': 'القضايا',
-                                'stages': 'مراحل القضايا',
-                                'sessions': 'الجلسات',
-                                'admin_tasks': 'المهام الإدارية',
-                                'appointments': 'المواعيد',
-                                'accounting_entries': 'القيود المحاسبية',
-                                'invoices': 'الفواتير'
-                            };
-                            const tableName = tableNamesAr[payload.table] || payload.table;
-                            addRealtimeAlert(`تم تحديث بيانات (${tableName}) من مستخدم آخر`, 'sync');
-                            manualSync();
-                        }
+                        // Show a notification for remote updates
+                        const tableNamesAr: Record<string, string> = {
+                            'clients': 'الموكلين',
+                            'cases': 'القضايا',
+                            'stages': 'مراحل القضايا',
+                            'sessions': 'الجلسات',
+                            'admin_tasks': 'المهام الإدارية',
+                            'appointments': 'المواعيد',
+                            'accounting_entries': 'القيود المحاسبية',
+                            'invoices': 'الفواتير'
+                        };
+                        const tableName = tableNamesAr[payload.table] || payload.table;
+                        // addRealtimeAlert(`تم تحديث بيانات (${tableName}) من مستخدم آخر`, 'sync');
+                        debouncedManualSync();
                     }
                 )
                 .subscribe((status: string) => {
@@ -791,43 +858,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         };
     }, [user, effectiveUserId, isOnline, manualSync, addRealtimeAlert]);
 
-    React.useEffect(() => {
-        if (isOnline && isDirty && userSettings.isAutoSyncEnabled && syncStatus !== 'syncing') {
-            const handler = setTimeout(() => { manualSync(); }, 3000);
-            return () => clearTimeout(handler);
-        }
-    }, [isOnline, isDirty, userSettings.isAutoSyncEnabled, manualSync]);
-
-    React.useEffect(() => {
-        if (isOnline && userSettings.isAutoSyncEnabled && syncStatus !== 'syncing' && syncStatus !== 'loading') {
-            manualSync();
-        }
-
-        // Periodic sync every 2 minutes to pull changes from other users
-        let interval: number | undefined;
-        if (isOnline && userSettings.isAutoSyncEnabled) {
-            interval = window.setInterval(() => {
-                if (syncStatus !== 'syncing') {
-                    console.log("Periodic background sync...");
-                    manualSync();
-                }
-            }, 120000); // 2 minutes
-        }
-
-        // Sync when window regains focus
-        const handleFocus = () => {
-            if (isOnline && userSettings.isAutoSyncEnabled && syncStatus !== 'syncing') {
-                console.log("Window focused, triggering sync...");
-                manualSync();
-            }
-        };
-        window.addEventListener('focus', handleFocus);
-
-        return () => {
-            if (interval) clearInterval(interval);
-            window.removeEventListener('focus', handleFocus);
-        };
-    }, [isOnline, userSettings.isAutoSyncEnabled, manualSync]); 
+    // Removed auto-sync effects to ensure sync only happens on explicit data modification
 
     // Helper for cloud-first mutations
     const cloudFirstMutation = React.useCallback(async <T extends { id?: string; name?: string; updated_at?: Date }>( 
@@ -893,161 +924,99 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     return {
         ...data,
         setClients: (updater: (prev: Client[]) => Client[]) => {
-            const newClients = updater(data.clients).map((c: Client) => ({ ...c, updated_at: new Date() }));
-            const oldClients = data.clients;
-
-            // Determine which clients were added/updated
-            newClients.forEach(newClient => {
-                const oldClient = oldClients.find(oc => oc.id === newClient.id);
-                if (!oldClient || JSON.stringify(oldClient) !== JSON.stringify(newClient)) {
-                    // If client is new or updated, attempt cloud upsert
-                    cloudFirstMutation(
-                        'clients',
-                        newClient,
-                        'upsert',
-                        (prev: AppData) => ({ ...prev, clients: prev.clients.map(c => c.id === newClient.id ? newClient : c) })
-                    );
-                }
-            });
-
-            // Determine which clients were removed (handled by deleteClient separately)
+            const newClientsRaw = updater(data.clients);
+            const newClients = updateClientTimestamps(newClientsRaw, data.clients);
             updateData(prev => ({ ...prev, clients: newClients }));
         },
         setAdminTasks: (updater: (prev: AdminTask[]) => AdminTask[]) => {
-            const newAdminTasks = updater(data.adminTasks).map((t: AdminTask) => ({ ...t, updated_at: new Date() }));
-            const oldAdminTasks = data.adminTasks;
-
-            newAdminTasks.forEach(newTask => {
-                const oldTask = oldAdminTasks.find(ot => ot.id === newTask.id);
-                if (!oldTask || JSON.stringify(oldTask) !== JSON.stringify(newTask)) {
-                    cloudFirstMutation(
-                        'adminTasks',
-                        newTask,
-                        'upsert',
-                        (prev: AppData) => ({ ...prev, adminTasks: prev.adminTasks.map(t => t.id === newTask.id ? newTask : t) })
-                    );
+            const newTasksRaw = updater(data.adminTasks);
+            const newTasks = newTasksRaw.map(t => {
+                const oldT = data.adminTasks.find(ot => ot.id === t.id);
+                if (!oldT || JSON.stringify(t) !== JSON.stringify(oldT)) {
+                    return { ...t, updated_at: new Date() };
                 }
+                return t;
             });
-            updateData(prev => ({ ...prev, adminTasks: newAdminTasks }));
+            updateData(prev => ({ ...prev, adminTasks: newTasks }));
         },
         setAppointments: (updater: (prev: Appointment[]) => Appointment[]) => {
-            const newAppointments = updater(data.appointments).map((a: Appointment) => ({ ...a, updated_at: new Date() }));
-            const oldAppointments = data.appointments;
-
-            newAppointments.forEach(newAppointment => {
-                const oldAppointment = oldAppointments.find(oa => oa.id === newAppointment.id);
-                if (!oldAppointment || JSON.stringify(oldAppointment) !== JSON.stringify(newAppointment)) {
-                    cloudFirstMutation(
-                        'appointments',
-                        newAppointment,
-                        'upsert',
-                        (prev: AppData) => ({ ...prev, appointments: prev.appointments.map(a => a.id === newAppointment.id ? newAppointment : a) })
-                    );
+            const newAppsRaw = updater(data.appointments);
+            const newApps = newAppsRaw.map(a => {
+                const oldA = data.appointments.find(oa => oa.id === a.id);
+                if (!oldA || JSON.stringify(a) !== JSON.stringify(oldA)) {
+                    return { ...a, updated_at: new Date() };
                 }
+                return a;
             });
-            updateData(prev => ({ ...prev, appointments: newAppointments }));
+            updateData(prev => ({ ...prev, appointments: newApps }));
         },
         setAccountingEntries: (updater: (prev: AccountingEntry[]) => AccountingEntry[]) => {
-            const newAccountingEntries = updater(data.accountingEntries).map((e: AccountingEntry) => ({ ...e, updated_at: new Date() }));
-            const oldAccountingEntries = data.accountingEntries;
-
-            newAccountingEntries.forEach(newEntry => {
-                const oldEntry = oldAccountingEntries.find(oe => oe.id === newEntry.id);
-                if (!oldEntry || JSON.stringify(oldEntry) !== JSON.stringify(newEntry)) {
-                    cloudFirstMutation(
-                        'accountingEntries',
-                        newEntry,
-                        'upsert',
-                        (prev: AppData) => ({ ...prev, accountingEntries: prev.accountingEntries.map(e => e.id === newEntry.id ? newEntry : e) })
-                    );
+            const newEntriesRaw = updater(data.accountingEntries);
+            const newEntries = newEntriesRaw.map(e => {
+                const oldE = data.accountingEntries.find(oe => oe.id === e.id);
+                if (!oldE || JSON.stringify(e) !== JSON.stringify(oldE)) {
+                    return { ...e, updated_at: new Date() };
                 }
+                return e;
             });
-            updateData(prev => ({ ...prev, accountingEntries: newAccountingEntries }));
+            updateData(prev => ({ ...prev, accountingEntries: newEntries }));
         },
         setInvoices: (updater: (prev: Invoice[]) => Invoice[]) => {
-            const newInvoices = updater(data.invoices).map((i: Invoice) => ({ ...i, updated_at: new Date() }));
-            const oldInvoices = data.invoices;
-
-            newInvoices.forEach(newInvoice => {
-                const oldInvoice = oldInvoices.find(oi => oi.id === newInvoice.id);
-                if (!oldInvoice || JSON.stringify(oldInvoice) !== JSON.stringify(newInvoice)) {
-                    cloudFirstMutation(
-                        'invoices',
-                        newInvoice,
-                        'upsert',
-                        (prev: AppData) => ({ ...prev, invoices: prev.invoices.map(i => i.id === newInvoice.id ? newInvoice : i) })
-                    );
+            const newInvoicesRaw = updater(data.invoices);
+            const newInvoices = newInvoicesRaw.map(inv => {
+                const oldInv = data.invoices.find(oi => oi.id === inv.id);
+                // Check items too
+                const itemsChanged = JSON.stringify(inv.items) !== JSON.stringify(oldInv?.items || []);
+                if (!oldInv || itemsChanged || JSON.stringify({ ...inv, items: [] }) !== JSON.stringify({ ...oldInv, items: [] })) {
+                    const updatedItems = inv.items.map(item => {
+                        const oldItem = oldInv?.items.find(oi => oi.id === item.id);
+                        if (!oldItem || JSON.stringify(item) !== JSON.stringify(oldItem)) {
+                            return { ...item, updated_at: new Date() };
+                        }
+                        return item;
+                    });
+                    return { ...inv, items: updatedItems, updated_at: new Date() };
                 }
+                return inv;
             });
             updateData(prev => ({ ...prev, invoices: newInvoices }));
         },
         setAssistants: (updater: (prev: string[]) => string[]) => {
             const newAssistants = updater(data.assistants);
-            const oldAssistants = data.assistants;
-
-            newAssistants.forEach(newAssistant => {
-                const oldAssistant = oldAssistants.find(oa => oa === newAssistant);
-                if (!oldAssistant || oldAssistant !== newAssistant) {
-                    cloudFirstMutation(
-                        'assistants',
-                        { name: newAssistant }, // Assistants don't have IDs, use name as identifier
-                        'upsert',
-                        (prev: AppData) => ({ ...prev, assistants: prev.assistants.map(a => a === newAssistant ? newAssistant : a) })
-                    );
-                }
-            });
             updateData(prev => ({ ...prev, assistants: newAssistants }));
         },
         setDocuments: (updater: (prev: CaseDocument[]) => CaseDocument[]) => {
-            const newDocuments = updater(data.documents).map((d: CaseDocument) => ({ ...d, updated_at: new Date() }));
-            const oldDocuments = data.documents;
-
-            newDocuments.forEach(newDoc => {
-                const oldDoc = oldDocuments.find(od => od.id === newDoc.id);
-                if (!oldDoc || JSON.stringify(oldDoc) !== JSON.stringify(newDoc)) {
-                    cloudFirstMutation(
-                        'documents',
-                        newDoc,
-                        'upsert',
-                        (prev: AppData) => ({ ...prev, documents: prev.documents.map(d => d.id === newDoc.id ? newDoc : d) })
-                    );
+            const newDocsRaw = updater(data.documents);
+            const newDocs = newDocsRaw.map(d => {
+                const oldD = data.documents.find(od => od.id === d.id);
+                if (!oldD || JSON.stringify(d) !== JSON.stringify(oldD)) {
+                    return { ...d, updated_at: new Date() };
                 }
+                return d;
             });
-            updateData(prev => ({ ...prev, documents: newDocuments }));
+            updateData(prev => ({ ...prev, documents: newDocs }));
         },
         setProfiles: (updater: (prev: Profile[]) => Profile[]) => {
-            const newProfiles = updater(data.profiles).map((p: Profile) => ({ ...p, updated_at: new Date() }));
-            const oldProfiles = data.profiles;
-
-            newProfiles.forEach(newProfile => {
-                const oldProfile = oldProfiles.find(op => op.id === newProfile.id);
-                if (!oldProfile || JSON.stringify(oldProfile) !== JSON.stringify(newProfile)) {
-                    cloudFirstMutation(
-                        'profiles',
-                        newProfile,
-                        'upsert',
-                        (prev: AppData) => ({ ...prev, profiles: prev.profiles.map(p => p.id === newProfile.id ? newProfile : p) })
-                    );
+            const newProfilesRaw = updater(data.profiles);
+            const newProfiles = newProfilesRaw.map(p => {
+                const oldP = data.profiles.find(op => op.id === p.id);
+                if (!oldP || JSON.stringify(p) !== JSON.stringify(oldP)) {
+                    return { ...p, updated_at: new Date() };
                 }
+                return p;
             });
             updateData(prev => ({ ...prev, profiles: newProfiles }));
         },
         setSiteFinances: (updater: (prev: SiteFinancialEntry[]) => SiteFinancialEntry[]) => {
-            const newSiteFinances = updater(data.siteFinances).map((f: SiteFinancialEntry) => ({ ...f, updated_at: new Date() }));
-            const oldSiteFinances = data.siteFinances;
-
-            newSiteFinances.forEach(newEntry => {
-                const oldEntry = oldSiteFinances.find(oe => oe.id === newEntry.id);
-                if (!oldEntry || JSON.stringify(oldEntry) !== JSON.stringify(newEntry)) {
-                    cloudFirstMutation(
-                        'siteFinances' as keyof AppData,
-                        { ...newEntry, id: String(newEntry.id) }, // Convert id to string
-                        'upsert',
-                        (prev: AppData) => ({ ...prev, siteFinances: prev.siteFinances.map(f => f.id === newEntry.id ? newEntry : f) })
-                    );
+            const newFinancesRaw = updater(data.siteFinances);
+            const newFinances = newFinancesRaw.map(f => {
+                const oldF = data.siteFinances.find(of => of.id === f.id);
+                if (!oldF || JSON.stringify(f) !== JSON.stringify(oldF)) {
+                    return { ...f, updated_at: new Date() };
                 }
+                return f;
             });
-            updateData(prev => ({ ...prev, siteFinances: newSiteFinances }));
+            updateData(prev => ({ ...prev, siteFinances: newFinances }));
         },
         lastSyncedAt,
         setFullData,
@@ -1079,6 +1048,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         }, [data.clients]),
         syncStatus, manualSync, lastSyncError, isDirty, userId: user?.id, isDataLoading,
         effectiveUserId,
+        lastSyncResult,
         permissions: currentUserPermissions,
         isAutoSyncEnabled: userSettings.isAutoSyncEnabled, setAutoSyncEnabled: (v: boolean) => updateSettings(p => ({...p, isAutoSyncEnabled: v})),
         isAutoBackupEnabled: userSettings.isAutoBackupEnabled, setAutoBackupEnabled: (v: boolean) => updateSettings(p => ({...p, isAutoBackupEnabled: v})),
@@ -1099,7 +1069,8 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         triggeredAlerts, dismissAlert: (id: string) => setTriggeredAlerts(p => p.filter(a => a.id !== id)),
         realtimeAlerts, dismissRealtimeAlert: (id: number) => setRealtimeAlerts(p => p.filter(a => a.id !== id)),
         addRealtimeAlert,
-        userApprovalAlerts, dismissUserApprovalAlert: (id: number) => setUserApprovalAlerts(p => p.filter(a => a.id !== id)),
+        userApprovalAlerts, 
+        dismissUserApprovalAlert: (id: number) => setUserApprovalAlerts(p => p.filter(a => a.id !== id)),
         showUnpostponedSessionsModal, setShowUnpostponedSessionsModal,
         fetchAndRefresh,
         deleteClient: (id: string) => { updateData(p => ({ ...p, clients: p.clients.filter(c => c.id !== id) })); createDeleteFunction('clients')(id); },
@@ -1480,6 +1451,9 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
             }
         },
         syncHistory,
-        setSyncStatus
+        setSyncStatus,
+        resetSyncLock,
+        debugLogs,
+        setDebugLogs
     };
 };

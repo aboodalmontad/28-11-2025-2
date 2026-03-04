@@ -14,6 +14,23 @@ window.addEventListener('storage', (event) => {
 });
 
 
+// Global safety net for unhandled auth errors (like "Refresh Token Not Found")
+window.addEventListener('unhandledrejection', (event) => {
+  const error = event.reason;
+  const message = error?.message || String(error);
+  
+  if (message.includes('Refresh Token Not Found') || message.includes('invalid_refresh_token')) {
+    console.error("Global Auth Guard: Detected invalid refresh token. Clearing session.");
+    window.localStorage.removeItem('lawyer-app-auth-token');
+    window.localStorage.setItem('lawyerAppLoggedOut', 'true');
+    
+    // Only reload if we are not already on the login page (to avoid loops)
+    if (!window.location.search.includes('error=unauthorized')) {
+        window.location.reload();
+    }
+  }
+});
+
 // Register Service Worker for offline capabilities
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('message', event => {
@@ -28,11 +45,16 @@ if ('serviceWorker' in navigator) {
         console.log('ServiceWorker registration successful with scope: ', registration.scope);
         
         const checkForUpdate = () => {
+            if (!navigator.onLine) return;
+            
             console.log('Checking for service worker update...');
-            registration.update();
+            registration.update().catch(err => {
+                console.warn('Service Worker update check failed (likely network issue):', err);
+            });
         };
 
-        checkForUpdate();
+        // Don't check immediately to avoid race conditions with initial registration
+        setTimeout(checkForUpdate, 5000);
         
         setInterval(checkForUpdate, 60 * 60 * 1000); // 1 hour
       })

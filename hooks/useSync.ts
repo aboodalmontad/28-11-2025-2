@@ -191,7 +191,11 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
     onSyncStatusChangeRef.current = onSyncStatusChange;
 
 
-    const setStatus = (status: SyncStatus, error: string | null = null) => { onSyncStatusChangeRef.current(status, error); };
+    const [lastSyncResult, setLastSyncResult] = React.useState<string | null>(null);
+
+    const setStatus = (status: SyncStatus, error: string | null = null) => { 
+        onSyncStatusChangeRef.current(status, error); 
+    };
 
     const manualSync = React.useCallback(async () => {
         console.log("useSync: manualSync invoked.", { isSyncLocked, isAuthLoading, isOnline, user: userRef.current?.id, effectiveUserId: ownerRef.current });
@@ -205,10 +209,22 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
 
         isSyncLocked = true;
         setStatus('syncing', 'جاري المزامنة...');
+        
+        // Safety timeout to reset lock if sync hangs for more than 2 minutes
+        const safetyTimeout = setTimeout(() => {
+            if (isSyncLocked) {
+                console.warn("Sync safety timeout reached. Resetting lock.");
+                isSyncLocked = false;
+                setStatus('error', 'انتهى وقت المزامنة. يرجى المحاولة مرة أخرى.');
+            }
+        }, 120000);
+
         try {
             const schemaCheck = await fetchWithRetry(() => checkSupabaseSchema());
             if (!schemaCheck.success) {
+                clearTimeout(safetyTimeout);
                 setStatus('error', schemaCheck.message);
+                isSyncLocked = false; // Reset lock on early exit
                 return;
             }
 
@@ -219,6 +235,9 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
             ]);
 
             const remoteFlatData = transformRemoteToLocal(remoteDataRaw);
+            const remoteCounts = Object.entries(remoteFlatData).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.length : 0}`).join(', ');
+            console.log(`useSync: Remote data fetched. Counts: ${remoteCounts}`);
+
             let localFlatData = applyDeletionsToLocal(flattenData(localDataRef.current), remoteDeletions);
 
             const flatUpserts: Partial<FlatData> = {};
@@ -234,7 +253,14 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
                 const itemsToUpsert = localItems.filter((localItem: any) => {
                     const id = localItem.id ?? localItem.name;
                     const remoteItem = remoteItems.find((r: any) => (r.id ?? r.name) === id);
-                    return !remoteItem || new Date(localItem.updated_at || 0).getTime() > new Date(remoteItem.updated_at || 0).getTime();
+                    const shouldUpsert = !remoteItem || (new Date(localItem.updated_at || 0).getTime() - new Date(remoteItem.updated_at || 0).getTime()) > 5000;
+                    
+                    if (shouldUpsert) {
+                        const log = `[Sync Debug] Item to upsert: ${key} - ID: ${id}`;
+                        console.log(log, localItem);
+                        setLastSyncResult(prev => prev ? `${prev} | ${log}` : log);
+                    }
+                    return shouldUpsert;
                 });
                 (flatUpserts as any)[key] = itemsToUpsert;
             }
@@ -260,7 +286,11 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
             }
 
             console.log("useSync: Upserting data to Supabase.", { flatUpserts });
-            const upsertedDataRaw = await fetchWithRetry(() => upsertDataToSupabase(flatUpserts as FlatData, realUser, ownerId));
+            await fetchWithRetry(() => upsertDataToSupabase(flatUpserts as FlatData, realUser, ownerId));
+            
+            const totalUpserted = Object.values(flatUpserts).reduce((acc, curr) => acc + (Array.isArray(curr) ? curr.length : 0), 0);
+            setLastSyncResult(`تم رفع ${totalUpserted} عنصر بنجاح.`);
+            
             const finalMergedData = constructData(mergedFlatData as FlatData);
             
             await onDataSyncedRef.current(finalMergedData);
@@ -276,6 +306,7 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
                 setStatus('error', 'تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.');
             }
         } finally {
+            clearTimeout(safetyTimeout);
             isSyncLocked = false;
         }
     }, [isOnline, isAuthLoading]);
@@ -340,5 +371,5 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
         }
     }, [isOnline]);
 
-    return { manualSync, fetchAndRefresh: manualSync, upsertSingleItemToCloud, deleteSingleItemFromCloud };
+    return { manualSync, fetchAndRefresh: manualSync, upsertSingleItemToCloud, deleteSingleItemFromCloud, lastSyncResult };
 };

@@ -48,7 +48,9 @@ const Navbar: React.FC<{
     homePageActions?: React.ReactNode;
     permissions: Permissions;
     lastSyncedAt: Date | null;
-}> = ({ currentPage, onNavigate, onLogout, syncStatus, lastSyncError, isDirty, isOnline, onManualSync, profile, isAutoSyncEnabled, homePageActions, permissions, lastSyncedAt }) => {
+    lastSyncResult: string | null;
+    debugLogs?: string[];
+}> = ({ currentPage, onNavigate, onLogout, syncStatus, lastSyncError, isDirty, isOnline, onManualSync, profile, isAutoSyncEnabled, homePageActions, permissions, lastSyncedAt, lastSyncResult, debugLogs }) => {
     
     const allNavItems = [
         { id: 'home', label: 'المفكرة', icon: CalendarDaysIcon, visible: permissions.can_view_agenda },
@@ -95,11 +97,13 @@ const Navbar: React.FC<{
                 <SyncStatusIndicator 
                     status={syncStatus} 
                     lastError={lastSyncError} 
+                    lastSyncResult={lastSyncResult}
                     isDirty={isDirty} 
                     isOnline={isOnline}
                     onManualSync={onManualSync}
                     isAutoSyncEnabled={isAutoSyncEnabled}
                     lastSyncedAt={lastSyncedAt}
+                    debugLogs={debugLogs}
                 />
                 <button 
                     onClick={() => onNavigate('settings')} 
@@ -472,32 +476,119 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     const effectiveProfile = profile || data.profiles.find(p => p.id === session.user.id);
     
     if (!effectiveProfile) {
+        const isSyncError = data.syncStatus === 'error';
         return (
             <FullScreenLoader 
-                text={data.syncStatus === 'error' ? "حدث خطأ في الاتصال" : (data.syncStatus === 'syncing' ? "جاري مزامنة بيانات الحساب..." : "جاري تحميل الملف الشخصي...")}
+                text={isSyncError ? "تعذر الاتصال بالسحابة" : (data.syncStatus === 'syncing' ? "جاري مزامنة البيانات..." : "جاري تحميل الملف الشخصي...")}
                 subtext={data.lastSyncError || "إذا كنت تسجل الدخول لأول مرة، قد يستغرق الأمر لحظات لتحميل بياناتك."}
-                isError={data.syncStatus === 'error'}
+                isError={isSyncError}
             >
-                {showTroubleshooting && (
-                    <div className="flex flex-col gap-3 animate-fade-in">
-                        <p className="text-sm text-red-600 font-bold mb-2">
-                           {data.syncStatus === 'error' ? 'فشل الاتصال بخادم قاعدة البيانات.' : 'يبدو أن التحميل يستغرق وقتاً أطول من المعتاد.'}
-                        </p>
-                        <div className="flex flex-wrap gap-4 justify-center">
-                            <button onClick={() => { setShowTroubleshooting(false); data.manualSync(); }} className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 shadow-sm">
-                                <ArrowPathIcon className="w-4 h-4" /> <span>إعادة المحاولة</span>
+                <div className="flex flex-col gap-4 items-center animate-fade-in">
+                    {isSyncError && (
+                        <div className="bg-red-50 border border-red-200 p-5 rounded-2xl text-right max-w-md mb-2 shadow-sm animate-fade-in">
+                            <div className="flex items-center gap-3 mb-3 text-red-800">
+                                <ExclamationCircleIcon className="w-6 h-6 flex-shrink-0" />
+                                <h3 className="font-bold text-lg">خطأ في الاتصال</h3>
+                            </div>
+                            <p className="text-sm text-gray-700 leading-relaxed mb-4">
+                                تعذر الاتصال بخادم المكتب السحابي. يرجى التأكد من استقرار شبكة الإنترنت لديك.
+                            </p>
+                            
+                            <button 
+                                onClick={() => setShowTroubleshooting(!showTroubleshooting)}
+                                className="text-[10px] text-blue-600 hover:underline font-medium flex items-center gap-1 mb-2"
+                            >
+                                {showTroubleshooting ? 'إخفاء التفاصيل التقنية' : 'إظهار التفاصيل التقنية وحلول المشاكل'}
                             </button>
-                            {data.syncStatus === 'error' && (
-                                <button onClick={() => data.setSyncStatus('unconfigured')} className="px-4 py-2 bg-orange-600 text-white rounded-lg flex items-center gap-2 shadow-sm">
-                                    <ExclamationCircleIcon className="w-4 h-4" /> <span>فتح معالج الإعداد (SQL Script)</span>
-                                </button>
+
+                            {data.lastSyncError?.includes('infinite recursion') && (
+                                <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-right animate-pulse">
+                                    <p className="text-[10px] text-amber-800 font-bold mb-1">حل مشكلة التكرار (Recursion):</p>
+                                    <p className="text-[10px] text-amber-700 leading-normal">
+                                        تم اكتشاف حلقة تكرار في الصلاحيات. يرجى نسخ السكربت المحدث من "إعدادات قاعدة البيانات" وتشغيله في Supabase لكسر هذه الحلقة.
+                                    </p>
+                                </div>
                             )}
-                            <button onClick={handleLogout} className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg flex items-center gap-2 shadow-sm">
-                                <PowerIcon className="w-4 h-4" /> <span>تسجيل الخروج</span>
-                            </button>
+
+                            {showTroubleshooting && (
+                                <div className="mt-3 pt-3 border-t border-red-100 space-y-3 animate-slide-down">
+                                    <div className="bg-white/50 p-3 rounded-lg border border-red-50">
+                                        <p className="text-[10px] text-gray-600 font-bold mb-1">رسالة الخطأ:</p>
+                                        <code className="text-[9px] font-mono text-red-600 break-all block leading-tight">
+                                            {data.lastSyncError || 'Network request failed'}
+                                        </code>
+                                    </div>
+                                    
+                                    <div className="space-y-2">
+                                        <p className="text-[10px] text-gray-700 font-bold">حلول مقترحة:</p>
+                                        <ul className="text-[10px] text-gray-600 list-disc list-inside space-y-1 pr-2">
+                                            <li>تأكد من عدم وجود جدار حماية يمنع الاتصال.</li>
+                                            <li>إذا استمر الخطأ، تأكد من إضافة الرابط التالي في إعدادات CORS في Supabase:</li>
+                                        </ul>
+                                        <code className="block p-2 bg-white border rounded text-[9px] font-mono select-all break-all text-center text-blue-700">
+                                            {window.location.origin}
+                                        </code>
+                                        
+                                        <button 
+                                            onClick={() => {
+                                                data.resetSyncLock();
+                                                alert('تم تحرير قفل المزامنة. يمكنك المحاولة مرة أخرى الآن.');
+                                            }}
+                                            className="w-full mt-2 py-1.5 bg-red-50 text-red-600 text-[9px] font-bold rounded border border-red-100 hover:bg-red-100 transition-colors"
+                                        >
+                                            تحرير قفل المزامنة (Force Reset)
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
+                    )}
+                    
+                    <div className="flex flex-wrap gap-3 justify-center">
+                        <button 
+                            onClick={() => { setShowTroubleshooting(false); data.manualSync(); }} 
+                            className="px-5 py-2.5 bg-blue-600 text-white rounded-xl flex items-center gap-2 shadow-lg hover:bg-blue-700 transition-all active:scale-95"
+                        >
+                            <ArrowPathIcon className="w-5 h-5" /> 
+                            <span className="font-bold">إعادة محاولة الاتصال</span>
+                        </button>
+
+                        {/* New Work Offline Button */}
+                        <button 
+                            onClick={() => {
+                                // Force a temporary profile based on session to allow entry
+                                if (session) {
+                                    const tempProfile: Profile = {
+                                        id: session.user.id,
+                                        full_name: session.user.user_metadata?.full_name || 'مستخدم (وضع الأوفلاين)',
+                                        mobile_number: '',
+                                        is_approved: true,
+                                        is_active: true,
+                                        mobile_verified: true,
+                                        role: 'user',
+                                        created_at: new Date().toISOString(),
+                                        updated_at: new Date(),
+                                        subscription_start_date: null,
+                                        subscription_end_date: null
+                                    };
+                                    setProfile(tempProfile);
+                                    data.addRealtimeAlert('تم الدخول في وضع العمل المحلي (بدون مزامنة)', 'sync');
+                                }
+                            }} 
+                            className="px-5 py-2.5 bg-gray-800 text-white rounded-xl flex items-center gap-2 shadow-lg hover:bg-gray-900 transition-all active:scale-95"
+                        >
+                            <NoSymbolIcon className="w-5 h-5" /> 
+                            <span className="font-bold">العمل بدون اتصال (محلياً)</span>
+                        </button>
                     </div>
-                )}
+
+                    <button 
+                        onClick={handleLogout} 
+                        className="mt-2 text-gray-500 hover:text-red-600 text-sm font-medium transition-colors"
+                    >
+                        تسجيل الخروج
+                    </button>
+                </div>
             </FullScreenLoader>
         );
     }
@@ -566,6 +657,8 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                     homePageActions={homePageActions} 
                     permissions={data.permissions}
                     lastSyncedAt={data.lastSyncedAt}
+                    lastSyncResult={data.lastSyncResult}
+                    debugLogs={data.debugLogs}
                 />
                 <OfflineBanner />
                 <main className="flex-grow p-4 sm:p-6 overflow-y-auto pb-20 sm:pb-6">{renderPage()}</main>
