@@ -2,8 +2,26 @@
 import { createClient, type SupabaseClient, AuthError } from '@supabase/supabase-js';
 
 // Supabase credentials from environment variables.
-const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL || "https://gvafdhyudvdymletqjee.supabase.co").trim();
-const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2YWZkaHl1ZHZkeW1sZXRxamVlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE5MzA0NzYsImV4cCI6MjA3NzUwNjQ3Nn0.PuoD-Mayi8cTscKG9CuQWA_qQU8x8lCeprI63jh5qCE").trim();
+const envUrlRaw = import.meta.env.VITE_SUPABASE_URL;
+const envKeyRaw = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+// Use hardcoded fallbacks if environment variables are missing, empty, or clearly invalid
+const envUrl = (envUrlRaw && envUrlRaw.trim() !== "" && envUrlRaw !== "undefined" && envUrlRaw.startsWith('http')) 
+    ? envUrlRaw.trim() 
+    : "https://htmuszgpxjkibeoygqns.supabase.co";
+
+const envKey = (envKeyRaw && envKeyRaw.trim() !== "" && envKeyRaw !== "undefined") 
+    ? envKeyRaw.trim() 
+    : "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh0bXVzemdweGpraWJlb3lncW5zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxNjgyODEsImV4cCI6MjA4ODc0NDI4MX0.SlpkVqhLm_SsE2DQJjNy-TRmPx5giPgSXYyzygXYtYI";
+
+console.log("[DEBUG] Using Supabase URL:", envUrl);
+console.log("[DEBUG] Using Supabase Key:", envKey ? "Present" : "Missing");
+
+const supabaseUrl = envUrl;
+const supabaseAnonKey = envKey;
+
+console.log("Supabase Config Source:", envUrl ? "Environment Variables" : "Hardcoded Fallback");
+console.log("Supabase URL:", supabaseUrl);
 
 // Singleton instance of the Supabase client.
 let supabase: SupabaseClient | null = null;
@@ -58,10 +76,15 @@ export async function getSupabaseClient(): Promise<SupabaseClient | null> {
             }
         }
         
-        // If hardcoded credentials are not valid, return null.
+        // If hardcoded credentials are not valid, throw an error.
         if (!supabaseUrl || !supabaseAnonKey || !supabaseUrl.startsWith('http')) {
-            console.error("Supabase credentials are not defined correctly in the code.", { supabaseUrl: !!supabaseUrl, supabaseAnonKey: !!supabaseAnonKey });
-            return null;
+            const errorMsg = `Supabase credentials missing or invalid. URL: '${supabaseUrl}', Key: '${supabaseAnonKey ? '***' : 'MISSING'}'. Please check VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your environment variables.`;
+            console.error(errorMsg, { supabaseUrl: !!supabaseUrl, supabaseAnonKey: !!supabaseAnonKey });
+            throw new Error(errorMsg);
+        }
+
+        if (supabaseUrl === "https://htmuszgpxjkibeoygqns.supabase.co") {
+            console.warn("WARNING: Using hardcoded Supabase URL. This is likely not your project.");
         }
 
         // Create a new client instance.
@@ -87,20 +110,14 @@ export async function getSupabaseClient(): Promise<SupabaseClient | null> {
                         },
                     },
                 },
-                global: {
-                    fetch: (...args) => {
-                        console.log("Supabase fetch:", args[0]);
-                        return fetch(...args);
-                    },
-                }
             });
             console.log("Supabase client initialized successfully.");
             return supabase;
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error creating Supabase client:", error);
             supabase = null; // Ensure supabase is null on failure
             clientPromise = null; // Reset promise on failure
-            return null;
+            throw new Error(`فشل في تهيئة عميل Supabase: ${error.message || 'خطأ غير معروف'}`);
         }
     })();
 

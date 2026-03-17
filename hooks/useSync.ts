@@ -19,6 +19,7 @@ interface UseSyncProps {
     excludedDocIds?: Set<string>;
     isOnline: boolean;
     isAuthLoading: boolean;
+    isDataLoading: boolean;
     syncStatus: SyncStatus;
 }
 
@@ -171,7 +172,7 @@ export const resetSyncLock = () => {
     console.log("Sync lock has been manually reset.");
 };
 
-export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSynced, onDeletionsSynced, onSyncStatusChange, onDocumentsUploaded, excludedDocIds, isOnline, isAuthLoading, syncStatus }: UseSyncProps) => {
+export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSynced, onDeletionsSynced, onSyncStatusChange, onDocumentsUploaded, excludedDocIds, isOnline, isAuthLoading, isDataLoading, syncStatus }: UseSyncProps) => {
     const userRef = React.useRef(user);
     const ownerRef = React.useRef(effectiveUserId);
     const localDataRef = React.useRef(localData);
@@ -198,8 +199,8 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
     };
 
     const manualSync = React.useCallback(async () => {
-        console.log("useSync: manualSync invoked.", { isSyncLocked, isAuthLoading, isOnline, user: userRef.current?.id, effectiveUserId: ownerRef.current });
-        if (isSyncLocked || isAuthLoading) return;
+        console.log("useSync: manualSync invoked.", { isSyncLocked, isAuthLoading, isOnline, user: userRef.current?.id, effectiveUserId: ownerRef.current, isDataLoading });
+        if (isSyncLocked || isAuthLoading || isDataLoading) return;
         const realUser = userRef.current;
         const ownerId = ownerRef.current;
         if (!isOnline || !realUser || !ownerId) {
@@ -210,14 +211,14 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
         isSyncLocked = true;
         setStatus('syncing', 'جاري المزامنة...');
         
-        // Safety timeout to reset lock if sync hangs for more than 2 minutes
+        // Safety timeout to reset lock if sync hangs for more than 5 minutes
         const safetyTimeout = setTimeout(() => {
             if (isSyncLocked) {
                 console.warn("Sync safety timeout reached. Resetting lock.");
                 isSyncLocked = false;
                 setStatus('error', 'انتهى وقت المزامنة. يرجى المحاولة مرة أخرى.');
             }
-        }, 120000);
+        }, 300000);
 
         try {
             const schemaCheck = await fetchWithRetry(() => checkSupabaseSchema());
@@ -298,12 +299,7 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
             setTimeout(() => setStatus('synced'), 100);
         } catch (err: any) {
             console.error("useSync: Manual Sync Error Details:", err);
-            if (!isNetworkError(err)) {
-                setStatus('error', `فشل المزامنة: ${err.message || 'خطأ غير معروف'}`);
-            } else {
-                console.warn("Sync failed due to network error (offline).");
-                setStatus('error', 'تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.');
-            }
+            setStatus('error', getFriendlyErrorMessage(err, `فشل المزامنة: ${err.message || 'خطأ غير معروف'}`));
         } finally {
             clearTimeout(safetyTimeout);
             isSyncLocked = false;

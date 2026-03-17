@@ -13,6 +13,10 @@ async function build() {
         await fs.emptyDir(publicDir);
 
         // 2. Build and bundle TypeScript/TSX files
+        console.log('Checking environment variables during build...');
+        console.log('VITE_SUPABASE_URL:', process.env.VITE_SUPABASE_URL ? 'Set' : 'NOT SET');
+        console.log('VITE_SUPABASE_ANON_KEY:', process.env.VITE_SUPABASE_ANON_KEY ? 'Set' : 'NOT SET');
+
         await esbuild.build({
             entryPoints: ['index.tsx'],
             bundle: true,

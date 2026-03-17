@@ -149,7 +149,7 @@ export interface Case {
 export interface Client {
   id: string;
   name: string;
-  contactInfo: string;
+  contact_info: string;
   cases: Case[];
   updated_at?: Date;
   user_id?: string;
@@ -165,6 +165,7 @@ export interface AdminTask {
     location?: string;
     updated_at?: Date;
     orderIndex?: number;
+    user_id?: string;
 }
 
 export interface Appointment {
@@ -178,6 +179,7 @@ export interface Appointment {
     reminderTimeInMinutes?: number;
     assignee?: string;
     updated_at?: Date;
+    user_id?: string;
 }
 
 export interface AccountingEntry {
@@ -190,6 +192,7 @@ export interface AccountingEntry {
     caseId: string;
     clientName: string;
     updated_at?: Date;
+    user_id?: string;
 }
 
 export interface InvoiceItem {
@@ -213,6 +216,7 @@ export interface Invoice {
   status: 'draft' | 'sent' | 'paid' | 'overdue';
   notes?: string;
   updated_at?: Date;
+  user_id?: string;
 }
 
 export interface SiteFinancialEntry {

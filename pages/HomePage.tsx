@@ -10,6 +10,8 @@ import { MenuItem } from '../components/ContextMenu.tsx';
 import { useDebounce } from '../hooks/useDebounce.ts';
 import { useData } from '../context/DataContext.tsx';
 
+import { generateId } from '../utils/idUtils.ts';
+
 const importanceMap: { [key: string]: { text: string, className: string } } = {
     normal: { text: 'عادي', className: 'bg-gray-100 text-gray-800' },
     important: { text: 'مهم', className: 'bg-yellow-100 text-yellow-800' },
@@ -254,7 +256,7 @@ const HomePage: React.FC<HomePageProps> = ({
             } : apt));
         } else {
             const newAppointmentObject: Appointment = {
-                id: `apt-${Date.now()}`,
+                id: generateId('apt'),
                 title: newAppointment.title,
                 time: newAppointment.time,
                 date: appointmentDate,

@@ -81,7 +81,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ showContextMenu, onOpenAdminT
                 )
             );
 
-            if (client.name.toLowerCase().includes(lowercasedQuery) || client.contactInfo.toLowerCase().includes(lowercasedQuery)) {
+            if (client.name.toLowerCase().includes(lowercasedQuery) || client.contact_info.toLowerCase().includes(lowercasedQuery)) {
                 return client;
             }
             
@@ -143,7 +143,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ showContextMenu, onOpenAdminT
                 setFormData((prev: any) => ({
                     ...prev,
                     name: name || prev.name,
-                    contactInfo: phone || prev.contactInfo
+                    contact_info: phone || prev.contact_info
                 }));
             }
         } catch (ex) {
@@ -212,7 +212,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ showContextMenu, onOpenAdminT
                 const newClient: Client = { 
                     id: `client-${Date.now()}`, 
                     name: clientName, 
-                    contactInfo: formData.contactInfo || '', 
+                    contact_info: formData.contact_info || '', 
                     cases: [],
                     updated_at: new Date(),
                 };
@@ -634,7 +634,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ showContextMenu, onOpenAdminT
                                     </div>
                                     <input type="text" name="name" value={formData.name || ''} onChange={handleFormChange} className="w-full p-2 border rounded mt-1" required />
                                 </div>
-                                <div><label className="block text-sm font-medium">معلومات الاتصال</label><input type="text" name="contactInfo" value={formData.contactInfo || ''} onChange={handleFormChange} className="w-full p-2 border rounded" /></div>
+                                <div><label className="block text-sm font-medium">معلومات الاتصال</label><input type="text" name="contact_info" value={formData.contact_info || ''} onChange={handleFormChange} className="w-full p-2 border rounded" /></div>
                                 </>
                             )}
                             {modal.type === 'case' && (

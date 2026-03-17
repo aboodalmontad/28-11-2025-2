@@ -107,7 +107,7 @@ const validateAndFixData = (loadedData: any, user: User | null): AppData => {
              return {
                  id: String(client.id),
                  name: String(client.name),
-                 contactInfo: String(client.contactInfo || client.contact_info || ''),
+                 contact_info: String(client.contactInfo || client.contact_info || ''),
                  updated_at: reviveDate(client.updated_at),
                  user_id: clientUserId,
                  cases: safeArray(client.cases, (caseItem) => {
@@ -380,50 +380,54 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     // Recursive timestamp update helpers
     const updateSessionTimestamps = (sessions: Session[], oldSessions: Session[] = []): Session[] => {
         return sessions.map(s => {
+            const sWithUser = { ...s, user_id: s.user_id || effectiveUserId || undefined };
             const oldS = oldSessions.find(os => os.id === s.id);
             if (!oldS || JSON.stringify(s) !== JSON.stringify(oldS)) {
-                return { ...s, updated_at: new Date() };
+                return { ...sWithUser, updated_at: new Date() };
             }
-            return s;
+            return sWithUser;
         });
     };
 
     const updateStageTimestamps = (stages: Stage[], oldStages: Stage[] = []): Stage[] => {
         return stages.map(st => {
+            const stWithUser = { ...st, user_id: st.user_id || effectiveUserId || undefined };
             const oldSt = oldStages.find(ost => ost.id === st.id);
             const newSessions = updateSessionTimestamps(st.sessions, oldSt?.sessions);
             const sessionsChanged = JSON.stringify(newSessions) !== JSON.stringify(oldSt?.sessions || []);
             
             if (!oldSt || sessionsChanged || JSON.stringify({ ...st, sessions: [] }) !== JSON.stringify({ ...oldSt, sessions: [] })) {
-                return { ...st, sessions: newSessions, updated_at: new Date() };
+                return { ...stWithUser, sessions: newSessions, updated_at: new Date() };
             }
-            return st;
+            return { ...stWithUser, sessions: newSessions };
         });
     };
 
     const updateCaseTimestamps = (cases: Case[], oldCases: Case[] = []): Case[] => {
         return cases.map(cs => {
+            const csWithUser = { ...cs, user_id: cs.user_id || effectiveUserId || undefined };
             const oldCs = oldCases.find(ocs => ocs.id === cs.id);
             const newStages = updateStageTimestamps(cs.stages, oldCs?.stages);
             const stagesChanged = JSON.stringify(newStages) !== JSON.stringify(oldCs?.stages || []);
 
             if (!oldCs || stagesChanged || JSON.stringify({ ...cs, stages: [] }) !== JSON.stringify({ ...oldCs, stages: [] })) {
-                return { ...cs, stages: newStages, updated_at: new Date() };
+                return { ...csWithUser, stages: newStages, updated_at: new Date() };
             }
-            return cs;
+            return { ...csWithUser, stages: newStages };
         });
     };
 
     const updateClientTimestamps = (clients: Client[], oldClients: Client[] = []): Client[] => {
         return clients.map(c => {
+            const cWithUser = { ...c, user_id: c.user_id || effectiveUserId || undefined };
             const oldC = oldClients.find(oc => oc.id === c.id);
             const newCases = updateCaseTimestamps(c.cases, oldC?.cases);
             const casesChanged = JSON.stringify(newCases) !== JSON.stringify(oldC?.cases || []);
 
             if (!oldC || casesChanged || JSON.stringify({ ...c, cases: [] }) !== JSON.stringify({ ...oldC, cases: [] })) {
-                return { ...c, cases: newCases, updated_at: new Date() };
+                return { ...cWithUser, cases: newCases, updated_at: new Date() };
             }
-            return c;
+            return { ...cWithUser, cases: newCases };
         });
     };
 
@@ -573,7 +577,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 if (isOnlineNow && supabase) {
                     try {
                         console.log("useSupabaseData: Fetching profile to determine ownerId...", user.id);
-                        const { data: profileData, error } = await supabase.from('profiles').select('lawyer_id').eq('id', user.id).maybeSingle();
+                        const { data: profileData, error } = await fetchWithRetry<any>(async () => await supabase.from('profiles').select('lawyer_id').eq('id', user.id).maybeSingle());
                         
                         if (error) throw error;
 
@@ -620,9 +624,8 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 // Initial background sync removed per user request to stop automatic sync
                 if (isOnlineNow) {
                     downloadMissingFiles(finalDocs);
-                } else {
-                    setSyncStatus('synced');
                 }
+                setSyncStatus('synced');
             } catch (error) {
                 if (!isNetworkError(error)) {
                     console.error('Failed to load data:', error);
@@ -753,6 +756,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         effectiveUserId, // Owner
         localData: data, 
         deletedIds,
+        isDataLoading,
         onDataSynced: handleDataSynced,
         onDeletionsSynced: handleDeletionsSynced,
         onSyncStatusChange: (status, error) => {
@@ -937,39 +941,43 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         setAdminTasks: (updater: (prev: AdminTask[]) => AdminTask[]) => {
             const newTasksRaw = updater(data.adminTasks);
             const newTasks = newTasksRaw.map(t => {
+                const tWithUser = { ...t, user_id: t.user_id || effectiveUserId || undefined };
                 const oldT = data.adminTasks.find(ot => ot.id === t.id);
                 if (!oldT || JSON.stringify(t) !== JSON.stringify(oldT)) {
-                    return { ...t, updated_at: new Date() };
+                    return { ...tWithUser, updated_at: new Date() };
                 }
-                return t;
+                return tWithUser;
             });
             updateData(prev => ({ ...prev, adminTasks: newTasks }));
         },
         setAppointments: (updater: (prev: Appointment[]) => Appointment[]) => {
             const newAppsRaw = updater(data.appointments);
             const newApps = newAppsRaw.map(a => {
+                const aWithUser = { ...a, user_id: a.user_id || effectiveUserId || undefined };
                 const oldA = data.appointments.find(oa => oa.id === a.id);
                 if (!oldA || JSON.stringify(a) !== JSON.stringify(oldA)) {
-                    return { ...a, updated_at: new Date() };
+                    return { ...aWithUser, updated_at: new Date() };
                 }
-                return a;
+                return aWithUser;
             });
             updateData(prev => ({ ...prev, appointments: newApps }));
         },
         setAccountingEntries: (updater: (prev: AccountingEntry[]) => AccountingEntry[]) => {
             const newEntriesRaw = updater(data.accountingEntries);
             const newEntries = newEntriesRaw.map(e => {
+                const eWithUser = { ...e, user_id: e.user_id || effectiveUserId || undefined };
                 const oldE = data.accountingEntries.find(oe => oe.id === e.id);
                 if (!oldE || JSON.stringify(e) !== JSON.stringify(oldE)) {
-                    return { ...e, updated_at: new Date() };
+                    return { ...eWithUser, updated_at: new Date() };
                 }
-                return e;
+                return eWithUser;
             });
             updateData(prev => ({ ...prev, accountingEntries: newEntries }));
         },
         setInvoices: (updater: (prev: Invoice[]) => Invoice[]) => {
             const newInvoicesRaw = updater(data.invoices);
             const newInvoices = newInvoicesRaw.map(inv => {
+                const invWithUser = { ...inv, user_id: inv.user_id || effectiveUserId || undefined };
                 const oldInv = data.invoices.find(oi => oi.id === inv.id);
                 // Check items too
                 const itemsChanged = JSON.stringify(inv.items) !== JSON.stringify(oldInv?.items || []);
@@ -981,9 +989,9 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                         }
                         return item;
                     });
-                    return { ...inv, items: updatedItems, updated_at: new Date() };
+                    return { ...invWithUser, items: updatedItems, updated_at: new Date() };
                 }
-                return inv;
+                return invWithUser;
             });
             updateData(prev => ({ ...prev, invoices: newInvoices }));
         },
@@ -994,11 +1002,12 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         setDocuments: (updater: (prev: CaseDocument[]) => CaseDocument[]) => {
             const newDocsRaw = updater(data.documents);
             const newDocs = newDocsRaw.map(d => {
+                const dWithUser = { ...d, userId: d.userId || effectiveUserId || '' };
                 const oldD = data.documents.find(od => od.id === d.id);
                 if (!oldD || JSON.stringify(d) !== JSON.stringify(oldD)) {
-                    return { ...d, updated_at: new Date() };
+                    return { ...dWithUser, updated_at: new Date() };
                 }
-                return d;
+                return dWithUser;
             });
             updateData(prev => ({ ...prev, documents: newDocs }));
         },
@@ -1016,11 +1025,12 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         setSiteFinances: (updater: (prev: SiteFinancialEntry[]) => SiteFinancialEntry[]) => {
             const newFinancesRaw = updater(data.siteFinances);
             const newFinances = newFinancesRaw.map(f => {
+                const fWithUser = { ...f, user_id: f.user_id || effectiveUserId || null };
                 const oldF = data.siteFinances.find(of => of.id === f.id);
                 if (!oldF || JSON.stringify(f) !== JSON.stringify(oldF)) {
-                    return { ...f, updated_at: new Date() };
+                    return { ...fWithUser, updated_at: new Date() };
                 }
-                return f;
+                return fWithUser;
             });
             updateData(prev => ({ ...prev, siteFinances: newFinances }));
         },

@@ -100,9 +100,16 @@ const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({ status, lastE
                 <span className={`${displayStatus.className} hidden sm:inline`}>{displayStatus.text}</span>
             </button>
             {status === 'error' && lastError && (
-                <span className="text-[10px] text-red-600 font-bold px-2 max-w-[200px] break-words">
-                    {lastError}
-                </span>
+                <div className="flex flex-col items-end">
+                    <span className="text-[10px] text-red-600 font-bold px-2 max-w-[200px] break-words text-left">
+                        {lastError}
+                    </span>
+                    {lastError.includes('صلاحيات') && (
+                        <span className="text-[9px] text-gray-500 px-2 mt-1">
+                            تأكد من ربط حساب المساعد بالمحامي في الإعدادات.
+                        </span>
+                    )}
+                </div>
             )}
             {status === 'synced' && lastSyncResult && !isDirty && (
                 <span className="text-[10px] text-green-600 font-bold px-2 max-w-[200px] break-words">

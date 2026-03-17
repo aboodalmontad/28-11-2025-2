@@ -20,7 +20,7 @@ const PrintableClientReport: React.FC<PrintableClientReportProps> = ({ client, c
                     {caseData ? caseData.subject : client.name}
                 </h2>
                 {caseData && <p className="text-md text-gray-600 mt-1">الموكل: {client.name}</p>}
-                {!caseData && <p className="text-sm text-gray-500">{client.contactInfo}</p>}
+                {!caseData && <p className="text-sm text-gray-500">{client.contact_info}</p>}
             </header>
 
             <main className="space-y-8">

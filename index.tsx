@@ -19,14 +19,17 @@ window.addEventListener('unhandledrejection', (event) => {
   const error = event.reason;
   const message = error?.message || String(error);
   
-  if (message.includes('Refresh Token Not Found') || message.includes('invalid_refresh_token')) {
+  if (message.includes('Refresh Token Not Found') || message.includes('invalid_refresh_token') || message.includes('Invalid Refresh Token')) {
     console.error("Global Auth Guard: Detected invalid refresh token. Clearing session.");
     window.localStorage.removeItem('lawyer-app-auth-token');
+    Object.keys(window.localStorage).forEach(key => {
+        if (key.startsWith('sb-')) window.localStorage.removeItem(key);
+    });
     window.localStorage.setItem('lawyerAppLoggedOut', 'true');
     
     // Only reload if we are not already on the login page (to avoid loops)
     if (!window.location.search.includes('error=unauthorized')) {
-        window.location.reload();
+        window.location.href = '/?error=unauthorized';
     }
   }
 });

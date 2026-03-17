@@ -271,6 +271,55 @@ BEGIN
     END LOOP;
 END $$;
 
+-- RPC: Generate Mobile OTP
+CREATE OR REPLACE FUNCTION public.generate_mobile_otp(target_user_id UUID)
+RETURNS TEXT AS $$
+DECLARE
+    new_otp TEXT;
+BEGIN
+    -- Generate a 6-digit random code
+    new_otp := floor(random() * 900000 + 100000)::TEXT;
+    
+    UPDATE public.profiles
+    SET otp_code = new_otp,
+        otp_expires_at = NOW() + INTERVAL '15 minutes',
+        updated_at = NOW()
+    WHERE id = target_user_id;
+    
+    RETURN new_otp;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- RPC: Verify Mobile OTP
+CREATE OR REPLACE FUNCTION public.verify_mobile_otp(target_mobile TEXT, code_to_check TEXT)
+RETURNS BOOLEAN AS $$
+DECLARE
+    profile_id UUID;
+BEGIN
+    -- Find the profile with this mobile number and valid OTP
+    SELECT id INTO profile_id
+    FROM public.profiles
+    WHERE mobile_number = target_mobile
+      AND otp_code = code_to_check
+      AND (otp_expires_at IS NULL OR otp_expires_at > NOW())
+    LIMIT 1;
+
+    IF profile_id IS NOT NULL THEN
+        -- Mark as verified and clear the OTP
+        UPDATE public.profiles
+        SET mobile_verified = TRUE,
+            otp_code = NULL,
+            otp_expires_at = NULL,
+            updated_at = NOW()
+        WHERE id = profile_id;
+        
+        RETURN TRUE;
+    ELSE
+        RETURN FALSE;
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
 -- ==========================================
 -- AUTOMATIC PROFILE CREATION
 -- ==========================================

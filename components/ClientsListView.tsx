@@ -57,7 +57,7 @@ const ClientCard: React.FC<{ client: Client; props: ClientsListViewProps; expand
             label: 'إرسال إلى المهام الإدارية',
             icon: <BuildingLibraryIcon className="w-4 h-4" />,
             onClick: () => {
-                const description = `متابعة ملف الموكل: ${client.name}.\nمعلومات الاتصال: ${client.contactInfo || 'لا يوجد'}.`;
+                const description = `متابعة ملف الموكل: ${client.name}.\nمعلومات الاتصال: ${client.contact_info || 'لا يوجد'}.`;
                 props.onOpenAdminTaskModal({ task: description });
             }
         },
@@ -68,7 +68,7 @@ const ClientCard: React.FC<{ client: Client; props: ClientsListViewProps; expand
                 const message = [
                     `*ملف موكل:*`,
                     `*الاسم:* ${client.name}`,
-                    `*معلومات الاتصال:* ${client.contactInfo || 'لا يوجد'}`,
+                    `*معلومات الاتصال:* ${client.contact_info || 'لا يوجد'}`,
                     `*عدد القضايا:* ${client.cases.length}`
                 ].join('\n');
                 const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
@@ -262,7 +262,7 @@ const ClientCard: React.FC<{ client: Client; props: ClientsListViewProps; expand
                     <UserIcon className="w-6 h-6 text-sky-700" />
                     <div>
                         <h3 className="font-bold text-lg text-sky-900">{client.name}</h3>
-                        <p className="text-sm text-gray-500">{client.contactInfo}</p>
+                        <p className="text-sm text-gray-500">{client.contact_info}</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-1">

@@ -4,6 +4,7 @@ import { AccountingEntry, Client, Invoice, InvoiceItem, Case, Stage, Session } f
 import { formatDate, toInputDateString, parseInputDateString } from '../utils/dateUtils.ts';
 import { PlusIcon, PencilIcon, TrashIcon, SearchIcon, ExclamationTriangleIcon, PrintIcon, DocumentTextIcon, CalculatorIcon, ChartPieIcon } from '../components/icons.tsx';
 import { useData } from '../context/DataContext.tsx';
+import { generateId } from '../utils/idUtils.ts';
 import PrintableInvoice from '../components/PrintableInvoice.tsx';
 import { printElement } from '../utils/printUtils.ts';
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -70,7 +71,7 @@ const EntriesTab: React.FC = () => {
         if (modal.data) {
             setAccountingEntries((prev: AccountingEntry[]) => prev.map((item: AccountingEntry) => item.id === modal.data!.id ? { ...item, ...entryData } : item));
         } else {
-            setAccountingEntries((prev: AccountingEntry[]) => [...prev, { ...entryData, id: `acc-${Date.now()}` }]);
+            setAccountingEntries((prev: AccountingEntry[]) => [...prev, { ...entryData, id: generateId('acc') }]);
         }
         handleCloseModal();
     };
@@ -206,7 +207,7 @@ const InvoicesTab: React.FC<{ initialInvoiceData?: { clientId: string, caseId?: 
                 caseSubject: caseItem?.subject,
                 issueDate: new Date(),
                 dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // +1 week
-                items: [{ id: `item-${Date.now()}`, description: 'أتعاب محاماة', amount: 0 }],
+                items: [{ id: generateId('item'), description: 'أتعاب محاماة', amount: 0 }],
                 taxRate: 0,
                 discount: 0,
                 status: 'draft'
@@ -307,7 +308,7 @@ const InvoicesTab: React.FC<{ initialInvoiceData?: { clientId: string, caseId?: 
 // --- INVOICE MODAL ---
 const InvoiceModal: React.FC<{ isOpen: boolean; onClose: () => void; initialData?: Partial<Invoice>; onSave: (inv: Invoice) => void; clients: Client[] }> = ({ isOpen, onClose, initialData, onSave, clients }) => {
     const [formData, setFormData] = React.useState<Partial<Invoice>>({
-        items: [{ id: `item-${Date.now()}`, description: '', amount: 0 }],
+        items: [{ id: generateId('item'), description: '', amount: 0 }],
         taxRate: 0,
         discount: 0,
         status: 'draft',
@@ -340,7 +341,7 @@ const InvoiceModal: React.FC<{ isOpen: boolean; onClose: () => void; initialData
         setFormData(prev => ({ ...prev, items: newItems }));
     };
 
-    const addItem = () => setFormData(prev => ({ ...prev, items: [...(prev.items || []), { id: `item-${Date.now()}`, description: '', amount: 0 }] }));
+    const addItem = () => setFormData(prev => ({ ...prev, items: [...(prev.items || []), { id: generateId('item'), description: '', amount: 0 }] }));
     const removeItem = (index: number) => setFormData(prev => ({ ...prev, items: prev.items?.filter((_, i) => i !== index) }));
 
     const handleSubmit = (e: React.FormEvent) => {

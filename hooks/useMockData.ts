@@ -103,19 +103,19 @@ export const mockClients: Client[] = [
     {
         id: 'client-1',
         name: 'عبد الرحمن قضماني',
-        contactInfo: '0987654321 - a.kadmani@email.com',
+        contact_info: '0987654321 - a.kadmani@email.com',
         cases: [case1, case3],
     },
     {
         id: 'client-2',
         name: 'فاطمة الزهراء',
-        contactInfo: '0912345678 - fatima.z@email.com',
+        contact_info: '0912345678 - fatima.z@email.com',
         cases: [case2],
     },
      {
         id: 'client-3',
         name: 'محمد الشامي',
-        contactInfo: '0933445566',
+        contact_info: '0933445566',
         cases: [],
     },
 ];

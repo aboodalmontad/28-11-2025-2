@@ -68,16 +68,16 @@ self.addEventListener('fetch', event => {
     return;
   }
 
+  const url = new URL(event.request.url);
+
   // Always fetch the service worker script from the network to ensure updates
   if (url.pathname.includes('sw.js')) {
-    return fetch(event.request);
+    return; // Let the browser handle it normally
   }
 
   if (event.request.url.includes('supabase.co')) {
     return; // Bypass Service Worker for Supabase requests
   }
-
-  const url = new URL(event.request.url);
 
   // Strategy 1: Stale-While-Revalidate for main scripts and local JS chunks.
   // We exclude sw.js itself from being intercepted by the service worker to avoid update loops or MIME type issues.

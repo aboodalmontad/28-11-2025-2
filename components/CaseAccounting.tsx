@@ -5,6 +5,8 @@ import { formatDate } from '../utils/dateUtils';
 import { PlusIcon, PencilIcon, TrashIcon, ExclamationCircleIcon } from './icons';
 import { useData } from '../context/DataContext';
 
+import { generateId } from '../utils/idUtils.ts';
+
 interface CaseAccountingProps {
     caseData: Case;
     client: Client;
@@ -78,7 +80,7 @@ const CaseAccounting: React.FC<CaseAccountingProps> = ({ caseData, client, caseA
         if (modal.data) { // Editing
             setAccountingEntries(prev => prev.map(item => item.id === modal.data!.id ? { ...item, ...entryData } as AccountingEntry : item));
         } else { // Adding
-            setAccountingEntries(prev => [...prev, { ...entryData, id: `acc-${Date.now()}` } as AccountingEntry]);
+            setAccountingEntries(prev => [...prev, { ...entryData, id: generateId('acc') } as AccountingEntry]);
         }
         handleCloseModal();
     };

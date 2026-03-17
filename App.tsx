@@ -26,6 +26,7 @@ import { DataProvider } from './context/DataContext.tsx';
 import PrintableReport from './components/PrintableReport.tsx';
 import { printElement } from './utils/printUtils.ts';
 import { formatDate, isSameDay } from './utils/dateUtils.ts';
+import { generateId } from './utils/idUtils.ts';
 import SyncStatusIndicator from './components/SyncStatusIndicator.tsx';
 
 type Page = 'home' | 'admin-tasks' | 'clients' | 'accounting' | 'settings';
@@ -67,7 +68,7 @@ const Navbar: React.FC<{
                     <div className="flex flex-col items-start sm:flex-row sm:items-baseline gap-0 sm:gap-2">
                         <h1 className="text-xl font-bold text-gray-800">مكتب المحامي</h1>
                         <div className="flex items-center gap-1 text-xs text-gray-500">
-                            <span>الإصدار: 21-02-2026</span>
+                            <span>الإصدار: 04-03-2026</span>
                             {profile && (
                                 <>
                                     <span className="mx-1 text-gray-300">|</span>
@@ -224,12 +225,17 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     const actionsMenuRef = React.useRef<HTMLDivElement>(null);
 
     const [supabase, setSupabase] = React.useState<SupabaseClient | null>(null);
+    const [initError, setInitError] = React.useState<string | null>(null);
     const isOnline = useOnlineStatus();
 
     React.useEffect(() => {
         const initSupabase = async () => {
-            const client = await getSupabaseClient();
-            setSupabase(client);
+            try {
+                const client = await getSupabaseClient();
+                setSupabase(client);
+            } catch (err: any) {
+                setInitError(err.message || 'خطأ غير معروف في الاتصال');
+            }
         };
         initSupabase();
     }, []);
@@ -243,17 +249,27 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                 console.warn("Auth loading timed out, forcing false.");
                 setIsAuthLoading(false);
             }
-        }, 8000);
+        }, 4000); // Reduced from 8s to 4s
 
         const setupAuthListener = async (): Promise<() => void> => {
             console.log("App.tsx: setupAuthListener invoked.");
             const auth = supabase?.auth;
-
             let subscription: { unsubscribe: () => void } | undefined;
 
             if (!auth) {
-                // If supabase is not ready yet, we still want to clear the timeout eventually
                 return () => clearTimeout(timeout);
+            }
+
+            // Get initial session immediately
+            try {
+                const { data: { session: initialSession } } = await auth.getSession();
+                if (initialSession) {
+                    console.log("App.tsx: Initial session found:", initialSession.user.id);
+                    setSession(initialSession);
+                    setIsAuthLoading(false);
+                }
+            } catch (e) {
+                console.error("App.tsx: Error getting initial session:", e);
             }
     
             const { data } = auth.onAuthStateChange((_event: string, session: AuthSession | null) => {
@@ -367,7 +383,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                 .reduce((max, t) => Math.max(max, t.orderIndex || 0), -1);
 
             const newTask: AdminTask = {
-                id: `task-${Date.now()}`,
+                id: generateId('task'),
                 ...restOfTaskData,
                 completed: false,
                 orderIndex: maxOrderIndex + 1,
@@ -475,13 +491,47 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     
     if (!effectiveProfile) {
         const isSyncError = data.syncStatus === 'error';
+        const isSyncedButMissing = data.syncStatus === 'synced' && !data.isDataLoading;
+
         return (
             <FullScreenLoader 
                 text={isSyncError ? "تعذر الاتصال بالسحابة" : (data.syncStatus === 'syncing' ? "جاري مزامنة البيانات..." : "جاري تحميل الملف الشخصي...")}
-                subtext={data.lastSyncError || "إذا كنت تسجل الدخول لأول مرة، قد يستغرق الأمر لحظات لتحميل بياناتك."}
-                isError={isSyncError}
+                subtext={data.lastSyncError || `الحالة: ${data.syncStatus}, التحميل: ${data.isDataLoading ? 'نعم' : 'لا'}, الهوية: ${isAuthLoading ? 'جاري التحقق' : 'تم التحقق'}. ${isSyncedButMissing ? 'تنبيه: لم يتم العثور على ملفك الشخصي في قاعدة البيانات.' : 'إذا كنت تسجل الدخول لأول مرة، قد يستغرق الأمر لحظات لتحميل بياناتك.'}`}
+                isError={isSyncError || isSyncedButMissing}
             >
                 <div className="flex flex-col gap-4 items-center animate-fade-in">
+                    {isSyncedButMissing && (
+                        <div className="bg-amber-50 border border-amber-200 p-5 rounded-2xl text-right max-w-md mb-2 shadow-sm">
+                            <h3 className="font-bold text-amber-800 mb-2">ملف شخصي غير مكتمل</h3>
+                            <p className="text-sm text-gray-700 mb-4">
+                                يبدو أن حسابك مسجل ولكن لم يتم إنشاء ملفك الشخصي بعد، أو أنك لا تملك صلاحية الوصول.
+                            </p>
+                            <button 
+                                onClick={async () => {
+                                    try {
+                                        const supabase = await getSupabaseClient();
+                                        if (!supabase) return;
+                                        const { error } = await supabase.from('profiles').upsert({
+                                            id: session.user.id,
+                                            full_name: session.user.user_metadata?.full_name || 'مستخدم جديد',
+                                            role: 'user',
+                                            is_approved: false,
+                                            is_active: true,
+                                            mobile_verified: false
+                                        });
+                                        if (error) throw error;
+                                        data.manualSync();
+                                    } catch (e: any) {
+                                        alert("فشل إنشاء الملف الشخصي: " + e.message);
+                                    }
+                                }}
+                                className="w-full py-2 bg-amber-600 text-white rounded-lg font-bold hover:bg-amber-700 transition-colors"
+                            >
+                                إنشاء ملف شخصي أساسي الآن
+                            </button>
+                        </div>
+                    )}
+
                     {isSyncError && (
                         <div className="bg-red-50 border border-red-200 p-5 rounded-2xl text-right max-w-md mb-2 shadow-sm animate-fade-in">
                             <div className="flex items-center gap-3 mb-3 text-red-800">
@@ -597,6 +647,32 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     if (!effectiveProfile.is_approved) return <PendingApprovalPage onLogout={handleLogout} />;
     if (!effectiveProfile.is_active || (effectiveProfile.subscription_end_date && new Date(effectiveProfile.subscription_end_date) < new Date())) return <SubscriptionExpiredPage onLogout={handleLogout} />;
     
+    if (initError) {
+        const testSupabaseConnection = async () => {
+            try {
+                const url = import.meta.env.VITE_SUPABASE_URL || "https://htmuszgpxjkibeoygqns.supabase.co";
+                const key = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh0bXVzemdweGpraWJlb3lncW5zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxNjgyODEsImV4cCI6MjA4ODc0NDI4MX0.SlpkVqhLm_SsE2DQJjNy-TRmPx5giPgSXYyzygXYtYI";
+                const response = await fetch(`${url}/rest/v1/`, { method: 'GET', headers: { 'apikey': key } });
+                alert(`Connection result: ${response.status} ${response.statusText}`);
+            } catch (e: any) {
+                alert(`Connection failed: ${e.message}`);
+            }
+        };
+
+        const displayUrl = import.meta.env.VITE_SUPABASE_URL || "https://htmuszgpxjkibeoygqns.supabase.co";
+        const hasKey = !!(import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh0bXVzemdweGpraWJlb3lncW5zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxNjgyODEsImV4cCI6MjA4ODc0NDI4MX0.SlpkVqhLm_SsE2DQJjNy-TRmPx5giPgSXYyzygXYtYI");
+
+        return (
+            <FullScreenLoader 
+                isError={true} 
+                text="خطأ في الاتصال بقاعدة البيانات" 
+                subtext={`الخطأ: ${initError} | الرابط: ${displayUrl} | المفتاح: ${hasKey ? 'موجود' : 'مفقود'}`} 
+            >
+                <button onClick={testSupabaseConnection} className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg">اختبار الاتصال المباشر</button>
+            </FullScreenLoader>
+        );
+    }
+
     if (effectiveProfile.role === 'admin') {
          return (
             <DataProvider value={data}>
