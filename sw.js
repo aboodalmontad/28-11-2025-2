@@ -1,6 +1,6 @@
 
 // This version number is incremented to trigger the 'install' event and update the cache.
-const CACHE_NAME = 'lawyer-app-cache-v2026-03-04-12-57'; // Updated cache name to force update
+const CACHE_NAME = 'lawyer-app-cache-v2026-02-26-16-37'; // Updated cache name with current timestamp
 
 // The list of URLs to cache explicitly (App Shell)
 const urlsToCache = [
@@ -12,15 +12,7 @@ const urlsToCache = [
   'https://cdn.tailwindcss.com',
   'https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap',
   // Dependencies - using exact versions to match importmap and ensure reliability
-  'https://esm.sh/@google/genai@1.20.0',
-  'https://esm.sh/@supabase/supabase-js@2.44.4',
-  'https://esm.sh/react@19.0.0',
-  'https://esm.sh/react-dom@19.0.0?deps=react@19.0.0',
-  'https://esm.sh/react-dom@19.0.0/client?deps=react@19.0.0',
-  'https://esm.sh/recharts@2.12.7?deps=react@19.0.0,react-dom@19.0.0',
-  'https://esm.sh/idb@8.0.0',
-  'https://esm.sh/docx-preview@0.3.7?deps=react@19.0.0,react-dom@19.0.0',
-  'https://esm.sh/jszip@3.10.1'
+
 ];
 
 self.addEventListener('install', event => {
@@ -76,8 +68,6 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  const url = new URL(event.request.url);
-
   // Always fetch the service worker script from the network to ensure updates
   if (url.pathname.includes('sw.js')) {
     return fetch(event.request);
@@ -86,6 +76,8 @@ self.addEventListener('fetch', event => {
   if (event.request.url.includes('supabase.co')) {
     return; // Bypass Service Worker for Supabase requests
   }
+
+  const url = new URL(event.request.url);
 
   // Strategy 1: Stale-While-Revalidate for main scripts and local JS chunks.
   // We exclude sw.js itself from being intercepted by the service worker to avoid update loops or MIME type issues.

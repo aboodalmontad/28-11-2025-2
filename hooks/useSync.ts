@@ -210,14 +210,14 @@ export const useSync = ({ user, effectiveUserId, localData, deletedIds, onDataSy
         isSyncLocked = true;
         setStatus('syncing', 'جاري المزامنة...');
         
-        // Safety timeout to reset lock if sync hangs for more than 5 minutes
+        // Safety timeout to reset lock if sync hangs for more than 2 minutes
         const safetyTimeout = setTimeout(() => {
             if (isSyncLocked) {
                 console.warn("Sync safety timeout reached. Resetting lock.");
                 isSyncLocked = false;
                 setStatus('error', 'انتهى وقت المزامنة. يرجى المحاولة مرة أخرى.');
             }
-        }, 300000);
+        }, 120000);
 
         try {
             const schemaCheck = await fetchWithRetry(() => checkSupabaseSchema());

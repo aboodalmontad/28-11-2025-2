@@ -50,8 +50,6 @@ export const isNetworkError = (err: any): boolean => {
         'request failed',
         'cors',
         'preflight',
-        'typeerror',
-        'failed to load',
     ];
 
     const isMatch = networkPatterns.some(pattern => combined.includes(pattern)) || 
@@ -83,8 +81,8 @@ export const fetchWithRetry = async <T>(fn: () => Promise<T>, retries = 3, delay
     const timeout = (ms: number) => new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), ms));
     
     try {
-        // Increased initial timeout to 90s for better handling of large tables/slow networks
-        const currentTimeout = retries === 3 ? 90000 : 120000;
+        // Increased initial timeout to 45s for better handling of large tables
+        const currentTimeout = retries === 3 ? 45000 : 75000;
         const result = await Promise.race([fn(), timeout(currentTimeout)]) as T;
         
         if (result && typeof result === 'object' && (result as any).error) {
@@ -107,13 +105,8 @@ export const fetchWithRetry = async <T>(fn: () => Promise<T>, retries = 3, delay
         }
         
         // Log diagnostic info for "Failed to fetch"
-        if (String(err).includes('fetch') || String(err).includes('Failed to fetch')) {
-            console.error("CRITICAL: Supabase Fetch Failed. Possible reasons: CORS, Network Block, Paused Project, or invalid Supabase URL.");
-            console.error("Diagnostic Info:", {
-                online: navigator.onLine,
-                url: (import.meta.env.VITE_SUPABASE_URL || "gvafdhyudvdymletqjee.supabase.co"),
-                userAgent: navigator.userAgent
-            });
+        if (String(err).includes('fetch')) {
+            console.error("CRITICAL: Supabase Fetch Failed. Possible reasons: CORS, Network Block, or Paused Project.");
         }
         
         throw err;
@@ -160,7 +153,7 @@ export const fetchDataFromSupabase = async (ownerId: string): Promise<Partial<Fl
     const data: any = {};
     
     // Fetch in smaller batches to avoid overwhelming the connection and causing timeouts
-    const batchSize = 2;
+    const batchSize = 3;
     for (let i = 0; i < tables.length; i += batchSize) {
         const batch = tables.slice(i, i + batchSize);
         const batchPromises = batch.map(async (table) => {
@@ -221,12 +214,12 @@ export const upsertDataToSupabase = async (data: Partial<FlatData>, realUser: Us
     console.log(`Starting upsert for ${entries.length} tables:`, entries.map(([t]) => t));
 
     // Batch upserts to avoid hitting browser concurrent request limits
-    const tableBatchSize = 3; 
-    for (let i = 0; i < entries.length; i += tableBatchSize) {
-        const batch = entries.slice(i, i + tableBatchSize);
-        console.log(`Upserting batch ${i / tableBatchSize + 1} of ${Math.ceil(entries.length / tableBatchSize)}:`, batch.map(([t]) => t));
+    const batchSize = 5; 
+    for (let i = 0; i < entries.length; i += batchSize) {
+        const batch = entries.slice(i, i + batchSize);
+        console.log(`Upserting batch ${i / batchSize + 1} of ${Math.ceil(entries.length / batchSize)}:`, batch.map(([t]) => t));
         await Promise.all(batch.map(async ([table, items]) => {
-            const allFormatted = items!.map(item => {
+            const formatted = items!.map(item => {
                 const newItem: any = {};
                 
                 // Generic camelCase to snake_case conversion for all keys
@@ -238,6 +231,9 @@ export const upsertDataToSupabase = async (data: Partial<FlatData>, realUser: Us
                     // Convert camelCase to snake_case: decisionDate -> decision_date
                     const snakeKey = key.replace(/([A-Z])/g, "_$1").toLowerCase();
                     newItem[snakeKey] = (item as any)[key];
+                    if (table === 'admin_tasks') {
+                        console.log(`[Sync Debug] Mapping: ${key} -> ${snakeKey} =`, (item as any)[key]);
+                    }
                 });
 
                 // Ensure user_id and updated_at are correct
@@ -262,29 +258,28 @@ export const upsertDataToSupabase = async (data: Partial<FlatData>, realUser: Us
             });
             
             try {
-                // Internal batching for large tables (upsert 100 items at a time)
-                const internalBatchSize = 100;
-                for (let k = 0; k < allFormatted.length; k += internalBatchSize) {
-                    const formattedBatch = allFormatted.slice(k, k + internalBatchSize);
-                    console.log(`Upserting ${formattedBatch.length} items to ${table} (sub-batch ${k/internalBatchSize + 1})...`);
-                    
-                    const result: any = await fetchWithRetry(async () => {
-                        // For assistants table, we use (user_id, name) as conflict target because local state doesn't track IDs
-                        const onConflict = table === 'assistants' ? 'user_id,name' : 'id';
-                        return await supabase.from(table).upsert(formattedBatch, { onConflict });
-                    });
-
-                    if (result.error) {
-                        const error = result.error;
-                        console.error(`Upsert failed for table ${table} batch:`, error);
-                        const isAuthError = error.code === '42501' || error.status === 403;
-                        if (isAuthError) {
-                            throw new Error(`صلاحيات غير كافية للجدول ${table}. يرجى التحقق من إعدادات RLS.`);
-                        }
-                        throw new Error(`فشل رفع البيانات لجدول ${table}: ${error.message || error.code}`);
-                    }
+                console.log(`Upserting ${formatted.length} items to ${table}:`, formatted);
+                if (table === 'admin_tasks') {
+                    console.log(`[Sync Debug] Admin Tasks Data:`, formatted);
                 }
-                console.log(`Successfully upserted all ${allFormatted.length} items to ${table}`);
+                const result: any = await fetchWithRetry(async () => {
+                    // For assistants table, we use (user_id, name) as conflict target because local state doesn't track IDs
+                    const onConflict = table === 'assistants' ? 'user_id,name' : 'id';
+                    return await supabase.from(table).upsert(formatted, { onConflict });
+                });
+
+                console.log(`Supabase upsert result for ${table}:`, result);
+
+                if (result.error) {
+                    const error = result.error;
+                    console.error(`Upsert failed for table ${table}:`, error);
+                    const isAuthError = error.code === '42501' || error.status === 403;
+                    if (isAuthError) {
+                        throw new Error(`صلاحيات غير كافية للجدول ${table}. يرجى التحقق من إعدادات RLS.`);
+                    }
+                    throw new Error(`فشل رفع البيانات لجدول ${table}: ${error.message || error.code}`);
+                }
+                console.log(`Successfully upserted ${formatted.length} items to ${table}`);
             } catch (err: any) {
                 console.error(`Critical failure in upsert for ${table}:`, err);
                 throw err;

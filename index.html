@@ -12,7 +12,6 @@
     <!-- Google Fonts -->
     <script>
       window.onerror = function(msg, url, lineNo, columnNo, error) {
-        var isFetchError = msg.toLowerCase().includes('fetch') || msg.toLowerCase().includes('failed to fetch');
         var message = [
           'Message: ' + msg,
           'URL: ' + url,
@@ -37,21 +36,7 @@
             errorDiv.style.padding = '20px';
             errorDiv.style.zIndex = '10000';
             errorDiv.style.overflow = 'auto';
-            
-            var errorTitle = isFetchError ? 'خطأ في الاتصال بالشبكة' : 'حدث خطأ في تحميل التطبيق';
-            var errorDescription = isFetchError ? 
-              'تعذر تحميل بعض ملفات التطبيق الضرورية. يرجى التأكد من اتصال الإنترنت وعدم وجود جدار حماية يمنع الوصول إلى خوادم esm.sh أو supabase.co.' : 
-              'قد يكون هذا بسبب ضعف اتصال الإنترنت أو حظر بعض الخوادم المطلوبة.';
-
-            errorDiv.innerHTML = '<div style="max-width: 600px; margin: auto; text-align: center; font-family: sans-serif;">' +
-              '<h1 style="color: #1f2937;">' + errorTitle + '</h1>' +
-              '<p style="color: #4b5563;">' + errorDescription + '</p>' +
-              '<pre style="background: #f4f4f4; padding: 15px; border-radius: 8px; font-size: 12px; text-align: left; border: 1px solid #e5e7eb; margin: 20px 0;" dir="ltr">' + message + '</pre>' +
-              '<div style="display: flex; gap: 10px; justify-content: center;">' +
-                '<button onclick="location.reload()" style="padding: 12px 24px; background: #2563eb; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">إعادة تحميل الصفحة</button>' +
-                '<button onclick="navigator.serviceWorker.getRegistrations().then(regs => {for(let reg of regs) reg.unregister(); location.reload();})" style="padding: 12px 24px; background: #6b7280; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">مسح التخزين المؤقت</button>' +
-              '</div>' +
-            '</div>';
+            errorDiv.innerHTML = '<div style="max-width: 600px; margin: auto;"><h1>حدث خطأ في تحميل التطبيق</h1><p>قد يكون هذا بسبب ضعف اتصال الإنترنت أو حظر بعض الخوادم المطلوبة.</p><pre style="background: #f4f4f4; padding: 10px; border-radius: 5px; font-size: 12px; text-align: left;" dir="ltr">' + message + '</pre><div style="display: flex; gap: 10px; justify-content: center;"><button onclick="location.reload()" style="padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">إعادة تحميل</button><button onclick="navigator.serviceWorker.getRegistrations().then(regs => {for(let reg of regs) reg.unregister(); location.reload();})" style="padding: 10px 20px; background: #6b7280; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">مسح التخزين المؤقت</button></div></div>';
             document.body.appendChild(errorDiv);
           }
         }, 2000);
@@ -114,15 +99,14 @@
   "imports": {
     "@google/genai": "https://esm.sh/@google/genai@1.20.0",
     "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.44.4",
-    "react": "https://esm.sh/react@19.0.0",
     "react/": "https://esm.sh/react@19.0.0/",
-    "react-dom": "https://esm.sh/react-dom@19.0.0?deps=react@19.0.0",
+    "react": "https://esm.sh/react@19.0.0",
+    "react-dom": "https://esm.sh/react-dom@19.0.0",
     "react-dom/": "https://esm.sh/react-dom@19.0.0/",
-    "react-dom/client": "https://esm.sh/react-dom@19.0.0/client?deps=react@19.0.0",
-    "recharts": "https://esm.sh/recharts@2.12.7?deps=react@19.0.0,react-dom@19.0.0",
+    "react-dom/client": "https://esm.sh/react-dom@19.0.0/client",
+    "recharts": "https://esm.sh/recharts@2.12.7",
     "idb": "https://esm.sh/idb@8.0.0",
-    "docx-preview": "https://esm.sh/docx-preview@0.3.7?deps=react@19.0.0,react-dom@19.0.0",
-    "jszip": "https://esm.sh/jszip@3.10.1"
+    "docx-preview": "https://esm.sh/docx-preview@0.3.7"
   }
 }
 </script>
