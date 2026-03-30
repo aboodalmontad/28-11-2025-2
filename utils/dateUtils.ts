@@ -1,6 +1,5 @@
 
-
-export const getDaysInMonth = (year: number, month: number): Date[] => {
+export const get_days_in_month = (year: number, month: number): Date[] => {
     const date = new Date(year, month, 1);
     const days: Date[] = [];
     while (date.getMonth() === month) {
@@ -10,32 +9,51 @@ export const getDaysInMonth = (year: number, month: number): Date[] => {
     return days;
 };
 
-export const getFirstDayOfMonth = (year: number, month: number): number => {
+export const get_first_day_of_month = (year: number, month: number): number => {
     return new Date(year, month, 1).getDay();
 };
 
-export const isSameDay = (date1: Date, date2: Date): boolean => {
-    return date1.getFullYear() === date2.getFullYear() &&
-           date1.getMonth() === date2.getMonth() &&
-           date1.getDate() === date2.getDate();
+/**
+ * Safely revives a date value (string or object) into a Date object.
+ * Returns the current date if the input is invalid or null.
+ */
+export const safe_revive_date = (date: any): Date => {
+    if (!date) return new Date();
+    const d = new Date(date);
+    return isNaN(d.getTime()) ? new Date() : d;
 };
 
-export const isToday = (date: Date): boolean => {
-    return isSameDay(date, new Date());
+export const is_same_day = (d1: Date | string | null | undefined, d2: Date | string | null | undefined): boolean => {
+    if (!d1 || !d2) return false;
+    
+    const s1 = to_input_date_string(d1);
+    const s2 = to_input_date_string(d2);
+    
+    return s1 !== '' && s2 !== '' && s1 === s2;
+};
+
+export const is_today = (date: Date | string): boolean => {
+    return is_same_day(date, new Date());
 }
 
-export const isBeforeToday = (date: Date): boolean => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0); // Set to start of today
-    return date < today;
+export const is_before_today = (date: Date | string): boolean => {
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return false;
+    
+    const s_date = to_input_date_string(d);
+    const s_today = to_input_date_string(new Date());
+    
+    return s_date < s_today;
 }
 
-export const formatDate = (date: Date): string => {
+export const format_date = (date: Date | string): string => {
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return 'تاريخ غير صالح';
     return new Intl.DateTimeFormat('ar-SY', {
         year: 'numeric',
         month: 'long',
         day: 'numeric'
-    }).format(date);
+    }).format(d);
 };
 
 /**
@@ -44,29 +62,44 @@ export const formatDate = (date: Date): string => {
  * @param date The date to format.
  * @returns A formatted 'YYYY-MM-DD' string or an empty string if the date is invalid.
  */
-export const toInputDateString = (date: Date | string | null | undefined): string => {
+export const to_input_date_string = (date: Date | string | null | undefined): string => {
     if (!date) return ''; // Handles null, undefined, ''
+    
+    // If it's a string in YYYY-MM-DD format, return it as is to avoid timezone shifts
+    if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return date;
+    }
+
     const d = new Date(date);
     if (isNaN(d.getTime())) { // Handles invalid dates
         return '';
     }
-    // Using toISOString and slicing is a reliable way to get YYYY-MM-DD format,
-    // as it correctly handles timezones by converting to UTC first.
-    return d.toISOString().split('T')[0];
+    
+    // If it's a string that might be an ISO string, we need to be careful.
+    // If it was created from a string like "2026-03-26", new Date() makes it UTC.
+    // We want the date part that the user intended.
+    
+    // If the input was a string and contains 'T', it's likely an ISO string with time.
+    // In that case, we should use local time parts.
+    
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
 };
 
 /**
  * A robust helper function to parse a 'YYYY-MM-DD' string from an input field into a Date object.
  * It correctly handles timezones by creating the date at midnight in the user's local timezone.
- * @param dateString The date string to parse.
+ * @param date_string The date string to parse.
  * @returns A Date object or null if the string is invalid.
  */
-export const parseInputDateString = (dateString: string | null | undefined): Date | null => {
-    if (!dateString) return null;
+export const parse_input_date_string = (date_string: string | null | undefined): Date | null => {
+    if (!date_string) return null;
     // The 'T00:00:00' part ensures the date is parsed in the local timezone, not UTC.
-    const d = new Date(`${dateString}T00:00:00`);
+    const d = new Date(`${date_string}T00:00:00`);
     if (isNaN(d.getTime())) {
-        console.warn(`Invalid date string provided to parseInputDateString: ${dateString}`);
+        console.warn(`Invalid date string provided to parse_input_date_string: ${date_string}`);
         return null;
     }
     return d;
@@ -76,7 +109,7 @@ export const parseInputDateString = (dateString: string | null | undefined): Dat
 // --- Holiday and Weekend Logic ---
 
 // List of fixed Syrian public holidays (Month is 0-indexed)
-const fixedHolidays: { month: number; day: number; name: string }[] = [
+const fixed_holidays: { month: number; day: number; name: string }[] = [
     { month: 0, day: 1, name: 'رأس السنة الميلادية' },
     { month: 2, day: 21, name: 'عيد الأم' },
     { month: 3, day: 17, name: 'عيد الجلاء' },
@@ -87,7 +120,7 @@ const fixedHolidays: { month: number; day: number; name: string }[] = [
 ];
 
 // Approximations for floating holidays for 2024-2025.
-const floatingHolidays: { [year: number]: { month: number; day: number; name: string; length?: number }[] } = {
+const floating_holidays: { [year: number]: { month: number; day: number; name: string; length?: number }[] } = {
     2024: [
         { month: 3, day: 10, name: 'عيد الفطر', length: 3 },
         { month: 5, day: 16, name: 'عيد الأضحى', length: 4 },
@@ -110,9 +143,20 @@ const floatingHolidays: { [year: number]: { month: number; day: number; name: st
  * @param date The date to check.
  * @returns True if the date is a Friday or Saturday.
  */
-export const isWeekend = (date: Date): boolean => {
-    const day = date.getDay();
+export const is_weekend = (date: Date | string): boolean => {
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return false;
+    const day = d.getDay();
     return day === 5 || day === 6; // 5 = Friday, 6 = Saturday
+};
+
+/**
+ * Checks if a given date is a weekend or a public holiday.
+ * @param date The date to check.
+ * @returns True if the date is a weekend or a public holiday.
+ */
+export const is_holiday = (date: Date | string): boolean => {
+    return is_weekend(date) || get_public_holiday(date) !== null;
 };
 
 /**
@@ -120,26 +164,29 @@ export const isWeekend = (date: Date): boolean => {
  * @param date The date to check.
  * @returns The name of the holiday if it is one, otherwise null.
  */
-export const getPublicHoliday = (date: Date): string | null => {
-    const year = date.getFullYear();
-    const month = date.getMonth();
-    const day = date.getDate();
+export const get_public_holiday = (date: Date | string): string | null => {
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return null;
+    
+    const year = d.getFullYear();
+    const month = d.getMonth();
+    const day = d.getDate();
 
     // Check fixed holidays
-    const fixedHoliday = fixedHolidays.find(h => h.month === month && h.day === day);
-    if (fixedHoliday) {
-        return fixedHoliday.name;
+    const fixed_holiday = fixed_holidays.find(h => h.month === month && h.day === day);
+    if (fixed_holiday) {
+        return fixed_holiday.name;
     }
 
     // Check floating holidays for the given year
-    const yearFloatingHolidays = floatingHolidays[year] || [];
-    for (const holiday of yearFloatingHolidays) {
+    const year_floating_holidays = floating_holidays[year] || [];
+    for (const holiday of year_floating_holidays) {
         if (holiday.length) { // For multi-day holidays like Eid
-            const startDate = new Date(year, holiday.month, holiday.day);
-            const endDate = new Date(startDate);
-            endDate.setDate(startDate.getDate() + holiday.length - 1);
+            const start_date = new Date(year, holiday.month, holiday.day);
+            const end_date = new Date(start_date);
+            end_date.setDate(start_date.getDate() + holiday.length - 1);
 
-            if (date >= startDate && date <= endDate) {
+            if (d >= start_date && d <= end_date) {
                 return holiday.name;
             }
         } else { // For single-day holidays

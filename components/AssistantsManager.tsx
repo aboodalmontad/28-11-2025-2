@@ -1,11 +1,9 @@
 
 import * as React from 'react';
-import type { SupabaseClient } from '@supabase/supabase-js';
-import { Profile, Permissions, defaultPermissions } from '../types';
+import { Profile, Permissions, default_permissions } from '../types';
 import { useData } from '../context/DataContext';
-import { getSupabaseClient } from '../supabaseClient';
+import { get_supabase_client } from '../supabaseClient';
 import { UserIcon, CheckCircleIcon, NoSymbolIcon, PencilIcon, TrashIcon, ExclamationTriangleIcon } from './icons';
-import { getFriendlyErrorMessage, fetchWithRetry } from '../hooks/useOnlineData';
 
 interface AssistantsManagerProps {
     onClose: () => void;
@@ -117,100 +115,37 @@ const PermissionsEditor: React.FC<{
 };
 
 const AssistantsManager: React.FC<AssistantsManagerProps> = ({ onClose }) => {
-    const { profiles, setProfiles, userId } = useData();
+    const { profiles, set_profiles, user_id } = useData();
     const [assistants, setAssistants] = React.useState<Profile[]>([]);
-    const [pendingRequests, setPendingRequests] = React.useState<Profile[]>([]);
-    const [activeTab, setActiveTab] = React.useState<'active' | 'pending'>('active');
     const [editingAssistant, setEditingAssistant] = React.useState<Profile | null>(null);
-    const [loading, setLoading] = React.useState(false);
-    const [tempPermissions, setTempPermissions] = React.useState<Permissions>(defaultPermissions);
-    const [supabase, setSupabase] = React.useState<SupabaseClient | null>(null);
-
-    const currentUserProfile = React.useMemo(() => profiles.find(p => p.id === userId), [profiles, userId]);
+    const [tempPermissions, setTempPermissions] = React.useState<Permissions>(default_permissions);
+    const supabase = get_supabase_client();
 
     React.useEffect(() => {
-        const initializeSupabase = async () => {
-            const client = await getSupabaseClient();
-            setSupabase(client);
-        };
-        initializeSupabase();
-    }, []);
-
-    const fetchPendingRequests = React.useCallback(async () => {
-        if (!supabase || !currentUserProfile?.mobile_number) return;
-        setLoading(true);
-        try {
-            const mobile = currentUserProfile.mobile_number;
-            // Find users who requested this lawyer but aren't linked yet
-            const { data, error }: any = await fetchWithRetry(async () => await supabase
-                .from('profiles')
-                .select('*')
-                .eq('requested_lawyer_mobile', mobile)
-                .is('lawyer_id', null)
-            );
-            if (error) throw error;
-            setPendingRequests(data || []);
-        } catch (err) {
-            console.error("Failed to fetch pending requests:", err);
-        } finally {
-            setLoading(false);
+        // Filter profiles to find users where lawyer_id == current user's ID
+        if (user_id) {
+            setAssistants(profiles.filter(p => p.lawyer_id === user_id));
         }
-    }, [supabase, currentUserProfile]);
-
-    React.useEffect(() => {
-        if (userId) {
-            setAssistants(profiles.filter(p => p.lawyer_id === userId));
-        }
-        if (activeTab === 'pending') {
-            fetchPendingRequests();
-        }
-    }, [profiles, userId, activeTab, fetchPendingRequests]);
-
-    const handleAcceptRequest = async (request: Profile) => {
-        if (!supabase || !userId) return;
-        setLoading(true);
-        try {
-            const { error }: any = await fetchWithRetry(async () => await supabase
-                .from('profiles')
-                .update({ 
-                    lawyer_id: userId, 
-                    is_approved: false, // Still need manual approval of account after linking
-                    permissions: defaultPermissions 
-                })
-                .eq('id', request.id)
-            );
-            if (error) throw error;
-            
-            // Update local state
-            setProfiles((prev: Profile[]) => [...prev, { ...request, lawyer_id: userId, is_approved: false, permissions: defaultPermissions }]);
-            setPendingRequests(prev => prev.filter(p => p.id !== request.id));
-            setActiveTab('active');
-            alert(`تم ربط المساعد ${request.full_name} بنجاح. يرجى تفعيل حسابه وتحديد صلاحياته.`);
-        } catch (err: any) {
-            alert("فشل قبول الطلب: " + getFriendlyErrorMessage(err));
-        } finally {
-            setLoading(false);
-        }
-    };
+    }, [profiles, user_id]);
 
     const handleUpdateAssistant = async (assistant: Profile, updates: Partial<Profile>) => {
         if (!supabase) return;
         
         try {
-            const { error }: any = await fetchWithRetry(async () => await supabase.from('profiles').update(updates).eq('id', assistant.id));
+            const { error } = await supabase.from('profiles').update(updates).eq('id', assistant.id);
             if (error) throw error;
 
-            setProfiles((prev: Profile[]) => prev.map(p => p.id === assistant.id ? { ...p, ...updates } : p));
+            set_profiles(prev => prev.map(p => p.id === assistant.id ? { ...p, ...updates } : p));
             if (editingAssistant?.id === assistant.id) setEditingAssistant(null);
         } catch (err: any) {
-            alert("فشل تحديث بيانات المساعد: " + getFriendlyErrorMessage(err));
+            alert("فشل تحديث بيانات المساعد: " + err.message);
         }
     };
 
     const handleEditPermissions = (assistant: Profile) => {
         setEditingAssistant(assistant);
         // Ensure permissions object has all keys from defaultPermissions to avoid undefined errors
-        setTempPermissions({ ...defaultPermissions, ...(assistant.permissions || {}) });
+        setTempPermissions({ ...default_permissions, ...(assistant.permissions || {}) });
     };
 
     const savePermissions = () => {
@@ -219,15 +154,15 @@ const AssistantsManager: React.FC<AssistantsManagerProps> = ({ onClose }) => {
         }
     };
 
-    const handleDelete = async (id: string) => {
+    const handle_delete = async (id: string) => {
         if (window.confirm("هل أنت متأكد من حذف هذا المساعد؟ سيتم إلغاء ارتباطه بحسابك.")) {
              if (!supabase) return;
              try {
-                 const { error }: any = await fetchWithRetry(async () => await supabase.from('profiles').update({ lawyer_id: null, permissions: null }).eq('id', id));
+                 const { error } = await supabase.from('profiles').update({ lawyer_id: null, permissions: null }).eq('id', id);
                  if (error) throw error;
-                 setProfiles((prev: Profile[]) => prev.filter(p => p.id !== id)); // Remove from local view immediately
+                 set_profiles(prev => prev.filter(p => p.id !== id)); // Remove from local view immediately
              } catch (err: any) {
-                 alert("فشل حذف المساعد: " + getFriendlyErrorMessage(err));
+                 alert("فشل حذف المساعد: " + err.message);
              }
         }
     };
@@ -240,120 +175,72 @@ const AssistantsManager: React.FC<AssistantsManagerProps> = ({ onClose }) => {
                     <button onClick={onClose} className="text-gray-500 hover:text-gray-700 font-bold text-xl">&times;</button>
                 </div>
 
-                <div className="flex gap-4 mb-6 border-b">
-                    <button 
-                        onClick={() => setActiveTab('active')}
-                        className={`pb-2 px-4 font-semibold transition-colors border-b-2 ${activeTab === 'active' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-                    >
-                        المساعدون الحاليون ({assistants.length})
-                    </button>
-                    <button 
-                        onClick={() => setActiveTab('pending')}
-                        className={`pb-2 px-4 font-semibold transition-colors border-b-2 ${activeTab === 'pending' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-                    >
-                        طلبات الانضمام ({pendingRequests.length})
-                    </button>
-                </div>
-
                 <div className="flex-grow overflow-y-auto p-1">
-                    {activeTab === 'active' ? (
-                        assistants.length === 0 ? (
-                            <div className="text-center py-8 text-gray-500 bg-gray-50 rounded-lg border border-dashed border-gray-300">
-                                <UserIcon className="w-12 h-12 mx-auto text-gray-400 mb-2" />
-                                <p>لا يوجد مساعدين مرتبطين بحسابك حالياً.</p>
-                                <p className="text-sm mt-2">يمكن للمساعدين الانضمام إليك عن طريق إدخال رقم هاتفك أثناء تسجيل حساب جديد.</p>
-                            </div>
-                        ) : (
-                            <div className="space-y-4">
-                                {assistants.map(assistant => (
-                                    <div key={assistant.id} className="border rounded-lg p-4 bg-white shadow-sm hover:shadow-md transition-shadow">
-                                        <div className="flex justify-between items-start">
-                                            <div className="flex items-center gap-3">
-                                                <div className="bg-blue-100 p-2 rounded-full">
-                                                    <UserIcon className="w-6 h-6 text-blue-600" />
-                                                </div>
-                                                <div>
-                                                    <h3 className="font-bold text-gray-800">{assistant.full_name}</h3>
-                                                    <p className="text-sm text-gray-500" dir="ltr">{assistant.mobile_number}</p>
-                                                    {!assistant.is_approved && (
-                                                        <span className="inline-block mt-1 px-2 py-0.5 bg-yellow-100 text-yellow-800 text-xs rounded-full">
-                                                            بانتظار التفعيل
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                                <button 
-                                                    onClick={() => handleUpdateAssistant(assistant, { is_approved: !assistant.is_approved })}
-                                                    className={`p-2 rounded-full transition-colors ${assistant.is_approved ? 'bg-green-100 text-green-600 hover:bg-green-200' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}
-                                                    title={assistant.is_approved ? 'تعطيل الحساب' : 'تفعيل الحساب'}
-                                                >
-                                                    {assistant.is_approved ? <CheckCircleIcon className="w-5 h-5" /> : <NoSymbolIcon className="w-5 h-5" />}
-                                                </button>
-                                                <button 
-                                                    onClick={() => handleEditPermissions(assistant)}
-                                                    className={`p-2 rounded-full hover:bg-blue-200 transition-colors ${editingAssistant?.id === assistant.id ? 'bg-blue-200 text-blue-800' : 'bg-blue-100 text-blue-600'}`}
-                                                    title="تعديل الصلاحيات"
-                                                >
-                                                    <PencilIcon className="w-5 h-5" />
-                                                </button>
-                                                <button 
-                                                    onClick={() => handleDelete(assistant.id)}
-                                                    className="p-2 bg-red-100 text-red-600 rounded-full hover:bg-red-200 transition-colors"
-                                                    title="حذف المساعد"
-                                                >
-                                                    <TrashIcon className="w-5 h-5" />
-                                                </button>
-                                            </div>
-                                        </div>
-                                        
-                                        {editingAssistant?.id === assistant.id && (
-                                            <div className="mt-4 border-t pt-4 animate-fade-in">
-                                                <PermissionsEditor 
-                                                    permissions={tempPermissions} 
-                                                    onChange={setTempPermissions} 
-                                                />
-                                                <div className="mt-4 flex justify-end gap-2">
-                                                    <button onClick={() => setEditingAssistant(null)} className="px-4 py-2 text-sm bg-gray-200 rounded hover:bg-gray-300">إلغاء</button>
-                                                    <button onClick={savePermissions} className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">حفظ الصلاحيات</button>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
-                        )
+                    {assistants.length === 0 ? (
+                        <div className="text-center py-8 text-gray-500 bg-gray-50 rounded-lg border border-dashed border-gray-300">
+                            <UserIcon className="w-12 h-12 mx-auto text-gray-400 mb-2" />
+                            <p>لا يوجد مساعدين مرتبطين بحسابك حالياً.</p>
+                            <p className="text-sm mt-2">يمكن للمساعدين الانضمام إليك عن طريق إدخال رقم هاتفك أثناء تسجيل حساب جديد.</p>
+                        </div>
                     ) : (
-                        pendingRequests.length === 0 ? (
-                            <div className="text-center py-8 text-gray-500 bg-gray-50 rounded-lg border border-dashed border-gray-300">
-                                <ExclamationTriangleIcon className="w-12 h-12 mx-auto text-gray-400 mb-2" />
-                                <p>لا توجد طلبات انضمام معلقة حالياً.</p>
-                                <p className="text-sm mt-2">عندما يقوم مساعد بالتسجيل وإدخال رقم جوالك، سيظهر طلبه هنا.</p>
-                            </div>
-                        ) : (
-                            <div className="space-y-4">
-                                {pendingRequests.map(request => (
-                                    <div key={request.id} className="border rounded-lg p-4 bg-white shadow-sm flex justify-between items-center">
+                        <div className="space-y-4">
+                            {assistants.map(assistant => (
+                                <div key={assistant.id} className="border rounded-lg p-4 bg-white shadow-sm hover:shadow-md transition-shadow">
+                                    <div className="flex justify-between items-start">
                                         <div className="flex items-center gap-3">
-                                            <div className="bg-yellow-100 p-2 rounded-full">
-                                                <UserIcon className="w-6 h-6 text-yellow-600" />
+                                            <div className="bg-blue-100 p-2 rounded-full">
+                                                <UserIcon className="w-6 h-6 text-blue-600" />
                                             </div>
                                             <div>
-                                                <h3 className="font-bold text-gray-800">{request.full_name}</h3>
-                                                <p className="text-sm text-gray-500" dir="ltr">{request.mobile_number}</p>
+                                                <h3 className="font-bold text-gray-800">{assistant.full_name}</h3>
+                                                <p className="text-sm text-gray-500" dir="ltr">{assistant.mobile_number}</p>
+                                                {!assistant.is_approved && (
+                                                    <span className="inline-block mt-1 px-2 py-0.5 bg-yellow-100 text-yellow-800 text-xs rounded-full">
+                                                        بانتظار الموافقة
+                                                    </span>
+                                                )}
                                             </div>
                                         </div>
-                                        <button 
-                                            onClick={() => handleAcceptRequest(request)}
-                                            disabled={loading}
-                                            className="px-4 py-2 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                                        >
-                                            قبول الطلب
-                                        </button>
+                                        <div className="flex items-center gap-2">
+                                            <button 
+                                                onClick={() => handleUpdateAssistant(assistant, { is_approved: !assistant.is_approved })}
+                                                className={`p-2 rounded-full transition-colors ${assistant.is_approved ? 'bg-green-100 text-green-600 hover:bg-green-200' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}
+                                                title={assistant.is_approved ? 'تعطيل الحساب' : 'تفعيل الحساب'}
+                                            >
+                                                {assistant.is_approved ? <CheckCircleIcon className="w-5 h-5" /> : <NoSymbolIcon className="w-5 h-5" />}
+                                            </button>
+                                            <button 
+                                                onClick={() => handleEditPermissions(assistant)}
+                                                className={`p-2 rounded-full hover:bg-blue-200 transition-colors ${editingAssistant?.id === assistant.id ? 'bg-blue-200 text-blue-800' : 'bg-blue-100 text-blue-600'}`}
+                                                title="تعديل الصلاحيات"
+                                            >
+                                                <PencilIcon className="w-5 h-5" />
+                                            </button>
+                                            <button 
+                                                onClick={() => handle_delete(assistant.id)}
+                                                className="p-2 bg-red-100 text-red-600 rounded-full hover:bg-red-200 transition-colors"
+                                                title="حذف المساعد"
+                                            >
+                                                <TrashIcon className="w-5 h-5" />
+                                            </button>
+                                        </div>
                                     </div>
-                                ))}
-                            </div>
-                        )
+                                    
+                                    {editingAssistant?.id === assistant.id && (
+                                        <div className="mt-4 border-t pt-4 animate-fade-in">
+                                            <PermissionsEditor 
+                                                permissions={tempPermissions} 
+                                                onChange={setTempPermissions} 
+                                            />
+                                            <div className="mt-4 flex justify-end gap-2">
+                                                <button onClick={() => setEditingAssistant(null)} className="px-4 py-2 text-sm bg-gray-200 rounded hover:bg-gray-300">إلغاء</button>
+                                                <button onClick={savePermissions} className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">حفظ الصلاحيات</button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
                     )}
                 </div>
             </div>

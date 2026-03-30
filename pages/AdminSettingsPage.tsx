@@ -3,18 +3,16 @@ import * as React from 'react';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { MusicalNoteIcon, PlayCircleIcon, TrashIcon, ArrowUpTrayIcon, ServerIcon, CloudArrowDownIcon, CloudArrowUpIcon, CheckCircleIcon, ExclamationTriangleIcon, ArrowPathIcon } from '../components/icons';
 import { defaultUserApprovalSoundBase64 } from '../components/RealtimeNotifier';
-import { fetchDataFromSupabase, FlatData, getFriendlyErrorMessage, fetchWithRetry, isNetworkError } from '../hooks/useOnlineData'; // Import fetcher
-import { getSupabaseClient } from '../supabaseClient'; // Import client
-import { useData } from '../context/DataContext';
+import { fetch_data_from_supabase, FlatData } from '../hooks/useOnlineData'; // Import fetcher
+import { get_supabase_client } from '../supabaseClient'; // Import client
 
 const USER_APPROVAL_SOUND_KEY = 'customUserApprovalSound';
 
 interface AdminSettingsPageProps {
-    onOpenConfig: () => void;
+    on_open_config: () => void;
 }
 
-const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onOpenConfig }) => {
-    const { userId } = useData();
+const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ on_open_config }) => {
     const [customSound, setCustomSound] = useLocalStorage<string | null>(USER_APPROVAL_SOUND_KEY, null);
     const [feedback, setFeedback] = React.useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
     const [isProcessing, setIsProcessing] = React.useState(false);
@@ -80,8 +78,7 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onOpenConfig }) =
         showFeedback('جاري تحضير النسخة الاحتياطية من السحابة... يرجى الانتظار.', 'info');
         
         try {
-            if (!userId) throw new Error("User ID not available.");
-            const data = await fetchWithRetry(() => fetchDataFromSupabase(userId));
+            const data = await fetch_data_from_supabase();
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
             const filename = `lawyer_system_full_backup_${timestamp}.json`;
             
@@ -99,12 +96,12 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onOpenConfig }) =
 
             showFeedback('تم تنزيل النسخة الاحتياطية بنجاح.', 'success');
         } catch (error: any) {
-            if (!isNetworkError(error)) {
-                console.error("Backup failed:", error);
-            } else {
-                console.warn("Backup failed due to network error (offline).");
+            console.error("Backup failed:", error);
+            let errorMessage = error.message;
+            if (errorMessage.toLowerCase().includes('failed to fetch')) {
+                errorMessage = "تعذر الاتصال بالخادم. يرجى التحقق من اتصالك بالإنترنت، أو التأكد من أن مشروع Supabase الخاص بك يعمل (غير متوقف).";
             }
-            showFeedback(`فشل النسخ الاحتياطي: ${getFriendlyErrorMessage(error)}`, 'error');
+            showFeedback(`فشل النسخ الاحتياطي: ${errorMessage}`, 'error');
         } finally {
             setIsProcessing(false);
         }
@@ -127,12 +124,12 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onOpenConfig }) =
                 const data = JSON.parse(text) as Partial<FlatData>;
                 await restoreDataToSupabase(data);
             } catch (error: any) {
-                if (!isNetworkError(error)) {
-                    console.error("Restore failed:", error);
-                } else {
-                    console.warn("Restore failed due to network error (offline).");
+                console.error("Restore failed:", error);
+                let errorMessage = error.message;
+                if (errorMessage.toLowerCase().includes('failed to fetch')) {
+                    errorMessage = "تعذر الاتصال بالخادم. يرجى التحقق من اتصالك بالإنترنت، أو التأكد من أن مشروع Supabase الخاص بك يعمل (غير متوقف).";
                 }
-                showFeedback(`فشل الاستعادة: ${getFriendlyErrorMessage(error)}`, 'error');
+                showFeedback(`فشل الاستعادة: ${errorMessage}`, 'error');
                 setIsProcessing(false);
                 setProgress(null);
             }
@@ -142,7 +139,7 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onOpenConfig }) =
     };
 
     const restoreDataToSupabase = async (data: Partial<FlatData>) => {
-        const supabase = await getSupabaseClient();
+        const supabase = get_supabase_client();
         if (!supabase) throw new Error("Supabase client not available");
 
         setIsProcessing(true);
@@ -163,7 +160,7 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onOpenConfig }) =
             { key: 'admin_tasks', table: 'admin_tasks' },
             { key: 'appointments', table: 'appointments' },
             { key: 'site_finances', table: 'site_finances' },
-            { key: 'documents', table: 'documents' }, // Only metadata
+            { key: 'case_documents', table: 'case_documents' }, // Only metadata
         ];
 
         let totalRecords = 0;
@@ -189,15 +186,11 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onOpenConfig }) =
                 // Sanitize data if needed (e.g. remove extra props not in DB schema if any)
                 // For direct DB restore, we assume the backup matches the schema.
                 
-                const { error }: any = await fetchWithRetry(async () => await supabase.from(table).upsert(chunk));
+                const { error } = await supabase.from(table).upsert(chunk);
                 
                 if (error) {
-                    if (!isNetworkError(error)) {
-                        console.error(`Error restoring ${table} chunk ${i}:`, error);
-                    } else {
-                        console.warn(`Error restoring ${table} chunk ${i} due to network error (offline).`);
-                    }
-                    throw new Error(`Error in table ${table}: ${getFriendlyErrorMessage(error)}`);
+                    console.error(`Error restoring ${table} chunk ${i}:`, error);
+                    throw new Error(`Error in table ${table}: ${error.message}`);
                 }
 
                 processedRecords += chunk.length;
@@ -298,7 +291,7 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onOpenConfig }) =
                             </p>
                             <div className="mt-4">
                                 <button 
-                                    onClick={onOpenConfig}
+                                    onClick={on_open_config}
                                     className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white font-semibold rounded-lg hover:bg-gray-700 transition-colors w-full justify-center"
                                 >
                                     <ServerIcon className="w-5 h-5" />

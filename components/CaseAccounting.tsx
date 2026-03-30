@@ -1,26 +1,24 @@
 
 import * as React from 'react';
 import { Case, Client, AccountingEntry } from '../types';
-import { formatDate } from '../utils/dateUtils';
+import { format_date } from '../utils/dateUtils';
 import { PlusIcon, PencilIcon, TrashIcon, ExclamationCircleIcon } from './icons';
 import { useData } from '../context/DataContext';
 
-import { generateId } from '../utils/idUtils.ts';
-
 interface CaseAccountingProps {
-    caseData: Case;
+    case_data: Case;
     client: Client;
-    caseAccountingEntries: AccountingEntry[];
-    setAccountingEntries: (updater: (prev: AccountingEntry[]) => AccountingEntry[]) => void;
-    onFeeAgreementChange: (newFeeAgreement: string) => void;
+    case_accounting_entries: AccountingEntry[];
+    set_accounting_entries: (updater: (prev: AccountingEntry[]) => AccountingEntry[]) => void;
+    on_fee_agreement_change: (new_fee_agreement: string) => void;
 }
 
-const CaseAccounting: React.FC<CaseAccountingProps> = ({ caseData, client, caseAccountingEntries, setAccountingEntries, onFeeAgreementChange }) => {
-    const { permissions } = useData();
-    const [isEditingFee, setIsEditingFee] = React.useState(false);
-    const [feeAgreement, setFeeAgreement] = React.useState(caseData.feeAgreement);
-    const [modal, setModal] = React.useState<{ isOpen: boolean; data?: AccountingEntry, type: 'income' | 'expense' }>({ isOpen: false, type: 'income' });
-    const [formData, setFormData] = React.useState<Partial<AccountingEntry>>({});
+const CaseAccounting: React.FC<CaseAccountingProps> = ({ case_data, client, case_accounting_entries, set_accounting_entries, on_fee_agreement_change }) => {
+    const { permissions, effective_user_id } = useData();
+    const [is_editing_fee, set_is_editing_fee] = React.useState(false);
+    const [fee_agreement, set_fee_agreement] = React.useState(case_data.fee_agreement || '');
+    const [modal, set_modal] = React.useState<{ is_open: boolean; data?: AccountingEntry, type: 'income' | 'expense' }>({ is_open: false, type: 'income' });
+    const [form_data, set_form_data] = React.useState<Partial<AccountingEntry>>({});
 
     // --- Permission Check ---
     if (!permissions.can_view_finance) {
@@ -33,61 +31,62 @@ const CaseAccounting: React.FC<CaseAccountingProps> = ({ caseData, client, caseA
     }
 
     const sortedEntries = React.useMemo(() =>
-        [...caseAccountingEntries].sort((a, b) => b.date.getTime() - a.date.getTime()),
-        [caseAccountingEntries]
+        [...case_accounting_entries].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+        [case_accounting_entries]
     );
 
     const totals = React.useMemo(() => {
-        const income = caseAccountingEntries
+        const income = case_accounting_entries
             .filter(e => e.type === 'income')
             .reduce((sum, e) => sum + e.amount, 0);
-        const expense = caseAccountingEntries
+        const expense = case_accounting_entries
             .filter(e => e.type === 'expense')
             .reduce((sum, e) => sum + e.amount, 0);
         return { income, expense, balance: income - expense };
-    }, [caseAccountingEntries]);
+    }, [case_accounting_entries]);
 
-    const handleSaveFee = () => {
-        onFeeAgreementChange(feeAgreement);
-        setIsEditingFee(false);
+    const handle_save_fee = () => {
+        on_fee_agreement_change(fee_agreement);
+        set_is_editing_fee(false);
     };
 
-    const handleOpenModal = (type: 'income' | 'expense', entry?: AccountingEntry) => {
-        setFormData(entry ? { ...entry, date: entry.date.toISOString().split('T')[0] as any } : { date: new Date().toISOString().split('T')[0] as any });
-        setModal({ isOpen: true, data: entry, type });
+    const handle_open_modal = (type: 'income' | 'expense', entry?: AccountingEntry) => {
+        set_form_data(entry ? { ...entry, date: entry.date } : { date: new Date().toISOString() });
+        set_modal({ is_open: true, data: entry, type });
     };
 
-    const handleCloseModal = () => setModal({ isOpen: false, type: 'income' });
+    const handle_close_modal = () => set_modal({ is_open: false, type: 'income' });
 
-    const handleFormChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handle_form_change = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: name === 'amount' ? parseFloat(value) : value }));
+        set_form_data(prev => ({ ...prev, [name]: name === 'amount' ? parseFloat(value) : (name === 'date' ? new Date(value).toISOString() : value) }));
     };
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handle_submit = (e: React.FormEvent) => {
         e.preventDefault();
         const entryData: Omit<AccountingEntry, 'id'> = {
             type: modal.type,
-            amount: formData.amount!,
-            date: new Date(formData.date!),
-            description: formData.description!,
-            clientId: client.id,
-            caseId: caseData.id,
-            clientName: client.name,
-            updated_at: new Date(),
+            amount: form_data.amount!,
+            date: form_data.date!,
+            description: form_data.description!,
+            client_id: client.id,
+            case_id: case_data.id,
+            client_name: client.name,
+            updated_at: new Date().toISOString(),
+            user_id: effective_user_id
         };
 
         if (modal.data) { // Editing
-            setAccountingEntries(prev => prev.map(item => item.id === modal.data!.id ? { ...item, ...entryData } as AccountingEntry : item));
+            set_accounting_entries(prev => prev.map(item => item.id === modal.data!.id ? { ...item, ...entryData } as AccountingEntry : item));
         } else { // Adding
-            setAccountingEntries(prev => [...prev, { ...entryData, id: generateId('acc') } as AccountingEntry]);
+            set_accounting_entries(prev => [...prev, { ...entryData, id: `acc-${Date.now()}` } as AccountingEntry]);
         }
-        handleCloseModal();
+        handle_close_modal();
     };
 
-    const handleDelete = (id: string) => {
+    const handle_delete = (id: string) => {
         if (window.confirm('هل أنت متأكد من حذف هذا القيد؟')) {
-            setAccountingEntries(prev => prev.filter(item => item.id !== id));
+            set_accounting_entries(prev => prev.filter(item => item.id !== id));
         }
     };
 
@@ -95,17 +94,17 @@ const CaseAccounting: React.FC<CaseAccountingProps> = ({ caseData, client, caseA
         <div className="space-y-4">
             <div className="p-4 border rounded-lg bg-white">
                 <h4 className="font-semibold mb-2">اتفاقية الأتعاب</h4>
-                {isEditingFee ? (
+                {is_editing_fee ? (
                     <div className="flex items-center gap-2">
-                        <input type="text" value={feeAgreement} onChange={e => setFeeAgreement(e.target.value)} className="w-full p-2 border rounded" />
-                        <button onClick={handleSaveFee} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">حفظ</button>
-                        <button onClick={() => setIsEditingFee(false)} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">إلغاء</button>
+                        <input type="text" value={fee_agreement} onChange={e => set_fee_agreement(e.target.value)} className="w-full p-2 border rounded" />
+                        <button onClick={handle_save_fee} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">حفظ</button>
+                        <button onClick={() => set_is_editing_fee(false)} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">إلغاء</button>
                     </div>
                 ) : (
                     <div className="flex items-center justify-between">
-                        <p className="text-gray-700">{feeAgreement || 'لم تحدد بعد'}</p>
+                        <p className="text-gray-700">{fee_agreement || 'لم تحدد بعد'}</p>
                         {/* Allow edit only if user can edit case (fee agreement is part of case data) or has full finance view permissions logic could be applied here too */}
-                        {permissions.can_edit_case && <button onClick={() => setIsEditingFee(true)} className="p-2 text-gray-500 hover:text-blue-600"><PencilIcon className="w-4 h-4" /></button>}
+                        {permissions.can_edit_case && <button onClick={() => set_is_editing_fee(true)} className="p-2 text-gray-500 hover:text-blue-600"><PencilIcon className="w-4 h-4" /></button>}
                     </div>
                 )}
             </div>
@@ -116,10 +115,10 @@ const CaseAccounting: React.FC<CaseAccountingProps> = ({ caseData, client, caseA
                     <div className="flex gap-2">
                         {permissions.can_add_financial_entry && (
                             <>
-                                <button onClick={() => handleOpenModal('income')} className="flex items-center gap-1 px-3 py-1 bg-green-100 text-green-700 text-xs font-semibold rounded-lg hover:bg-green-200 transition-colors">
+                                <button onClick={() => handle_open_modal('income')} className="flex items-center gap-1 px-3 py-1 bg-green-100 text-green-700 text-xs font-semibold rounded-lg hover:bg-green-200 transition-colors">
                                     <PlusIcon className="w-4 h-4" />إضافة مقبوضات
                                 </button>
-                                <button onClick={() => handleOpenModal('expense')} className="flex items-center gap-1 px-3 py-1 bg-red-100 text-red-700 text-xs font-semibold rounded-lg hover:bg-red-200 transition-colors">
+                                <button onClick={() => handle_open_modal('expense')} className="flex items-center gap-1 px-3 py-1 bg-red-100 text-red-700 text-xs font-semibold rounded-lg hover:bg-red-200 transition-colors">
                                     <PlusIcon className="w-4 h-4" />إضافة مصروفات
                                 </button>
                             </>
@@ -140,7 +139,7 @@ const CaseAccounting: React.FC<CaseAccountingProps> = ({ caseData, client, caseA
                         <tbody>
                             {sortedEntries.length > 0 ? sortedEntries.map(entry => (
                                 <tr key={entry.id} className="border-t hover:bg-gray-50">
-                                    <td className="px-4 py-2">{formatDate(entry.date)}</td>
+                                    <td className="px-4 py-2">{format_date(entry.date)}</td>
                                     <td className="px-4 py-2">{entry.description}</td>
                                     <td className="px-4 py-2 font-semibold text-green-600">
                                         {entry.type === 'income' ? `${entry.amount.toLocaleString()}` : '-'}
@@ -149,8 +148,8 @@ const CaseAccounting: React.FC<CaseAccountingProps> = ({ caseData, client, caseA
                                         {entry.type === 'expense' ? `${entry.amount.toLocaleString()}` : '-'}
                                     </td>
                                     <td className="px-4 py-2 flex items-center gap-1">
-                                        {permissions.can_add_financial_entry && <button onClick={() => handleOpenModal(entry.type, entry)} className="p-1 text-gray-500 hover:text-blue-600"><PencilIcon className="w-4 h-4" /></button>}
-                                        {permissions.can_delete_financial_entry && <button onClick={() => handleDelete(entry.id)} className="p-1 text-gray-500 hover:text-red-600"><TrashIcon className="w-4 h-4" /></button>}
+                                        {permissions.can_add_financial_entry && <button onClick={() => handle_open_modal(entry.type, entry)} className="p-1 text-gray-500 hover:text-blue-600"><PencilIcon className="w-4 h-4" /></button>}
+                                        {permissions.can_delete_financial_entry && <button onClick={() => handle_delete(entry.id)} className="p-1 text-gray-500 hover:text-red-600"><TrashIcon className="w-4 h-4" /></button>}
                                     </td>
                                 </tr>
                             )) : (
@@ -182,25 +181,25 @@ const CaseAccounting: React.FC<CaseAccountingProps> = ({ caseData, client, caseA
                 </div>
             </div>
 
-             {modal.isOpen && (
-                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={handleCloseModal}>
+             {modal.is_open && (
+                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={handle_close_modal}>
                     <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
                         <h2 className="text-xl font-bold mb-4">{modal.data ? 'تعديل' : 'إضافة'} {modal.type === 'income' ? 'مقبوضات' : 'مصروفات'}</h2>
-                        <form onSubmit={handleSubmit} className="space-y-4">
+                        <form onSubmit={handle_submit} className="space-y-4">
                              <div>
                                 <label className="block text-sm font-medium text-gray-700">المبلغ</label>
-                                <input type="number" name="amount" value={formData.amount || ''} onChange={handleFormChange} className="w-full p-2 border rounded" required />
+                                <input type="number" name="amount" value={form_data.amount || ''} onChange={handle_form_change} className="w-full p-2 border rounded" required />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700">التاريخ</label>
-                                <input type="date" name="date" value={formData.date as any} onChange={handleFormChange} className="w-full p-2 border rounded" placeholder="DD/MM/YYYY" required />
+                                <input type="date" name="date" value={form_data.date ? form_data.date.split('T')[0] : ''} onChange={handle_form_change} className="w-full p-2 border rounded" placeholder="DD/MM/YYYY" required />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700">البيان</label>
-                                <input type="text" name="description" value={formData.description || ''} onChange={handleFormChange} className="w-full p-2 border rounded" required />
+                                <input type="text" name="description" value={form_data.description || ''} onChange={handle_form_change} className="w-full p-2 border rounded" required />
                             </div>
                             <div className="mt-6 flex justify-end gap-4">
-                                <button type="button" onClick={handleCloseModal} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">إلغاء</button>
+                                <button type="button" onClick={handle_close_modal} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">إلغاء</button>
                                 <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">حفظ</button>
                             </div>
                         </form>

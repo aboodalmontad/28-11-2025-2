@@ -1,22 +1,22 @@
 import * as React from 'react';
-import { getSupabaseClient } from '../supabaseClient';
+import { get_supabase_client } from '../supabaseClient';
 import { ExclamationCircleIcon, EyeIcon, EyeSlashIcon, ClipboardDocumentIcon, ClipboardDocumentCheckIcon } from '../components/icons';
 
 interface AuthPageProps {
-    onForceSetup: () => void;
+    on_force_setup: () => void;
 }
 
 // Helper component for copying text
-const CopyButton: React.FC<{ textToCopy: string }> = ({ textToCopy }) => {
-    const [copied, setCopied] = React.useState(false);
-    const handleCopy = () => {
-        navigator.clipboard.writeText(textToCopy).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
+const CopyButton: React.FC<{ text_to_copy: string }> = ({ text_to_copy }) => {
+    const [copied, set_copied] = React.useState(false);
+    const handle_copy = () => {
+        navigator.clipboard.writeText(text_to_copy).then(() => {
+            set_copied(true);
+            setTimeout(() => set_copied(false), 2000);
         });
     };
     return (
-        <button type="button" onClick={handleCopy} className="flex items-center gap-1 text-xs text-gray-300 hover:text-white" title="نسخ الأمر">
+        <button type="button" onClick={handle_copy} className="flex items-center gap-1 text-xs text-gray-300 hover:text-white" title="نسخ الأمر">
             {copied ? <ClipboardDocumentCheckIcon className="w-4 h-4 text-green-400" /> : <ClipboardDocumentIcon className="w-4 h-4" />}
             {copied ? 'تم النسخ' : 'نسخ'}
         </button>
@@ -29,7 +29,7 @@ const DatabaseIcon = () => (
     </svg>
 );
 
-const AuthPage: React.FC<AuthPageProps> = ({ onForceSetup }) => {
+const AuthPage: React.FC<AuthPageProps> = ({ on_force_setup }) => {
     // This file appears to be a partial duplicate of LoginPage.tsx and is incomplete.
     // The logic has been implemented in LoginPage.tsx. This component is non-functional.
     return null;

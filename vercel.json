@@ -1,10 +1,6 @@
 {
-  "outputDirectory": "dist",
+  "outputDirectory": "public",
   "rewrites": [
-    { "source": "/sw.js", "destination": "/sw.js" },
-    { "source": "/index.js", "destination": "/index.js" },
-    { "source": "/manifest.json", "destination": "/manifest.json" },
-    { "source": "/icon.svg", "destination": "/icon.svg" },
-    { "source": "/((?!.*\\.).*)", "destination": "/index.html" }
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

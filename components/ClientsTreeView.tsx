@@ -4,7 +4,7 @@ import { Client, Case, Stage, Session, AccountingEntry, CaseDocument, Permission
 import { PlusIcon, PencilIcon, TrashIcon, PrintIcon, ChevronLeftIcon, UserIcon, FolderIcon, ClipboardDocumentIcon, CalendarDaysIcon, GavelIcon, BuildingLibraryIcon, ShareIcon, DocumentTextIcon, DocumentDuplicateIcon } from './icons';
 import SessionsTable from './SessionsTable';
 import CaseAccounting from './CaseAccounting';
-import { formatDate } from '../utils/dateUtils';
+import { format_date } from '../utils/dateUtils';
 import { MenuItem } from './ContextMenu';
 import CaseDocuments from './CaseDocuments';
 
@@ -12,33 +12,33 @@ type ExpandedState = { [key: string]: boolean };
 
 interface ClientsTreeViewProps {
     clients: Client[];
-    setClients: (updater: (prevClients: Client[]) => Client[]) => void;
-    accountingEntries: AccountingEntry[];
-    setAccountingEntries: (updater: (prev: AccountingEntry[]) => AccountingEntry[]) => void;
-    onAddCase: (clientId: string) => void;
-    onEditCase: (caseItem: Case, client: Client) => void;
-    onDeleteCase: (caseId: string, clientId: string) => void;
-    onAddStage: (clientId: string, caseId: string) => void;
-    onEditStage: (stage: Stage, caseItem: Case, client: Client) => void;
-    onDeleteStage: (stageId: string, caseId: string, clientId: string) => void;
-    onAddSession: (clientId: string, caseId: string, stageId: string) => void;
-    onEditSession: (session: Session, stage: Stage, caseItem: Case, client: Client) => void;
-    onDeleteSession: (sessionId: string, stageId: string, caseId: string, clientId: string) => void;
-    onPostponeSession?: (sessionId: string, newDate: Date, reason: string) => void;
-    onEditClient: (client: Client) => void;
-    onDeleteClient: (clientId: string) => void;
-    onPrintClientStatement: (clientId: string) => void;
+    set_clients: (updater: (prevClients: Client[]) => Client[]) => void;
+    accounting_entries: AccountingEntry[];
+    set_accounting_entries: (updater: (prev: AccountingEntry[]) => AccountingEntry[]) => void;
+    on_add_case: (clientId: string) => void;
+    on_edit_case: (caseItem: Case, client: Client) => void;
+    on_delete_case: (caseId: string, clientId: string) => void;
+    on_add_stage: (clientId: string, caseId: string) => void;
+    on_edit_stage: (stage: Stage, caseItem: Case, client: Client) => void;
+    on_delete_stage: (stageId: string, caseId: string, clientId: string) => void;
+    on_add_session: (clientId: string, caseId: string, stageId: string) => void;
+    on_edit_session: (session: Session, stage: Stage, caseItem: Case, client: Client) => void;
+    on_delete_session: (sessionId: string, stageId: string, caseId: string, clientId: string) => void;
+    on_postpone_session?: (sessionId: string, newDate: Date, reason: string) => void;
+    on_edit_client: (client: Client) => void;
+    on_delete_client: (clientId: string) => void;
+    on_print_client_statement: (clientId: string) => void;
     assistants: string[];
-    onUpdateSession?: (sessionId: string, updatedFields: Partial<Session>) => void;
-    onDecide?: (session: Session) => void;
-    showContextMenu: (event: React.MouseEvent, menuItems: MenuItem[]) => void;
-    onOpenAdminTaskModal: (initialData?: any) => void;
-    onCreateInvoice: (clientId: string, caseId?: string) => void;
+    on_update_session?: (sessionId: string, updatedFields: Partial<Session>) => void;
+    on_decide?: (session: Session) => void;
+    show_context_menu: (event: React.MouseEvent, menuItems: MenuItem[]) => void;
+    on_open_admin_task_modal: (initialData?: any) => void;
+    on_create_invoice: (clientId: string, caseId?: string) => void;
     permissions?: Permissions;
 }
 
 const StageItem: React.FC<{ stage: Stage; caseItem: Case; client: Client; props: ClientsTreeViewProps; expanded: boolean; onToggle: () => void }> = ({ stage, caseItem, client, props, expanded, onToggle }) => {
-    const longPressTimer = React.useRef<number | null>(null);
+    const long_press_timer = React.useRef<number | null>(null);
     const { permissions } = props;
 
     const handleContextMenu = (event: React.MouseEvent) => {
@@ -46,22 +46,22 @@ const StageItem: React.FC<{ stage: Stage; caseItem: Case; client: Client; props:
 
         const details = [
             `*الموكل:* ${client.name}`,
-            `*الخصم:* ${caseItem.opponentName}`,
+            `*الخصم:* ${caseItem.opponent_name}`,
             `*القضية:* ${caseItem.subject}`,
             `*المحكمة:* ${stage.court}`,
-            `*رقم الأساس:* ${stage.caseNumber}`
+            `*رقم الأساس:* ${stage.case_number}`
         ];
 
         if (latestSession) {
-            details.push(`*تاريخ آخر جلسة:* ${formatDate(latestSession.date)}`);
+            details.push(`*تاريخ آخر جلسة:* ${format_date(latestSession.date)}`);
         }
 
-        if (stage.decisionDate) {
+        if (stage.decision_date) {
             details.push('---');
             details.push(`*تم حسم المرحلة:*`);
-            details.push(`*تاريخ الحسم:* ${formatDate(new Date(stage.decisionDate))}`);
-            if (stage.decisionNumber) details.push(`*رقم القرار:* ${stage.decisionNumber}`);
-            if (stage.decisionSummary) details.push(`*ملخص القرار:* ${stage.decisionSummary}`);
+            details.push(`*تاريخ الحسم:* ${format_date(new Date(stage.decision_date))}`);
+            if (stage.decision_number) details.push(`*رقم القرار:* ${stage.decision_number}`);
+            if (stage.decision_summary) details.push(`*ملخص القرار:* ${stage.decision_summary}`);
         }
 
         const description = `متابعة مرحلة قضائية:\n- ${details.join('\n- ')}`;
@@ -71,7 +71,7 @@ const StageItem: React.FC<{ stage: Stage; caseItem: Case; client: Client; props:
             label: 'إرسال إلى المهام الإدارية',
             icon: <BuildingLibraryIcon className="w-4 h-4" />,
             onClick: () => {
-                props.onOpenAdminTaskModal({ task: description });
+                props.on_open_admin_task_modal({ task: description });
             }
         },
         {
@@ -82,11 +82,11 @@ const StageItem: React.FC<{ stage: Stage; caseItem: Case; client: Client; props:
                 window.open(whatsappUrl, '_blank');
             }
         }];
-        props.showContextMenu(event, menuItems);
+        props.show_context_menu(event, menuItems);
     };
     
     const handleTouchStart = (e: React.TouchEvent) => {
-        longPressTimer.current = window.setTimeout(() => {
+        long_press_timer.current = window.setTimeout(() => {
             const touch = e.touches[0];
             const mockEvent = { preventDefault: () => e.preventDefault(), clientX: touch.clientX, clientY: touch.clientY };
             handleContextMenu(mockEvent as any);
@@ -94,9 +94,9 @@ const StageItem: React.FC<{ stage: Stage; caseItem: Case; client: Client; props:
     };
 
     const handleTouchEnd = () => {
-        if (longPressTimer.current !== null) {
-            window.clearTimeout(longPressTimer.current);
-            longPressTimer.current = null;
+        if (long_press_timer.current !== null) {
+            window.clearTimeout(long_press_timer.current);
+            long_press_timer.current = null;
         }
     };
 
@@ -104,21 +104,21 @@ const StageItem: React.FC<{ stage: Stage; caseItem: Case; client: Client; props:
     const handleSessionContextMenu = (event: React.MouseEvent, session: Session) => {
         const details = [
             `*الموكل:* ${client.name}`,
-            `*الخصم:* ${caseItem.opponentName}`,
+            `*الخصم:* ${caseItem.opponent_name}`,
             `*القضية:* ${caseItem.subject}`,
             `*المحكمة:* ${stage.court}`,
-            `*رقم الأساس:* ${stage.caseNumber}`,
-            `*تاريخ الجلسة:* ${formatDate(session.date)}`,
+            `*رقم الأساس:* ${stage.case_number}`,
+            `*تاريخ الجلسة:* ${format_date(session.date)}`,
             `*المكلف بالحضور:* ${session.assignee || 'غير محدد'}`,
-            `*سبب التأجيل السابق:* ${session.postponementReason || 'لا يوجد'}`
+            `*سبب التأجيل السابق:* ${session.postponement_reason || 'لا يوجد'}`
         ];
 
-        if (stage.decisionDate) {
+        if (stage.decision_date) {
             details.push('---');
             details.push(`*تم حسم المرحلة:*`);
-            details.push(`*تاريخ الحسم:* ${formatDate(new Date(stage.decisionDate))}`);
-            if (stage.decisionNumber) details.push(`*رقم القرار:* ${stage.decisionNumber}`);
-            if (stage.decisionSummary) details.push(`*ملخص القرار:* ${stage.decisionSummary}`);
+            details.push(`*تاريخ الحسم:* ${format_date(new Date(stage.decision_date))}`);
+            if (stage.decision_number) details.push(`*رقم القرار:* ${stage.decision_number}`);
+            if (stage.decision_summary) details.push(`*ملخص القرار:* ${stage.decision_summary}`);
         }
 
         const description = `متابعة جلسة قضائية:\n- ${details.join('\n- ')}`;
@@ -128,7 +128,7 @@ const StageItem: React.FC<{ stage: Stage; caseItem: Case; client: Client; props:
             label: 'إرسال إلى المهام الإدارية',
             icon: <BuildingLibraryIcon className="w-4 h-4" />,
             onClick: () => {
-                props.onOpenAdminTaskModal({ 
+                props.on_open_admin_task_modal({ 
                     task: description,
                     assignee: session.assignee,
                 });
@@ -142,7 +142,7 @@ const StageItem: React.FC<{ stage: Stage; caseItem: Case; client: Client; props:
                 window.open(whatsappUrl, '_blank');
             }
         }];
-        props.showContextMenu(event, menuItems);
+        props.show_context_menu(event, menuItems);
     };
     
     return (
@@ -160,34 +160,34 @@ const StageItem: React.FC<{ stage: Stage; caseItem: Case; client: Client; props:
                         <div className="flex items-center gap-3">
                             <ClipboardDocumentIcon className="w-5 h-5 text-yellow-600" />
                             <span>{stage.court}</span>
-                            <span className="text-gray-600 font-normal">({stage.caseNumber})</span>
+                            <span className="text-gray-600 font-normal">({stage.case_number})</span>
                         </div>
                     </div>
-                     {stage.decisionDate && (
+                     {stage.decision_date && (
                         <div className="mt-3 ps-8 animate-fade-in text-sm font-normal text-gray-700">
                             <div className="p-3 bg-green-100 border border-green-200 rounded-lg">
                                 <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
                                     <div className="flex items-center">
                                         <GavelIcon className="w-4 h-4 text-green-700 me-2 flex-shrink-0" />
                                         <strong className="font-semibold">تاريخ الحسم:</strong>
-                                        <span className="ms-1">{formatDate(new Date(stage.decisionDate))}</span>
+                                        <span className="ms-1">{format_date(new Date(stage.decision_date))}</span>
                                     </div>
-                                    {stage.decisionNumber && (
+                                    {stage.decision_number && (
                                         <div className="flex items-center">
                                             <strong className="font-semibold">رقم القرار:</strong>
-                                            <span className="ms-1">{stage.decisionNumber}</span>
+                                            <span className="ms-1">{stage.decision_number}</span>
                                         </div>
                                     )}
-                                    {stage.decisionSummary && (
+                                    {stage.decision_summary && (
                                         <div className="flex items-baseline">
                                             <strong className="font-semibold flex-shrink-0">ملخص القرار:</strong>
-                                            <span className="ms-1 whitespace-pre-wrap">{stage.decisionSummary}</span>
+                                            <span className="ms-1 whitespace-pre-wrap">{stage.decision_summary}</span>
                                         </div>
                                     )}
-                                    {stage.decisionNotes && (
+                                    {stage.decision_notes && (
                                         <div className="flex items-baseline">
                                             <strong className="font-semibold flex-shrink-0">ملاحظات:</strong>
-                                            <span className="ms-1 whitespace-pre-wrap">{stage.decisionNotes}</span>
+                                            <span className="ms-1 whitespace-pre-wrap">{stage.decision_notes}</span>
                                         </div>
                                     )}
                                 </div>
@@ -196,9 +196,9 @@ const StageItem: React.FC<{ stage: Stage; caseItem: Case; client: Client; props:
                     )}
                 </div>
                 <div className="flex-shrink-0 flex items-center gap-2 ms-4">
-                    {permissions?.can_add_session && <button onClick={(e) => { e.stopPropagation(); props.onAddSession(client.id, caseItem.id, stage.id); }} className="p-1 text-gray-500 hover:text-blue-600"><PlusIcon className="w-4 h-4" /></button>}
-                    {permissions?.can_edit_case && <button onClick={(e) => { e.stopPropagation(); props.onEditStage(stage, caseItem, client); }} className="p-1 text-gray-500 hover:text-blue-600"><PencilIcon className="w-4 h-4" /></button>}
-                    {permissions?.can_delete_case && <button onClick={(e) => { e.stopPropagation(); props.onDeleteStage(stage.id, caseItem.id, client.id); }} className="p-1 text-gray-500 hover:text-red-600"><TrashIcon className="w-4 h-4" /></button>}
+                    {permissions?.can_add_session && <button onClick={(e) => { e.stopPropagation(); props.on_add_session(client.id, caseItem.id, stage.id); }} className="p-1 text-gray-500 hover:text-blue-600"><PlusIcon className="w-4 h-4" /></button>}
+                    {permissions?.can_edit_case && <button onClick={(e) => { e.stopPropagation(); props.on_edit_stage(stage, caseItem, client); }} className="p-1 text-gray-500 hover:text-blue-600"><PencilIcon className="w-4 h-4" /></button>}
+                    {permissions?.can_delete_case && <button onClick={(e) => { e.stopPropagation(); props.on_delete_stage(stage.id, caseItem.id, client.id); }} className="p-1 text-gray-500 hover:text-red-600"><TrashIcon className="w-4 h-4" /></button>}
                 </div>
             </div>
             {expanded && (
@@ -208,13 +208,13 @@ const StageItem: React.FC<{ stage: Stage; caseItem: Case; client: Client; props:
                         الجلسات
                     </h5>
                     <SessionsTable
-                        sessions={stage.sessions.map(s => ({ ...s, stageId: stage.id, stageDecisionDate: stage.decisionDate }))}
-                        onPostpone={props.onPostponeSession}
-                        onEdit={permissions?.can_edit_session ? (session) => props.onEditSession(session, stage, caseItem, client) : undefined}
-                        onDelete={permissions?.can_delete_session ? (sessionId) => props.onDeleteSession(sessionId, stage.id, caseItem.id, client.id) : undefined}
-                        onUpdate={props.onUpdateSession}
+                        sessions={stage.sessions.map(s => ({ ...s, stage_id: stage.id, stage_decision_date: stage.decision_date }))}
+                        onPostpone={props.on_postpone_session}
+                        onEdit={permissions?.can_edit_session ? (session) => props.on_edit_session(session, stage, caseItem, client) : undefined}
+                        onDelete={permissions?.can_delete_session ? (sessionId) => props.on_delete_session(sessionId, stage.id, caseItem.id, client.id) : undefined}
+                        onUpdate={props.on_update_session}
                         assistants={props.assistants}
-                        onDecide={props.onDecide}
+                        onDecide={props.on_decide}
                         stage={stage}
                         showSessionDate={true}
                         onContextMenu={handleSessionContextMenu}
@@ -231,16 +231,16 @@ const StageItemContainer: React.FC<{ stage: Stage; caseItem: Case; client: Clien
 }
 
 const CaseItem: React.FC<{ caseItem: Case; client: Client; props: ClientsTreeViewProps; expanded: boolean; onToggle: () => void }> = ({ caseItem, client, props, expanded, onToggle }) => {
-    const [activeTab, setActiveTab] = React.useState<'stages' | 'accounting' | 'documents'>('stages');
-    const caseAccountingEntries = props.accountingEntries.filter(e => e.caseId === caseItem.id);
-    const longPressTimer = React.useRef<number | null>(null);
+    const [active_tab, set_active_tab] = React.useState<'stages' | 'accounting' | 'documents'>('stages');
+    const case_accounting_entries = props.accounting_entries.filter(e => e.case_id === caseItem.id);
+    const long_press_timer = React.useRef<number | null>(null);
     const { permissions } = props;
 
-    const handleFeeChange = (newFee: string) => {
-        props.setClients(clients => clients.map(c => c.id === client.id ? {
+    const handle_fee_change = (new_fee: string) => {
+        props.set_clients(clients => clients.map(c => c.id === client.id ? {
             ...c,
-            updated_at: new Date(),
-            cases: c.cases.map(cs => cs.id === caseItem.id ? {...cs, feeAgreement: newFee, updated_at: new Date()} : cs)
+            updated_at: new Date().toISOString(),
+            cases: c.cases.map(cs => cs.id === caseItem.id ? {...cs, fee_agreement: new_fee, updated_at: new Date().toISOString()} : cs)
         } : c));
     };
 
@@ -249,7 +249,7 @@ const CaseItem: React.FC<{ caseItem: Case; client: Client; props: ClientsTreeVie
         
         const details = [
             `*الموكل:* ${client.name}`,
-            `*الخصم:* ${caseItem.opponentName}`,
+            `*الخصم:* ${caseItem.opponent_name}`,
             `*القضية:* ${caseItem.subject}`,
             `*الحالة:* ${statusMap[caseItem.status]}`
         ];
@@ -270,17 +270,17 @@ const CaseItem: React.FC<{ caseItem: Case; client: Client; props: ClientsTreeVie
             details.push('---');
             details.push('*آخر مرحلة:*');
             details.push(`*المحكمة:* ${latestStage.court}`);
-            details.push(`*رقم الأساس:* ${latestStage.caseNumber}`);
+            details.push(`*رقم الأساس:* ${latestStage.case_number}`);
 
             if (latestSession) {
-                details.push(`*تاريخ آخر جلسة:* ${formatDate(latestSession.date)}`);
+                details.push(`*تاريخ آخر جلسة:* ${format_date(latestSession.date)}`);
             }
             
-            if (latestStage.decisionDate) {
+            if (latestStage.decision_date) {
                 details.push(`*تم حسم المرحلة:*`);
-                details.push(`*تاريخ الحسم:* ${formatDate(new Date(latestStage.decisionDate))}`);
-                if (latestStage.decisionNumber) details.push(`*رقم القرار:* ${latestStage.decisionNumber}`);
-                if (latestStage.decisionSummary) details.push(`*ملخص القرار:* ${latestStage.decisionSummary}`);
+                details.push(`*تاريخ الحسم:* ${format_date(new Date(latestStage.decision_date))}`);
+                if (latestStage.decision_number) details.push(`*رقم القرار:* ${latestStage.decision_number}`);
+                if (latestStage.decision_summary) details.push(`*ملخص القرار:* ${latestStage.decision_summary}`);
             }
         }
         
@@ -290,12 +290,12 @@ const CaseItem: React.FC<{ caseItem: Case; client: Client; props: ClientsTreeVie
         const menuItems: MenuItem[] = [{
             label: 'إنشاء فاتورة لهذه القضية',
             icon: <DocumentTextIcon className="w-4 h-4" />,
-            onClick: () => props.onCreateInvoice(client.id, caseItem.id),
+            onClick: () => props.on_create_invoice(client.id, caseItem.id),
         }, {
             label: 'إرسال إلى المهام الإدارية',
             icon: <BuildingLibraryIcon className="w-4 h-4" />,
             onClick: () => {
-                props.onOpenAdminTaskModal({ task: description });
+                props.on_open_admin_task_modal({ task: description });
             }
         },
         {
@@ -306,11 +306,11 @@ const CaseItem: React.FC<{ caseItem: Case; client: Client; props: ClientsTreeVie
                 window.open(whatsappUrl, '_blank');
             }
         }];
-        props.showContextMenu(event, menuItems);
+        props.show_context_menu(event, menuItems);
     };
     
     const handleTouchStart = (e: React.TouchEvent) => {
-        longPressTimer.current = window.setTimeout(() => {
+        long_press_timer.current = window.setTimeout(() => {
             const touch = e.touches[0];
             const mockEvent = { preventDefault: () => e.preventDefault(), clientX: touch.clientX, clientY: touch.clientY };
             handleContextMenu(mockEvent as any);
@@ -318,9 +318,9 @@ const CaseItem: React.FC<{ caseItem: Case; client: Client; props: ClientsTreeVie
     };
 
     const handleTouchEnd = () => {
-        if (longPressTimer.current !== null) {
-            window.clearTimeout(longPressTimer.current);
-            longPressTimer.current = null;
+        if (long_press_timer.current !== null) {
+            window.clearTimeout(long_press_timer.current);
+            long_press_timer.current = null;
         }
     };
 
@@ -338,40 +338,40 @@ const CaseItem: React.FC<{ caseItem: Case; client: Client; props: ClientsTreeVie
                 <div className="flex items-center gap-3 font-semibold text-indigo-800">
                     <FolderIcon className="w-5 h-5 text-indigo-600" />
                     <span>{caseItem.subject}</span>
-                    <span className="text-gray-600 font-normal">(ضد: {caseItem.opponentName})</span>
+                    <span className="text-gray-600 font-normal">(ضد: {caseItem.opponent_name})</span>
                     <span className={`px-2 py-1 text-xs rounded-full ${caseItem.status === 'active' ? 'bg-green-200 text-green-800' : 'bg-gray-200 text-gray-800'}`}>{caseItem.status === 'active' ? 'نشطة' : (caseItem.status === 'closed' ? 'مغلقة' : 'معلقة')}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                    {permissions?.can_manage_invoices && <button onClick={(e) => { e.stopPropagation(); props.onCreateInvoice(client.id, caseItem.id); }} className="p-1 text-gray-500 hover:text-green-600" title="إنشاء فاتورة"><DocumentTextIcon className="w-4 h-4" /></button>}
-                    {permissions?.can_add_case && <button onClick={(e) => { e.stopPropagation(); props.onAddStage(client.id, caseItem.id); }} className="p-1 text-gray-500 hover:text-blue-600"><PlusIcon className="w-4 h-4" /></button>}
-                    {permissions?.can_edit_case && <button onClick={(e) => { e.stopPropagation(); props.onEditCase(caseItem, client); }} className="p-1 text-gray-500 hover:text-blue-600"><PencilIcon className="w-4 h-4" /></button>}
-                    {permissions?.can_delete_case && <button onClick={(e) => { e.stopPropagation(); props.onDeleteCase(caseItem.id, client.id); }} className="p-1 text-gray-500 hover:text-red-600"><TrashIcon className="w-4 h-4" /></button>}
+                    {permissions?.can_manage_invoices && <button onClick={(e) => { e.stopPropagation(); props.on_create_invoice(client.id, caseItem.id); }} className="p-1 text-gray-500 hover:text-green-600" title="إنشاء فاتورة"><DocumentTextIcon className="w-4 h-4" /></button>}
+                    {permissions?.can_add_case && <button onClick={(e) => { e.stopPropagation(); props.on_add_stage(client.id, caseItem.id); }} className="p-1 text-gray-500 hover:text-blue-600"><PlusIcon className="w-4 h-4" /></button>}
+                    {permissions?.can_edit_case && <button onClick={(e) => { e.stopPropagation(); props.on_edit_case(caseItem, client); }} className="p-1 text-gray-500 hover:text-blue-600"><PencilIcon className="w-4 h-4" /></button>}
+                    {permissions?.can_delete_case && <button onClick={(e) => { e.stopPropagation(); props.on_delete_case(caseItem.id, client.id); }} className="p-1 text-gray-500 hover:text-red-600"><TrashIcon className="w-4 h-4" /></button>}
                 </div>
             </div>
             {expanded && (
                 <div className="p-3 bg-white">
                     <div className="flex border-b mb-3">
-                        <button onClick={() => setActiveTab('stages')} className={`px-4 py-2 text-sm font-medium ${activeTab === 'stages' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500'}`}>المراحل والجلسات</button>
-                        <button onClick={() => setActiveTab('accounting')} className={`px-4 py-2 text-sm font-medium ${activeTab === 'accounting' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500'}`}>المحاسبة</button>
-                        <button onClick={() => setActiveTab('documents')} className={`px-4 py-2 text-sm font-medium ${activeTab === 'documents' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500'}`}>الوثائق</button>
+                        <button onClick={() => set_active_tab('stages')} className={`px-4 py-2 text-sm font-medium ${active_tab === 'stages' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500'}`}>المراحل والجلسات</button>
+                        <button onClick={() => set_active_tab('accounting')} className={`px-4 py-2 text-sm font-medium ${active_tab === 'accounting' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500'}`}>المحاسبة</button>
+                        <button onClick={() => set_active_tab('documents')} className={`px-4 py-2 text-sm font-medium ${active_tab === 'documents' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500'}`}>الوثائق</button>
                     </div>
-                    {activeTab === 'stages' && (
+                    {active_tab === 'stages' && (
                         <div>
                             {caseItem.stages.map(stage => (
                                 <StageItemContainer key={stage.id} stage={stage} caseItem={caseItem} client={client} props={props} />
                             ))}
                         </div>
                     )}
-                    {activeTab === 'accounting' && (
+                    {active_tab === 'accounting' && (
                         <CaseAccounting
-                            caseData={caseItem}
+                            case_data={caseItem}
                             client={client}
-                            caseAccountingEntries={props.accountingEntries.filter(e => e.caseId === caseItem.id)}
-                            setAccountingEntries={props.setAccountingEntries}
-                            onFeeAgreementChange={handleFeeChange}
+                            case_accounting_entries={props.accounting_entries.filter(e => e.case_id === caseItem.id)}
+                            set_accounting_entries={props.set_accounting_entries}
+                            on_fee_agreement_change={handle_fee_change}
                         />
                     )}
-                    {activeTab === 'documents' && (
+                    {active_tab === 'documents' && (
                         <CaseDocuments caseId={caseItem.id} />
                     )}
                 </div>
@@ -386,7 +386,7 @@ const CaseItemContainer: React.FC<{ caseItem: Case; client: Client; props: Clien
 }
 
 const ClientItem: React.FC<{ client: Client; props: ClientsTreeViewProps; expanded: boolean; onToggle: () => void; }> = ({ client, props, expanded, onToggle }) => {
-    const longPressTimer = React.useRef<number | null>(null);
+    const long_press_timer = React.useRef<number | null>(null);
     const { permissions } = props;
     
     const handleContextMenu = (event: React.MouseEvent) => {
@@ -395,7 +395,7 @@ const ClientItem: React.FC<{ client: Client; props: ClientsTreeViewProps; expand
             icon: <BuildingLibraryIcon className="w-4 h-4" />,
             onClick: () => {
                 const description = `متابعة ملف الموكل: ${client.name}.\nمعلومات الاتصال: ${client.contact_info || 'لا يوجد'}.`;
-                props.onOpenAdminTaskModal({ task: description });
+                props.on_open_admin_task_modal({ task: description });
             }
         },
         {
@@ -412,11 +412,11 @@ const ClientItem: React.FC<{ client: Client; props: ClientsTreeViewProps; expand
                 window.open(whatsappUrl, '_blank');
             }
         }];
-        props.showContextMenu(event, menuItems);
+        props.show_context_menu(event, menuItems);
     };
 
     const handleTouchStart = (e: React.TouchEvent) => {
-        longPressTimer.current = window.setTimeout(() => {
+        long_press_timer.current = window.setTimeout(() => {
             const touch = e.touches[0];
             const mockEvent = { preventDefault: () => e.preventDefault(), clientX: touch.clientX, clientY: touch.clientY };
             handleContextMenu(mockEvent as any);
@@ -424,9 +424,9 @@ const ClientItem: React.FC<{ client: Client; props: ClientsTreeViewProps; expand
     };
 
     const handleTouchEnd = () => {
-        if (longPressTimer.current !== null) {
-            window.clearTimeout(longPressTimer.current);
-            longPressTimer.current = null;
+        if (long_press_timer.current !== null) {
+            window.clearTimeout(long_press_timer.current);
+            long_press_timer.current = null;
         }
     };
 
@@ -449,10 +449,10 @@ const ClientItem: React.FC<{ client: Client; props: ClientsTreeViewProps; expand
                 </div>
                 <div className="flex items-center gap-1">
                     <span className="text-sm font-medium text-gray-600 bg-gray-200 px-2 py-1 rounded-full">{client.cases.length} قضايا</span>
-                    <button onClick={(e) => { e.stopPropagation(); props.onPrintClientStatement(client.id); }} className="p-2 text-gray-500 hover:text-green-600" title="طباعة كشف حساب"><PrintIcon className="w-4 h-4" /></button>
-                    {permissions?.can_add_case && <button onClick={(e) => { e.stopPropagation(); props.onAddCase(client.id); }} className="p-2 text-gray-500 hover:text-blue-600" title="إضافة قضية"><PlusIcon className="w-4 h-4" /></button>}
-                    {permissions?.can_edit_client && <button onClick={(e) => { e.stopPropagation(); props.onEditClient(client); }} className="p-2 text-gray-500 hover:text-blue-600" title="تعديل الموكل"><PencilIcon className="w-4 h-4" /></button>}
-                    {permissions?.can_delete_client && <button onClick={(e) => { e.stopPropagation(); props.onDeleteClient(client.id); }} className="p-2 text-gray-500 hover:text-red-600" title="حذف الموكل"><TrashIcon className="w-4 h-4" /></button>}
+                    <button onClick={(e) => { e.stopPropagation(); props.on_print_client_statement(client.id); }} className="p-2 text-gray-500 hover:text-green-600" title="طباعة كشف حساب"><PrintIcon className="w-4 h-4" /></button>
+                    {permissions?.can_add_case && <button onClick={(e) => { e.stopPropagation(); props.on_add_case(client.id); }} className="p-2 text-gray-500 hover:text-blue-600" title="إضافة قضية"><PlusIcon className="w-4 h-4" /></button>}
+                    {permissions?.can_edit_client && <button onClick={(e) => { e.stopPropagation(); props.on_edit_client(client); }} className="p-2 text-gray-500 hover:text-blue-600" title="تعديل الموكل"><PencilIcon className="w-4 h-4" /></button>}
+                    {permissions?.can_delete_client && <button onClick={(e) => { e.stopPropagation(); props.on_delete_client(client.id); }} className="p-2 text-gray-500 hover:text-red-600" title="حذف الموكل"><TrashIcon className="w-4 h-4" /></button>}
                     <ChevronLeftIcon className={`w-5 h-5 transition-transform text-gray-500 ${expanded ? '-rotate-90' : ''}`} />
                 </div>
             </header>

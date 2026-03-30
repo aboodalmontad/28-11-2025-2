@@ -193,6 +193,28 @@ CREATE TABLE IF NOT EXISTS public.sync_deletions (
     deleted_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 16. Public Profiles View (To avoid RLS recursion issues if any remain)
+CREATE OR REPLACE VIEW public.public_profiles_view AS
+SELECT 
+    id,
+    full_name,
+    mobile_number,
+    is_approved,
+    is_active,
+    mobile_verified,
+    otp_code,
+    otp_expires_at,
+    subscription_start_date,
+    subscription_end_date,
+    role,
+    lawyer_id,
+    permissions,
+    created_at,
+    updated_at
+FROM public.profiles;
+
+GRANT SELECT ON public.public_profiles_view TO anon, authenticated;
+
 -- ==========================================
 -- ROW LEVEL SECURITY (RLS) POLICIES
 -- ==========================================
@@ -240,8 +262,18 @@ BEGIN
 END $$;
 
 -- Special Policy for Profiles
-CREATE POLICY "Users can view their own profile and their office profiles" ON public.profiles
-    FOR SELECT USING (id = auth.uid() OR lawyer_id = auth.uid() OR lawyer_id = (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()));
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+DO $$ 
+DECLARE 
+    pol RECORD;
+BEGIN 
+    FOR pol IN (SELECT policyname FROM pg_policies WHERE tablename = 'profiles' AND schemaname = 'public') LOOP
+        EXECUTE format('DROP POLICY IF EXISTS %I ON public.profiles', pol.policyname);
+    END LOOP;
+END $$;
+
+CREATE POLICY "Profiles are viewable by everyone" ON public.profiles
+    FOR SELECT USING (true);
 
 CREATE POLICY "Users can update their own profile" ON public.profiles
     FOR UPDATE USING (id = auth.uid());
@@ -270,55 +302,6 @@ BEGIN
         EXECUTE format('CREATE TRIGGER %I_deletion_trigger BEFORE DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.log_sync_deletion()', t, t);
     END LOOP;
 END $$;
-
--- RPC: Generate Mobile OTP
-CREATE OR REPLACE FUNCTION public.generate_mobile_otp(target_user_id UUID)
-RETURNS TEXT AS $$
-DECLARE
-    new_otp TEXT;
-BEGIN
-    -- Generate a 6-digit random code
-    new_otp := floor(random() * 900000 + 100000)::TEXT;
-    
-    UPDATE public.profiles
-    SET otp_code = new_otp,
-        otp_expires_at = NOW() + INTERVAL '15 minutes',
-        updated_at = NOW()
-    WHERE id = target_user_id;
-    
-    RETURN new_otp;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-
--- RPC: Verify Mobile OTP
-CREATE OR REPLACE FUNCTION public.verify_mobile_otp(target_mobile TEXT, code_to_check TEXT)
-RETURNS BOOLEAN AS $$
-DECLARE
-    profile_id UUID;
-BEGIN
-    -- Find the profile with this mobile number and valid OTP
-    SELECT id INTO profile_id
-    FROM public.profiles
-    WHERE mobile_number = target_mobile
-      AND otp_code = code_to_check
-      AND (otp_expires_at IS NULL OR otp_expires_at > NOW())
-    LIMIT 1;
-
-    IF profile_id IS NOT NULL THEN
-        -- Mark as verified and clear the OTP
-        UPDATE public.profiles
-        SET mobile_verified = TRUE,
-            otp_code = NULL,
-            otp_expires_at = NULL,
-            updated_at = NOW()
-        WHERE id = profile_id;
-        
-        RETURN TRUE;
-    ELSE
-        RETURN FALSE;
-    END IF;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 -- ==========================================
 -- AUTOMATIC PROFILE CREATION

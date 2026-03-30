@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Invoice } from '../types';
-import { formatDate } from '../utils/dateUtils';
+import { format_date } from '../utils/dateUtils';
 
 interface PrintableInvoiceProps {
     invoice: Invoice | null;
@@ -13,7 +13,7 @@ const PrintableInvoice: React.FC<PrintableInvoiceProps> = ({ invoice, officeInfo
     }
 
     const subtotal = invoice.items.reduce((sum, item) => sum + item.amount, 0);
-    const taxAmount = (subtotal * invoice.taxRate) / 100;
+    const taxAmount = (subtotal * invoice.tax_rate) / 100;
     const total = subtotal + taxAmount - invoice.discount;
 
     const defaultOfficeInfo = {
@@ -47,17 +47,17 @@ const PrintableInvoice: React.FC<PrintableInvoiceProps> = ({ invoice, officeInfo
             <div className="flex justify-between mt-8">
                 <div>
                     <h3 className="font-semibold text-gray-500">فاتورة إلى:</h3>
-                    <p className="font-bold text-gray-800">{invoice.clientName}</p>
-                    {invoice.caseSubject && <p className="text-sm text-gray-600">بخصوص قضية: {invoice.caseSubject}</p>}
+                    <p className="font-bold text-gray-800">{invoice.client_name}</p>
+                    {invoice.case_subject && <p className="text-sm text-gray-600">بخصوص قضية: {invoice.case_subject}</p>}
                 </div>
                 <div className="text-left">
                     <div className="flex justify-between items-center">
                         <span className="font-semibold text-gray-500">تاريخ الإصدار:</span>
-                        <span className="ms-4 text-gray-800">{formatDate(invoice.issueDate)}</span>
+                        <span className="ms-4 text-gray-800">{format_date(invoice.issue_date)}</span>
                     </div>
                     <div className="flex justify-between items-center mt-2">
                         <span className="font-semibold text-gray-500">تاريخ الاستحقاق:</span>
-                        <span className="ms-4 text-gray-800">{formatDate(invoice.dueDate)}</span>
+                        <span className="ms-4 text-gray-800">{format_date(invoice.due_date)}</span>
                     </div>
                 </div>
             </div>
@@ -89,9 +89,9 @@ const PrintableInvoice: React.FC<PrintableInvoiceProps> = ({ invoice, officeInfo
                         <span>المجموع الفرعي:</span>
                         <span className="font-mono">{subtotal.toLocaleString('ar-SY')}</span>
                     </div>
-                    {invoice.taxRate > 0 && (
+                    {invoice.tax_rate > 0 && (
                         <div className="flex justify-between text-gray-700">
-                            <span>الضريبة ({invoice.taxRate}%):</span>
+                            <span>الضريبة ({invoice.tax_rate}%):</span>
                             <span className="font-mono">{taxAmount.toLocaleString('ar-SY')}</span>
                         </div>
                     )}

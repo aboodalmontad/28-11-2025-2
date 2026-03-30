@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Session, Appointment, AdminTask } from '../types';
-import { formatDate } from '../utils/dateUtils';
+import { format_date } from '../utils/dateUtils';
 
 interface PrintableReportProps {
     reportData: {
@@ -42,7 +42,7 @@ const PrintableReport: React.FC<PrintableReportProps> = ({ reportData }) => {
             <header className="text-center border-b pb-4 mb-6">
                 <h1 className="text-3xl font-bold text-gray-800">مكتب المحامي</h1>
                 <h2 className="text-2xl font-semibold text-gray-700 mt-2">جدول الأعمال اليومي لـِ: {assignee}</h2>
-                <p className="text-lg text-gray-600">{formatDate(date)}</p>
+                <p className="text-lg text-gray-600">{format_date(date)}</p>
             </header>
 
             <main className="space-y-8">
@@ -95,10 +95,10 @@ const PrintableReport: React.FC<PrintableReportProps> = ({ reportData }) => {
                                         <tbody>
                                             {sessions.map((item) => (
                                                 <tr key={item.id} className="bg-white border-b">
-                                                    <td className="px-2 py-3 align-top">{item.court} / {item.caseNumber}</td>
-                                                    <td className="px-2 py-3 align-top">{item.clientName} ضد {item.opponentName}</td>
+                                                    <td className="px-2 py-3 align-top">{item.court} / {item.case_number}</td>
+                                                    <td className="px-2 py-3 align-top">{item.client_name} ضد {item.opponent_name}</td>
                                                     <td className="px-2 py-3 align-top">{item.assignee}</td>
-                                                    <td className="px-2 py-3 align-top">{item.postponementReason || '-'}</td>
+                                                    <td className="px-2 py-3 align-top">{item.postponement_reason || '-'}</td>
                                                     <td className="px-2 py-3 h-16 align-top"></td>
                                                 </tr>
                                             ))}
@@ -130,7 +130,7 @@ const PrintableReport: React.FC<PrintableReportProps> = ({ reportData }) => {
                                                     <tbody>
                                                         {taskList.map((item) => (
                                                             <tr key={item.id} className="bg-white border-b">
-                                                                <td className="px-4 py-3">{formatDate(item.dueDate)}</td>
+                                                                <td className="px-4 py-3">{format_date(item.due_date)}</td>
                                                                 <td className="px-4 py-3">{item.task}</td>
                                                                 <td className="px-4 py-3">{item.assignee}</td>
                                                                 <td className="px-4 py-3">{importanceMap[item.importance]?.text}</td>

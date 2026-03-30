@@ -1,19 +1,19 @@
 import * as React from 'react';
 import { AdminTask } from '../types';
-import { toInputDateString } from '../utils/dateUtils';
+import { to_input_date_string } from '../utils/dateUtils';
 
 interface AdminTaskModalProps {
     isOpen: boolean;
     onClose: () => void;
     onSubmit: (taskData: Omit<AdminTask, 'id' | 'completed'> & { id?: string }) => void;
-    initialData?: Partial<Omit<AdminTask, 'dueDate'>> & { dueDate?: string; id?: string };
+    initialData?: Partial<Omit<AdminTask, 'due_date'>> & { due_date?: string | Date; id?: string };
     assistants: string[];
 }
 
 const AdminTaskModal: React.FC<AdminTaskModalProps> = ({ isOpen, onClose, onSubmit, initialData, assistants }) => {
-    const [taskFormData, setTaskFormData] = React.useState({
+    const [task_form_data, set_task_form_data] = React.useState({
         task: '',
-        dueDate: toInputDateString(new Date()),
+        due_date: to_input_date_string(new Date()),
         importance: 'normal' as 'normal' | 'important' | 'urgent',
         assignee: 'بدون تخصيص',
         location: '',
@@ -24,34 +24,38 @@ const AdminTaskModal: React.FC<AdminTaskModalProps> = ({ isOpen, onClose, onSubm
         if (isOpen) {
             const defaultState = {
                 task: '',
-                dueDate: toInputDateString(new Date()),
+                due_date: to_input_date_string(new Date()),
                 importance: 'normal' as const,
                 assignee: 'بدون تخصيص',
                 location: '',
             };
-            setTaskFormData({ ...defaultState, ...initialData });
+            set_task_form_data({ 
+                ...defaultState, 
+                ...initialData,
+                due_date: initialData?.due_date ? to_input_date_string(initialData.due_date) : defaultState.due_date
+            });
         }
     }, [isOpen, initialData]);
 
-    const handleTaskFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    const handle_task_form_change = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;
-        setTaskFormData(prev => ({ ...prev, [name]: value }));
+        set_task_form_data(prev => ({ ...prev, [name]: value }));
     };
 
-    const handleTaskSubmit = (e: React.FormEvent) => {
+    const handle_task_submit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!taskFormData.task || !taskFormData.dueDate) return;
+        if (!task_form_data.task || !task_form_data.due_date) return;
 
-        const [year, month, day] = taskFormData.dueDate.split('-').map(Number);
+        const [year, month, day] = task_form_data.due_date.split('-').map(Number);
         const taskDate = new Date(year, month - 1, day);
 
         // Explicitly construct the payload for onSubmit to ensure type safety and prevent spreading unwanted properties.
         onSubmit({
-            // Spread taskFormData to include any other properties like orderIndex if they exist
-            ...taskFormData,
+            // Spread task_form_data to include any other properties like order_index if they exist
+            ...task_form_data,
             id: initialData?.id, // Override with id from initialData for editing
-            dueDate: taskDate, // Use the parsed Date object
-            location: taskFormData.location || 'غير محدد', // Ensure location has a default
+            due_date: taskDate.toISOString(), // Use the ISO string
+            location: task_form_data.location || 'غير محدد', // Ensure location has a default
         } as Omit<AdminTask, 'completed'> & { id?: string });
     };
 
@@ -61,10 +65,10 @@ const AdminTaskModal: React.FC<AdminTaskModalProps> = ({ isOpen, onClose, onSubm
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50 no-print p-4 overflow-y-auto" onClick={onClose}>
             <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
                 <h2 className="text-xl font-bold mb-4">{initialData?.id ? 'تعديل مهمة' : 'إضافة مهمة جديدة'}</h2>
-                <form onSubmit={handleTaskSubmit} className="space-y-4">
+                <form onSubmit={handle_task_submit} className="space-y-4">
                     <div>
                         <label className="block text-sm font-medium text-gray-700">المهمة</label>
-                        <textarea name="task" value={taskFormData.task} onChange={handleTaskFormChange} className="w-full p-2 border rounded" rows={3} required />
+                        <textarea name="task" value={task_form_data.task || ''} onChange={handle_task_form_change} className="w-full p-2 border rounded" rows={3} required />
                     </div>
                      <div>
                         <label className="block text-sm font-medium text-gray-700">المكان</label>
@@ -72,8 +76,8 @@ const AdminTaskModal: React.FC<AdminTaskModalProps> = ({ isOpen, onClose, onSubm
                             type="text" 
                             name="location" 
                             list="locations"
-                            value={taskFormData.location || ''} 
-                            onChange={handleTaskFormChange} 
+                            value={task_form_data.location || ''} 
+                            onChange={handle_task_form_change} 
                             className="w-full p-2 border rounded" 
                             placeholder="مثال: القصر العدلي"
                         />
@@ -88,11 +92,11 @@ const AdminTaskModal: React.FC<AdminTaskModalProps> = ({ isOpen, onClose, onSubm
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <label className="block text-sm font-medium text-gray-700">تاريخ الاستحقاق</label>
-                            <input type="date" name="dueDate" value={taskFormData.dueDate} onChange={handleTaskFormChange} className="w-full p-2 border rounded" placeholder="DD/MM/YYYY" required />
+                            <input type="date" name="due_date" value={task_form_data.due_date || ''} onChange={handle_task_form_change} className="w-full p-2 border rounded" placeholder="DD/MM/YYYY" required />
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700">الأهمية</label>
-                            <select name="importance" value={taskFormData.importance} onChange={handleTaskFormChange} className="w-full p-2 border rounded" required>
+                            <select name="importance" value={task_form_data.importance || 'normal'} onChange={handle_task_form_change} className="w-full p-2 border rounded" required>
                                 <option value="normal">عادي</option>
                                 <option value="important">مهم</option>
                                 <option value="urgent">عاجل</option>
@@ -101,8 +105,8 @@ const AdminTaskModal: React.FC<AdminTaskModalProps> = ({ isOpen, onClose, onSubm
                     </div>
                      <div>
                         <label className="block text-sm font-medium text-gray-700">تخصيص لـ</label>
-                        <select name="assignee" value={taskFormData.assignee} onChange={handleTaskFormChange} className="w-full p-2 border rounded">
-                            {assistants.map(name => <option key={name} value={name}>{name}</option>)}
+                        <select name="assignee" value={task_form_data.assignee || 'بدون تخصيص'} onChange={handle_task_form_change} className="w-full p-2 border rounded">
+                            {assistants.map((name, index) => <option key={`${name}-${index}`} value={name}>{name}</option>)}
                         </select>
                     </div>
                     <div className="mt-6 flex justify-end gap-4">

@@ -1,105 +1,136 @@
+
 import * as React from 'react';
 import { createRoot } from 'react-dom/client';
-// Fix: Added .tsx extension for browser native ESM compatibility.
-import App from './App.tsx';
+import App from './App';
 
-// Listen for logout events from other tabs to ensure session state is synchronized.
+// Explicit interfaces for Props and State
+interface ErrorBoundaryProps {
+  children?: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: any;
+}
+
+// Error Boundary Component to prevent white screen
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  state: ErrorBoundaryState;
+  props: ErrorBoundaryProps;
+
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: any): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("Uncaught React Error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      const isFetchError = this.state.error?.toString().includes('Failed to fetch');
+      return (
+        <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-6 text-center" dir="rtl">
+          <div className="bg-white p-8 rounded-xl shadow-lg max-w-md w-full">
+            <h2 className="text-2xl font-bold text-red-600 mb-4">
+              {isFetchError ? 'عذراً، فشل في تحميل البيانات' : 'عذراً، حدث خطأ غير متوقع'}
+            </h2>
+            <p className="text-gray-600 mb-6">
+              {isFetchError 
+                ? 'يبدو أن هناك مشكلة في الاتصال بالإنترنت أو أن بعض ملفات النظام تعذر تحميلها.' 
+                : 'واجه التطبيق مشكلة تقنية تمنعه من العمل بشكل طبيعي.'}
+            </p>
+            <button 
+              onClick={() => window.location.reload()} 
+              className="w-full bg-blue-600 text-white font-bold py-2 rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              إعادة تحميل التطبيق
+            </button>
+            <details className="mt-4 text-xs text-gray-400 text-right cursor-pointer">
+              <summary>تفاصيل الخطأ التقني</summary>
+              <pre className="mt-2 p-2 bg-gray-50 rounded overflow-auto text-left" dir="ltr">
+                {this.state.error?.toString()}
+              </pre>
+            </details>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// Global script to hide initial loader when React is ready
+const hideInitialLoader = () => {
+    const loader = document.getElementById('initial-loader');
+    if (loader) {
+        loader.style.opacity = '0';
+        setTimeout(() => {
+            loader.style.display = 'none';
+        }, 500);
+    }
+};
+
 window.addEventListener('storage', (event) => {
-  // When the 'lawyerAppLoggedOut' key is set, it indicates another tab has signed out.
   if (event.key === 'lawyerAppLoggedOut' && event.newValue === 'true') {
-    // Reload the page to clear the local session state and redirect to the login page.
-    // The flag is removed upon a new successful login, preventing reload loops.
     window.location.reload();
   }
 });
 
-
-// Global safety net for unhandled auth errors (like "Refresh Token Not Found")
-window.addEventListener('unhandledrejection', (event) => {
-  const error = event.reason;
-  const message = error?.message || String(error);
-  
-  if (message.includes('Refresh Token Not Found') || message.includes('invalid_refresh_token') || message.includes('Invalid Refresh Token')) {
-    console.error("Global Auth Guard: Detected invalid refresh token. Clearing session.");
-    window.localStorage.removeItem('lawyer-app-auth-token');
-    Object.keys(window.localStorage).forEach(key => {
-        if (key.startsWith('sb-')) window.localStorage.removeItem(key);
-    });
-    window.localStorage.setItem('lawyerAppLoggedOut', 'true');
-    
-    // Only reload if we are not already on the login page (to avoid loops)
-    if (!window.location.search.includes('error=unauthorized')) {
-        window.location.href = '/?error=unauthorized';
-    }
-  }
-});
-
-// Register Service Worker for offline capabilities
+// Resilient Service Worker Registration
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.addEventListener('message', event => {
-    if (event.data && event.data.type === 'RELOAD_PAGE_NOW') {
-      window.location.reload();
+  const registerSW = async () => {
+    try {
+      // Check if we are in a secure context
+      if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+         return;
+      }
+      
+      const registration = await navigator.serviceWorker.register('./sw.js', { scope: './' });
+      console.log('ServiceWorker registered');
+      
+      registration.update();
+    } catch (error: any) {
+      console.debug('ServiceWorker registration skipped:', error.message);
     }
-  });
+  };
 
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js')
-      .then(registration => {
-        console.log('ServiceWorker registration successful with scope: ', registration.scope);
-        
-        const checkForUpdate = () => {
-            if (!navigator.onLine) return;
-            
-            console.log('Checking for service worker update...');
-            registration.update().catch(err => {
-                console.warn('Service Worker update check failed (likely network issue):', err);
-            });
-        };
-
-        // Don't check immediately to avoid race conditions with initial registration
-        setTimeout(checkForUpdate, 5000);
-        
-        setInterval(checkForUpdate, 60 * 60 * 1000); // 1 hour
-      })
-      .catch(error => {
-        console.log('ServiceWorker registration failed: ', error);
-      });
-  });
+  window.addEventListener('load', registerSW);
 }
 
-const container = document.getElementById('root');
-
-// Wrapper component to manage the application's key, allowing for a full remount.
-const AppWrapper = () => {
+const AppWrapper: React.FC = () => {
     const [appKey, setAppKey] = React.useState(0);
+    
+    React.useLayoutEffect(() => {
+        hideInitialLoader();
+    }, []);
 
-    // This function, when called, changes the key on the App component,
-    // forcing React to unmount the old instance and mount a new one,
-    // effectively resetting the entire application's state.
     const handleRefresh = () => {
         setAppKey(prevKey => prevKey + 1);
     };
 
-    return <App key={appKey} onRefresh={handleRefresh} />;
+    return (
+        <ErrorBoundary>
+            <App key={appKey} onRefresh={handleRefresh} />
+        </ErrorBoundary>
+    );
 };
 
-
+const container = document.getElementById('root');
 if (container) {
-  const root = createRoot(container);
+  let root = (container as any).__reactRoot;
+  if (!root) {
+    root = createRoot(container);
+    (container as any).__reactRoot = root;
+  }
   root.render(
     <React.StrictMode>
       <AppWrapper />
     </React.StrictMode>
   );
-  
-  // Explicitly remove the loader after a short delay to ensure React has taken over
-  setTimeout(() => {
-      const loader = document.getElementById('initial-loader');
-      if (loader) {
-          loader.style.opacity = '0';
-          setTimeout(() => loader.remove(), 500);
-      }
-  }, 100);
-} else {
-    console.error('Failed to find the root element');
 }

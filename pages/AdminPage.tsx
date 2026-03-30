@@ -1,12 +1,11 @@
+
 import * as React from 'react';
-import type { SupabaseClient } from '@supabase/supabase-js';
-import { getSupabaseClient } from '../supabaseClient.ts';
-import { Profile } from '../types.ts';
-import { formatDate, toInputDateString } from '../utils/dateUtils.ts';
-import { CheckCircleIcon, NoSymbolIcon, PencilIcon, TrashIcon, ExclamationTriangleIcon, PhoneIcon, ShareIcon, ArrowPathIcon, ClipboardDocumentIcon, UserIcon, UserGroupIcon } from '../components/icons.tsx';
-import { useData } from '../context/DataContext.tsx';
-import UserDetailsModal from '../components/UserDetailsModal.tsx';
-import { getFriendlyErrorMessage, fetchWithRetry, isNetworkError } from '../hooks/useOnlineData.ts';
+import { get_supabase_client } from '../supabaseClient';
+import { Profile } from '../types';
+import { format_date, to_input_date_string } from '../utils/dateUtils';
+import { CheckCircleIcon, NoSymbolIcon, PencilIcon, TrashIcon, ExclamationTriangleIcon, PhoneIcon, ShareIcon, ArrowPathIcon, ClipboardDocumentIcon, UserIcon, UserGroupIcon } from '../components/icons';
+import { useData } from '../context/DataContext';
+import UserDetailsModal from '../components/UserDetailsModal';
 
 const formatSubscriptionDateRange = (user: Profile): string => {
     const { subscription_start_date, subscription_end_date } = user;
@@ -14,7 +13,7 @@ const formatSubscriptionDateRange = (user: Profile): string => {
     const startDate = new Date(subscription_start_date);
     const endDate = new Date(subscription_end_date);
     if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) return 'تاريخ غير صالح';
-    return `${formatDate(startDate)} - ${formatDate(endDate)}`;
+    return `${format_date(startDate)} - ${format_date(endDate)}`;
 };
 
 const getDisplayPhoneNumber = (mobile: string | null | undefined): string => {
@@ -30,48 +29,56 @@ const getDisplayPhoneNumber = (mobile: string | null | undefined): string => {
 interface UserRowProps {
     user: Profile;
     lawyer?: Profile; // The parent lawyer if this user is an assistant
-    onView: (user: Profile) => void;
-    onEdit: (user: Profile) => void;
-    onDelete: (user: Profile) => void;
-    onToggleApproval: (user: Profile) => void;
-    onToggleActive: (user: Profile) => void;
-    onToggleVerified?: (user: Profile) => void;
-    onGenerateOtp: (user: Profile) => void;
-    generatingOtpFor: string | null;
-    currentAdminId: string | undefined;
+    on_view: (user: Profile) => void;
+    on_edit: (user: Profile) => void;
+    on_delete: (user: Profile) => void;
+    on_toggle_approval: (user: Profile) => void;
+    on_toggle_active: (user: Profile) => void;
+    on_generate_otp: (user: Profile) => void;
+    generating_otp_for: string | null;
+    current_admin_id: string | undefined;
 }
 
-const UserRow: React.FC<UserRowProps> = ({ user, lawyer, onView, onEdit, onDelete, onToggleApproval, onToggleActive, onGenerateOtp, generatingOtpFor, currentAdminId }) => {
-    const [copiedOtpId, setCopiedOtpId] = React.useState<string | null>(null);
+const UserRow: React.FC<UserRowProps> = ({ user, lawyer, on_view, on_edit, on_delete, on_toggle_approval, on_toggle_active, on_generate_otp, generating_otp_for, current_admin_id }) => {
+    const [copied_otp_id, set_copied_otp_id] = React.useState<string | null>(null);
     
-    const copyToClipboard = (text: string, id: string) => {
+    const copy_to_clipboard = (text: string, id: string) => {
         if (!text) return;
         navigator.clipboard.writeText(text).then(() => {
-            setCopiedOtpId(id);
-            setTimeout(() => setCopiedOtpId(null), 2000);
+            set_copied_otp_id(id);
+            setTimeout(() => set_copied_otp_id(null), 2000);
         });
     };
 
-    const isAssistant = !!lawyer;
+    const send_otp_to_user = (otpCode: string, mobile: string) => {
+        if (!otpCode || !mobile) return;
+        const cleanMobile = mobile.replace(/\D/g, '');
+        const waNumber = cleanMobile.startsWith('0') ? '963' + cleanMobile.substring(1) : cleanMobile;
+        const messageText = `مرحباً ${user.full_name}، كود التحقق الخاص بك هو: *${otpCode}*`;
+        const url = `https://wa.me/${waNumber}?text=${encodeURIComponent(messageText)}`;
+        window.open(url, '_blank');
+    };
+
+    const is_assistant = !!lawyer;
     
     // Check parent status: Active, Approved, and Subscription Valid
-    const isParentSubscriptionValid = lawyer ? (!lawyer.subscription_end_date || new Date(lawyer.subscription_end_date) >= new Date()) : true;
-    const isParentActive = lawyer ? (lawyer.is_active && lawyer.is_approved && isParentSubscriptionValid) : true;
+    const is_parent_subscription_valid = lawyer ? (!lawyer.subscription_end_date || new Date(lawyer.subscription_end_date) >= new Date()) : true;
+    const is_parent_active = lawyer ? (lawyer.is_active && lawyer.is_approved && is_parent_subscription_valid) : true;
 
     return (
-        <tr className={`border-b ${!user.is_approved ? 'bg-yellow-50' : isAssistant ? 'bg-gray-50' : 'bg-white'} hover:bg-gray-100 transition-colors`}>
+        <tr className={`border-b ${!user.is_approved ? 'bg-yellow-50' : is_assistant ? 'bg-gray-50' : 'bg-white'} hover:bg-gray-100 transition-colors`}>
             <td className="px-6 py-4">
-                <div className={`flex items-center ${isAssistant ? 'ms-8 border-r-2 border-gray-300 pr-3' : ''}`}>
-                    {isAssistant && <div className="w-2 h-2 bg-gray-300 rounded-full absolute -ms-4"></div>}
+                <div className={`flex items-center ${is_assistant ? 'ms-8 border-r-2 border-gray-300 pr-3' : ''}`}>
+                    {is_assistant && <div className="w-2 h-2 bg-gray-300 rounded-full absolute -ms-4"></div>}
                     <div className="flex flex-col">
-                        <button onClick={() => onView(user)} className="text-blue-600 hover:underline font-medium text-right flex items-center gap-2">
-                            {isAssistant ? <UserIcon className="w-4 h-4 text-gray-500"/> : (user.role === 'admin' ? <UserGroupIcon className="w-5 h-5 text-purple-600"/> : <UserIcon className="w-5 h-5 text-blue-600"/>)}
+                        <button onClick={() => on_view(user)} className="text-blue-600 hover:underline font-medium text-right flex items-center gap-2">
+                            {is_assistant ? <UserIcon className="w-4 h-4 text-gray-500"/> : (user.role === 'admin' ? <UserGroupIcon className="w-5 h-5 text-purple-600"/> : <UserIcon className="w-5 h-5 text-blue-600"/>)}
                             {user.full_name}
                         </button>
                         {user.role === 'admin' && <span className="text-xs font-semibold text-purple-600 mt-1 me-6">(مدير)</span>}
                         
                         {/* Dependency Status Indicator */}
-                        {isAssistant && !isParentActive && (
+                        {is_assistant && !is_parent_active && (
                             <span className="text-xs text-red-500 mt-1 me-6 flex items-center gap-1" title="صلاحية هذا الحساب معطلة لأن حساب المحامي الرئيسي غير نشط أو منتهي الصلاحية">
                                 <ExclamationTriangleIcon className="w-3 h-3"/>
                                 حساب المحامي غير نشط
@@ -81,64 +88,76 @@ const UserRow: React.FC<UserRowProps> = ({ user, lawyer, onView, onEdit, onDelet
                 </div>
             </td>
             <td className="px-6 py-4 text-sm" dir="ltr">{getDisplayPhoneNumber(user.mobile_number)}</td>
-            <td className="px-6 py-4 text-sm text-gray-500">{user.created_at ? formatDate(new Date(user.created_at)) : '-'}</td>
+            <td className="px-6 py-4 text-sm text-gray-500">{user.created_at ? format_date(new Date(user.created_at)) : '-'}</td>
             <td className="px-6 py-4">
-                <div className="flex items-center gap-2 flex-wrap">
-                    {user.mobile_verified ? (
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200">
-                            تم التحقق
-                        </span>
-                    ) : (
-                        <div className="flex flex-col gap-2 w-full max-w-[140px]">
-                            <div className="flex items-center justify-between gap-2">
-                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
-                                    غير مؤكد
-                                </span>
-                                {user.role !== 'admin' && (
-                                    <button 
-                                        onClick={() => onGenerateOtp(user)}
-                                        disabled={generatingOtpFor === user.id}
-                                        className="text-blue-600 hover:text-blue-800 disabled:opacity-50 p-1 bg-blue-50 rounded-full hover:bg-blue-100 transition-colors"
-                                        title="إرسال كود التحقق عبر واتساب"
-                                    >
-                                        {generatingOtpFor === user.id ? <ArrowPathIcon className="w-4 h-4 animate-spin"/> : <ShareIcon className="w-4 h-4" />}
-                                    </button>
-                                )}
-                            </div>
-                            <div 
-                                className={`flex items-center justify-center gap-2 text-xs font-bold border rounded-md px-2 py-1.5 cursor-pointer transition-all ${user.otp_code ? 'text-blue-700 bg-blue-50 border-blue-300 hover:bg-blue-100' : 'text-gray-400 bg-gray-50 border-gray-200'}`}
-                                title={user.otp_code ? "نسخ الكود" : "لا يوجد كود نشط"}
-                                onClick={() => user.otp_code && copyToClipboard(user.otp_code, user.id)}
+                <div className="flex flex-col gap-2">
+                    {/* Status Badge */}
+                    <div className="flex items-center gap-2">
+                        {user.mobile_verified ? (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-green-100 text-green-800 border border-green-200">
+                                مؤكد
+                            </span>
+                        ) : (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-800 border border-red-200">
+                                غير مؤكد
+                            </span>
+                        )}
+                        {/* Manual Generate Button for Admin */}
+                        {user.role !== 'admin' && (
+                            <button 
+                                onClick={() => on_generate_otp(user)}
+                                disabled={generating_otp_for === user.id}
+                                className="text-blue-600 hover:text-blue-800 disabled:opacity-50 p-1 bg-blue-50 rounded-full hover:bg-blue-100 transition-colors"
+                                title="توليد كود جديد (تحقق أو استعادة)"
                             >
-                                {user.otp_code ? (
-                                    <>
-                                        <span className="font-mono text-sm tracking-wider">{user.otp_code}</span>
-                                        <ClipboardDocumentIcon className="w-3 h-3 text-blue-500" />
-                                    </>
-                                ) : (
-                                    <span>- - - - - -</span>
-                                )}
+                                {generating_otp_for === user.id ? <ArrowPathIcon className="w-3.5 h-3.5 animate-spin"/> : <ArrowPathIcon className="w-3.5 h-3.5" />}
+                            </button>
+                        )}
+                    </div>
+
+                    {/* Active Code Display (Essential for password resets) */}
+                    {user.otp_code ? (
+                        <div className="flex flex-col gap-1">
+                            <span className="text-[9px] text-blue-600 font-bold uppercase">كود نشط (تحقق/استعادة):</span>
+                            <div className="flex items-center gap-1">
+                                <div 
+                                    className="flex-grow flex items-center justify-between gap-2 text-xs font-bold border border-blue-300 bg-blue-50 rounded-md px-2 py-1.5 cursor-pointer hover:bg-blue-100 transition-all"
+                                    title="نسخ الكود"
+                                    onClick={() => copy_to_clipboard(user.otp_code!, user.id)}
+                                >
+                                    <span className="font-mono text-sm tracking-widest">{user.otp_code}</span>
+                                    <ClipboardDocumentIcon className="w-3.5 h-3.5 text-blue-500" />
+                                </div>
+                                <button 
+                                    onClick={() => send_otp_to_user(user.otp_code!, user.mobile_number)}
+                                    className="p-1.5 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors shadow-sm"
+                                    title="إرسال الكود للمستخدم عبر واتساب"
+                                >
+                                    <ShareIcon className="w-4 h-4" />
+                                </button>
                             </div>
-                            {copiedOtpId === user.id && <span className="text-[10px] text-green-600 text-center font-bold">تم النسخ!</span>}
+                            {copied_otp_id === user.id && <span className="text-[9px] text-green-600 text-center font-bold">تم النسخ!</span>}
                         </div>
+                    ) : (
+                        <span className="text-[10px] text-gray-400 font-mono">- - - - - -</span>
                     )}
                 </div>
             </td>
             <td className="px-6 py-4">
-                <button onClick={() => onToggleApproval(user)} disabled={user.role === 'admin'} className="disabled:opacity-50 disabled:cursor-not-allowed transition-transform hover:scale-110" title={user.is_approved ? 'تعطيل' : 'تفعيل'}>
+                <button onClick={() => on_toggle_approval(user)} disabled={user.role === 'admin'} className="disabled:opacity-50 disabled:cursor-not-allowed transition-transform hover:scale-110" title={user.is_approved ? 'تعطيل' : 'تفعيل'}>
                     {user.is_approved ? <CheckCircleIcon className="w-6 h-6 text-green-500" /> : <NoSymbolIcon className="w-6 h-6 text-gray-400" />}
                 </button>
             </td>
             <td className="px-6 py-4">
-                 <button onClick={() => onToggleActive(user)} disabled={user.role === 'admin'} className="disabled:opacity-50 disabled:cursor-not-allowed transition-transform hover:scale-110" title={user.is_active ? 'تجميد الحساب' : 'تنشيط الحساب'}>
+                 <button onClick={() => on_toggle_active(user)} disabled={user.role === 'admin'} className="disabled:opacity-50 disabled:cursor-not-allowed transition-transform hover:scale-110" title={user.is_active ? 'تجميد الحساب' : 'تنشيط الحساب'}>
                     {user.is_active ? <CheckCircleIcon className="w-6 h-6 text-green-500" /> : <NoSymbolIcon className="w-6 h-6 text-red-500" />}
                 </button>
             </td>
             <td className="px-6 py-4">
-                {user.role !== 'admin' && user.id !== currentAdminId ? (
+                {user.role !== 'admin' && user.id !== current_admin_id ? (
                     <div className="flex items-center gap-2">
-                        <button onClick={() => onEdit(user)} className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors" title="تعديل"><PencilIcon className="w-4 h-4" /></button>
-                        <button onClick={() => onDelete(user)} className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors" title="حذف"><TrashIcon className="w-4 h-4" /></button>
+                        <button onClick={() => on_edit(user)} className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors" title="تعديل"><PencilIcon className="w-4 h-4" /></button>
+                        <button onClick={() => on_delete(user)} className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors" title="حذف"><TrashIcon className="w-4 h-4" /></button>
                     </div>
                 ) : (
                     <span className="text-xs text-gray-400 select-none">محمي</span>
@@ -149,159 +168,125 @@ const UserRow: React.FC<UserRowProps> = ({ user, lawyer, onView, onEdit, onDelet
 };
 
 const AdminPage: React.FC = () => {
-    const { profiles: users, setProfiles: setUsers, isDataLoading: loading, userId, fetchAndRefresh } = useData();
+    const { profiles: users, set_profiles: setUsers, is_data_loading: loading, user_id, fetch_and_refresh } = useData();
     const [error, setError] = React.useState<string | null>(null);
-    const [editingUser, setEditingUser] = React.useState<Profile | null>(null);
-    const [userToDelete, setUserToDelete] = React.useState<Profile | null>(null);
-    const [viewingUser, setViewingUser] = React.useState<Profile | null>(null);
-    const [generatingOtpFor, setGeneratingOtpFor] = React.useState<string | null>(null);
+    const [editing_user, set_editing_user] = React.useState<Profile | null>(null);
+    const [user_to_delete, set_user_to_delete] = React.useState<Profile | null>(null);
+    const [viewing_user, set_viewing_user] = React.useState<Profile | null>(null);
+    const [generating_otp_for, set_generating_otp_for] = React.useState<string | null>(null);
     
-    const [supabase, setSupabase] = React.useState<SupabaseClient | null>(null);
+    const supabase = get_supabase_client();
 
-    React.useEffect(() => {
-        const initializeSupabase = async () => {
-            const client = await getSupabaseClient();
-            setSupabase(client);
-        };
-        initializeSupabase();
-    }, []); // Run once on mount
-
-    const handleUpdateUser = async (e: React.FormEvent<HTMLFormElement>) => {
+    const handle_update_user = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
-        if (!editingUser) return;
+        if (!editing_user) return;
         
         // Optimistic update
         setUsers(prevUsers => prevUsers.map(u => 
-            u.id === editingUser.id ? { ...editingUser, updated_at: new Date() } : u
+            u.id === editing_user.id ? { ...editing_user, updated_at: new Date().toISOString() } : u
         ));
 
         // If using real backend, you would make the API call here
         if (supabase) {
              try {
-                 const { error }: any = await fetchWithRetry(async () => await supabase.from('profiles').update({
-                     full_name: editingUser.full_name,
-                     mobile_number: editingUser.mobile_number,
-                     subscription_start_date: editingUser.subscription_start_date,
-                     subscription_end_date: editingUser.subscription_end_date,
-                     is_approved: editingUser.is_approved,
-                     is_active: editingUser.is_active,
-                     mobile_verified: editingUser.mobile_verified
-                 }).eq('id', editingUser.id));
+                 const { error } = await supabase.from('profiles').update({
+                     full_name: editing_user.full_name,
+                     mobile_number: editing_user.mobile_number,
+                     subscription_start_date: editing_user.subscription_start_date,
+                     subscription_end_date: editing_user.subscription_end_date,
+                     is_approved: editing_user.is_approved,
+                     is_active: editing_user.is_active,
+                     mobile_verified: editing_user.mobile_verified
+                 }).eq('id', editing_user.id);
                  if (error) throw error;
                  
                  // Refresh data to confirm changes from server
-                 fetchAndRefresh(); 
+                 fetch_and_refresh(); 
              } catch (err: any) {
-                 if (!isNetworkError(err)) {
-                     console.error("Failed to update user in DB:", err);
-                 } else {
-                     console.warn("Failed to update user in DB due to network error (offline).");
-                 }
-                 alert("فشل تحديث البيانات في قاعدة البيانات: " + getFriendlyErrorMessage(err));
+                 console.error("Failed to update user in DB:", err);
+                 alert("فشل تحديث البيانات في قاعدة البيانات: " + err.message);
                  // Revert optimistic update by refreshing
-                 fetchAndRefresh();
+                 fetch_and_refresh();
              }
         }
 
-        setEditingUser(null);
+        set_editing_user(null);
     };
 
-    const handleConfirmDelete = async () => {
-        if (!supabase || !userToDelete) return;
-        const userToDeleteId = userToDelete.id;
+    const handle_confirm_delete = async () => {
+        if (!supabase || !user_to_delete) return;
+        const userToDeleteId = user_to_delete.id;
     
         try {
-            const { error: rpcError }: any = await fetchWithRetry(async () => await supabase.rpc('delete_user', {
+            const { error: rpcError } = await supabase.rpc('delete_user', {
                 user_id_to_delete: userToDeleteId
-            }));
+            });
     
             if (rpcError) throw rpcError;
             setUsers(prevUsers => prevUsers.filter(u => u.id !== userToDeleteId));
             
         } catch (err: any) {
-            if (!isNetworkError(err)) {
-                console.error("Failed to delete user:", err);
-            } else {
-                console.warn("Failed to delete user due to network error (offline).");
-            }
-            setError("فشل حذف المستخدم: " + getFriendlyErrorMessage(err));
+            setError("فشل حذف المستخدم: " + err.message);
         } finally {
-            setUserToDelete(null);
+            set_user_to_delete(null);
         }
     };
     
-    const toggleUserApproval = async (user: Profile) => {
+    const toggle_user_approval = async (user: Profile) => {
          if (!supabase || user.role === 'admin') return;
-         const updatedUser = { ...user, is_approved: !user.is_approved, updated_at: new Date() };
+         const updatedUser = { ...user, is_approved: !user.is_approved, updated_at: new Date().toISOString() };
          setUsers(prev => prev.map(u => u.id === user.id ? updatedUser : u));
          
          try {
-            const { error }: any = await fetchWithRetry(async () => await supabase.from('profiles').update({ is_approved: updatedUser.is_approved }).eq('id', user.id));
+            const { error } = await supabase.from('profiles').update({ is_approved: updatedUser.is_approved }).eq('id', user.id);
             if (error) throw error;
-            fetchAndRefresh();
+            fetch_and_refresh();
          } catch(err: any) {
-             if (!isNetworkError(err)) {
-                 console.error("Failed to toggle approval:", err);
-             } else {
-                 console.warn("Failed to toggle approval due to network error (offline).");
-             }
-             fetchAndRefresh();
+             console.error("Failed to toggle approval:", err);
+             fetch_and_refresh();
          }
     }
     
-    const toggleUserActiveStatus = async (user: Profile) => {
+    const toggle_user_active_status = async (user: Profile) => {
          if (!supabase || user.role === 'admin') return;
-         const updatedUser = { ...user, is_active: !user.is_active, updated_at: new Date() };
+         const updatedUser = { ...user, is_active: !user.is_active, updated_at: new Date().toISOString() };
          setUsers(prev => prev.map(u => u.id === user.id ? updatedUser : u));
          
          try {
-            const { error }: any = await fetchWithRetry(async () => await supabase.from('profiles').update({ is_active: updatedUser.is_active }).eq('id', user.id));
+            const { error } = await supabase.from('profiles').update({ is_active: updatedUser.is_active }).eq('id', user.id);
             if (error) throw error;
-            fetchAndRefresh();
+            fetch_and_refresh();
          } catch(err: any) {
-             if (!isNetworkError(err)) {
-                 console.error("Failed to toggle active status:", err);
-             } else {
-                 console.warn("Failed to toggle active status due to network error (offline).");
-             }
-             fetchAndRefresh();
+             console.error("Failed to toggle active status:", err);
+             fetch_and_refresh();
          }
     }
 
-    const handleGenerateAndSendOtp = async (user: Profile) => {
+    const handle_generate_and_send_otp = async (user: Profile) => {
         if (!supabase) return;
-        setGeneratingOtpFor(user.id);
+        set_generating_otp_for(user.id);
         try {
-            const { data: code, error }: any = await fetchWithRetry(async () => await supabase.rpc('generate_mobile_otp', {
+            const { data: code, error } = await supabase.rpc('generate_mobile_otp', {
                 target_user_id: user.id
-            }));
+            });
 
             if (error) throw error;
 
             if (code) {
                 // Update local state to show code immediately without refresh
                 setUsers(prev => prev.map(u => u.id === user.id ? { ...u, otp_code: code } : u));
-
-                const cleanMobile = user.mobile_number.replace(/\D/g, '').replace(/^0+/, ''); 
-                const waNumber = `963${cleanMobile}`; 
-                const message = `كود التحقق الخاص بك لمكتب المحامي هو: *${code}*`;
-                const url = `https://wa.me/${waNumber}?text=${encodeURIComponent(message)}`;
-                window.open(url, '_blank');
+                alert(`تم توليد الكود بنجاح: ${code}`);
             }
         } catch (err: any) {
-            if (!isNetworkError(err)) {
-                console.error("Error generating OTP:", err);
-            } else {
-                console.warn("Error generating OTP due to network error (offline).");
-            }
-            alert("فشل توليد كود التحقق: " + getFriendlyErrorMessage(err));
+            console.error("Error generating OTP:", err);
+            alert("فشل توليد كود التحقق: " + err.message);
         } finally {
-            setGeneratingOtpFor(null);
+            set_generating_otp_for(null);
         }
     };
     
     // Organize users into hierarchy: Lawyers (and admins) at top, their assistants nested
-    const groupedUsers = React.useMemo(() => {
+    const grouped_users = React.useMemo(() => {
         // 1. Find all users who are NOT assistants (Lawyers/Admins)
         const lawyers = users.filter(u => !u.lawyer_id); 
         
@@ -351,26 +336,26 @@ const AdminPage: React.FC = () => {
                             <th className="px-6 py-3 rounded-tr-lg">المستخدم (المحامي / المساعد)</th>
                             <th className="px-6 py-3">رقم الجوال</th>
                             <th className="px-6 py-3">تاريخ التسجيل</th>
-                            <th className="px-6 py-3">التحقق</th>
+                            <th className="px-6 py-3">التحقق والكود</th>
                             <th className="px-6 py-3">موافق عليه</th>
                             <th className="px-6 py-3">الحساب نشط</th>
                             <th className="px-6 py-3 rounded-tl-lg">إجراءات</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {groupedUsers.map(({ lawyer, assistants }) => (
+                        {grouped_users.map(({ lawyer, assistants }) => (
                             <React.Fragment key={lawyer.id}>
                                 {/* Lawyer Row */}
                                 <UserRow 
                                     user={lawyer}
-                                    onView={() => setViewingUser(lawyer)}
-                                    onEdit={() => setEditingUser(lawyer)}
-                                    onDelete={() => setUserToDelete(lawyer)}
-                                    onToggleApproval={() => toggleUserApproval(lawyer)}
-                                    onToggleActive={() => toggleUserActiveStatus(lawyer)}
-                                    onGenerateOtp={() => handleGenerateAndSendOtp(lawyer)}
-                                    generatingOtpFor={generatingOtpFor}
-                                    currentAdminId={userId}
+                                    on_view={() => set_viewing_user(lawyer)}
+                                    on_edit={() => set_editing_user(lawyer)}
+                                    on_delete={() => set_user_to_delete(lawyer)}
+                                    on_toggle_approval={() => toggle_user_approval(lawyer)}
+                                    on_toggle_active={() => toggle_user_active_status(lawyer)}
+                                    on_generate_otp={() => handle_generate_and_send_otp(lawyer)}
+                                    generating_otp_for={generating_otp_for}
+                                    current_admin_id={user_id}
                                 />
                                 {/* Assistants Rows */}
                                 {assistants.length > 0 && assistants.map(assistant => (
@@ -378,68 +363,68 @@ const AdminPage: React.FC = () => {
                                         key={assistant.id}
                                         user={assistant}
                                         lawyer={lawyer} // Pass the parent lawyer to check dependency
-                                        onView={() => setViewingUser(assistant)}
-                                        onEdit={() => setEditingUser(assistant)}
-                                        onDelete={() => setUserToDelete(assistant)}
-                                        onToggleApproval={() => toggleUserApproval(assistant)}
-                                        onToggleActive={() => toggleUserActiveStatus(assistant)}
-                                        onGenerateOtp={() => handleGenerateAndSendOtp(assistant)}
-                                        generatingOtpFor={generatingOtpFor}
-                                        currentAdminId={userId}
+                                        on_view={() => set_viewing_user(assistant)}
+                                        on_edit={() => set_editing_user(assistant)}
+                                        on_delete={() => set_user_to_delete(assistant)}
+                                        on_toggle_approval={() => toggle_user_approval(assistant)}
+                                        on_toggle_active={() => toggle_user_active_status(assistant)}
+                                        on_generate_otp={() => handle_generate_and_send_otp(assistant)}
+                                        generating_otp_for={generating_otp_for}
+                                        current_admin_id={user_id}
                                     />
                                 ))}
                             </React.Fragment>
                         ))}
-                        {groupedUsers.length === 0 && (
+                        {grouped_users.length === 0 && (
                              <tr><td colSpan={7} className="text-center p-8 text-gray-500">لا يوجد مستخدمين مسجلين.</td></tr>
                         )}
                     </tbody>
                 </table>
             </div>
 
-            {editingUser && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50 p-4 overflow-y-auto" onClick={() => setEditingUser(null)}>
+            {editing_user && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50 p-4 overflow-y-auto" onClick={() => set_editing_user(null)}>
                     <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
-                        <h2 className="text-xl font-bold mb-4">تعديل المستخدم: {editingUser.full_name}</h2>
-                        <form onSubmit={handleUpdateUser} className="space-y-4">
-                            <div><label className="block text-sm font-medium text-gray-700">الاسم الكامل</label><input type="text" value={editingUser.full_name} onChange={e => setEditingUser({ ...editingUser, full_name: e.target.value })} className="w-full p-2 border rounded" /></div>
-                            <div><label className="block text-sm font-medium text-gray-700">رقم الجوال</label><input type="text" value={editingUser.mobile_number} onChange={e => setEditingUser({ ...editingUser, mobile_number: e.target.value })} className="w-full p-2 border rounded" dir="ltr" /></div>
+                        <h2 className="text-xl font-bold mb-4">تعديل المستخدم: {editing_user.full_name}</h2>
+                        <form onSubmit={handle_update_user} className="space-y-4">
+                            <div><label className="block text-sm font-medium text-gray-700">الاسم الكامل</label><input type="text" value={editing_user.full_name} onChange={e => set_editing_user({ ...editing_user, full_name: e.target.value })} className="w-full p-2 border rounded" /></div>
+                            <div><label className="block text-sm font-medium text-gray-700">رقم الجوال</label><input type="text" value={editing_user.mobile_number} onChange={e => set_editing_user({ ...editing_user, mobile_number: e.target.value })} className="w-full p-2 border rounded" dir="ltr" /></div>
                             <div className="grid grid-cols-2 gap-4">
-                                <div><label className="block text-sm font-medium text-gray-700">تاريخ بدء الاشتراك</label><input type="date" value={toInputDateString(editingUser.subscription_start_date)} onChange={e => setEditingUser({ ...editingUser, subscription_start_date: e.target.value })} className="w-full p-2 border rounded" /></div>
-                                <div><label className="block text-sm font-medium text-gray-700">تاريخ انتهاء الاشتراك</label><input type="date" value={toInputDateString(editingUser.subscription_end_date)} onChange={e => setEditingUser({ ...editingUser, subscription_end_date: e.target.value })} className="w-full p-2 border rounded" /></div>
+                                <div><label className="block text-sm font-medium text-gray-700">تاريخ بدء الاشتراك</label><input type="date" value={to_input_date_string(editing_user.subscription_start_date)} onChange={e => set_editing_user({ ...editing_user, subscription_start_date: e.target.value })} className="w-full p-2 border rounded" /></div>
+                                <div><label className="block text-sm font-medium text-gray-700">تاريخ انتهاء الاشتراك</label><input type="date" value={to_input_date_string(editing_user.subscription_end_date)} onChange={e => set_editing_user({ ...editing_user, subscription_end_date: e.target.value })} className="w-full p-2 border rounded" /></div>
                             </div>
                             <div className="flex items-center gap-6 pt-2 flex-wrap">
-                                <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={editingUser.is_approved} onChange={e => setEditingUser({ ...editingUser, is_approved: e.target.checked })} className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500" /> موافق عليه</label>
-                                <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={editingUser.is_active} onChange={e => setEditingUser({ ...editingUser, is_active: e.target.checked })} className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500" /> الحساب نشط</label>
-                                <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={editingUser.mobile_verified} onChange={e => setEditingUser({ ...editingUser, mobile_verified: e.target.checked })} className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500" /> تم التحقق من الجوال</label>
+                                <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={editing_user.is_approved} onChange={e => set_editing_user({ ...editing_user, is_approved: e.target.checked })} className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500" /> موافق عليه</label>
+                                <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={editing_user.is_active} onChange={e => set_editing_user({ ...editing_user, is_active: e.target.checked })} className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500" /> الحساب نشط</label>
+                                <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={editing_user.mobile_verified} onChange={e => set_editing_user({ ...editing_user, mobile_verified: e.target.checked })} className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500" /> تم التحقق من الجوال</label>
                             </div>
-                            <div className="flex justify-end gap-4 pt-4"><button type="button" onClick={() => setEditingUser(null)} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">إلغاء</button><button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">حفظ التغييرات</button></div>
+                            <div className="flex justify-end gap-4 pt-4"><button type="button" onClick={() => set_editing_user(null)} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">إلغاء</button><button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">حفظ التغييرات</button></div>
                         </form>
                     </div>
                 </div>
             )}
             
-             {userToDelete && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setUserToDelete(null)}>
+             {user_to_delete && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => set_user_to_delete(null)}>
                     <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
                          <div className="text-center">
                             <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-red-100 mb-4"><ExclamationTriangleIcon className="h-8 w-8 text-red-600" /></div>
                             <h3 className="text-2xl font-bold text-gray-900">تأكيد حذف المستخدم</h3>
-                            <p className="text-gray-600 my-4">هل أنت متأكد من حذف المستخدم "{userToDelete.full_name}"؟ سيتم حذف جميع بياناته بشكل نهائي ولا يمكن التراجع عن هذا الإجراء.</p>
+                            <p className="text-gray-600 my-4">هل أنت متأكد من حذف المستخدم "{user_to_delete.full_name}"؟ سيتم حذف جميع بياناته بشكل نهائي ولا يمكن التراجع عن هذا الإجراء.</p>
                         </div>
                         <div className="mt-6 flex justify-center gap-4">
-                            <button type="button" className="px-6 py-2 bg-gray-200 rounded-lg" onClick={() => setUserToDelete(null)}>إلغاء</button>
-                            <button type="button" className="px-6 py-2 bg-red-600 text-white rounded-lg" onClick={handleConfirmDelete}>نعم، قم بالحذف</button>
+                            <button type="button" className="px-6 py-2 bg-gray-200 rounded-lg" onClick={() => set_user_to_delete(null)}>إلغاء</button>
+                            <button type="button" className="px-6 py-2 bg-red-600 text-white rounded-lg" onClick={handle_confirm_delete}>نعم، قم بالحذف</button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {viewingUser && (
+            {viewing_user && (
                 <UserDetailsModal 
-                    user={viewingUser} 
-                    onClose={() => setViewingUser(null)}
-                    onEdit={() => setEditingUser(viewingUser)}
+                    user={viewing_user} 
+                    onClose={() => set_viewing_user(null)}
+                    onEdit={() => set_editing_user(viewing_user)}
                 />
             )}
         </div>

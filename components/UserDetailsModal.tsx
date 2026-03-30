@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Profile, SiteFinancialEntry } from '../types';
 import { useData } from '../context/DataContext';
-import { formatDate } from '../utils/dateUtils';
+import { format_date } from '../utils/dateUtils';
 import { XMarkIcon, PhoneIcon, UserGroupIcon, FolderIcon, CalendarDaysIcon, DocumentTextIcon, CheckCircleIcon, NoSymbolIcon, PencilIcon, ExclamationTriangleIcon } from './icons';
 
 interface UserDetailsModalProps {
@@ -35,35 +35,35 @@ const getDisplayPhoneNumber = (mobile: string | null | undefined): string => {
 };
 
 const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ user, onClose, onEdit }) => {
-    const { clients, siteFinances, documents, allSessions } = useData();
+    const { clients, site_finances, documents, all_sessions } = useData();
 
-    const userStats = React.useMemo(() => {
+    const user_stats = React.useMemo(() => {
         if (!user) return null;
 
-        const userClients = clients.filter(c => c.user_id === user.id);
-        const userCases = userClients.flatMap(c => c.cases);
-        const userSessions = allSessions.filter(s => s.user_id === user.id);
-        const userDocuments = documents.filter(d => d.userId === user.id);
-        const userFinancials = siteFinances.filter(sf => sf.user_id === user.id && sf.type === 'income');
+        const user_clients = clients.filter(c => c.user_id === user.id);
+        const user_cases = user_clients.flatMap(c => c.cases);
+        const user_sessions = all_sessions.filter(s => s.user_id === user.id);
+        const user_documents = documents.filter(d => d.user_id === user.id);
+        const user_financials = site_finances.filter(sf => sf.user_id === user.id && sf.type === 'income');
 
         return {
-            totalClients: userClients.length,
-            activeCases: userCases.filter(c => c.status === 'active').length,
-            totalSessions: userSessions.length,
-            totalDocuments: userDocuments.length,
-            financialHistory: userFinancials.sort((a,b) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime()),
-            totalPaid: userFinancials.reduce((sum, entry) => sum + entry.amount, 0),
+            total_clients: user_clients.length,
+            active_cases: user_cases.filter(c => c.status === 'active').length,
+            total_sessions: user_sessions.length,
+            total_documents: user_documents.length,
+            financial_history: user_financials.sort((a,b) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime()),
+            total_paid: user_financials.reduce((sum, entry) => sum + entry.amount, 0),
         };
-    }, [user, clients, allSessions, documents, siteFinances]);
+    }, [user, clients, all_sessions, documents, site_finances]);
 
-    if (!user || !userStats) return null;
+    if (!user || !user_stats) return null;
 
     const getStatusInfo = () => {
         if (!user.is_approved) return { text: 'بانتظار الموافقة', color: 'bg-yellow-100 text-yellow-800' };
         if (!user.is_active) return { text: 'حساب غير نشط', color: 'bg-red-100 text-red-800' };
         
-        const endDate = user.subscription_end_date ? new Date(user.subscription_end_date) : null;
-        if (endDate && endDate < new Date()) {
+        const end_date = user.subscription_end_date ? new Date(user.subscription_end_date) : null;
+        if (end_date && end_date < new Date()) {
             return { text: 'اشتراك منتهي', color: 'bg-red-100 text-red-800' };
         }
         
@@ -71,16 +71,16 @@ const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ user, onClose, onEd
     };
 
     const status = getStatusInfo();
-    const startDate = user.subscription_start_date ? new Date(user.subscription_start_date) : null;
-    const endDate = user.subscription_end_date ? new Date(user.subscription_end_date) : null;
+    const start_date = user.subscription_start_date ? new Date(user.subscription_start_date) : null;
+    const end_date = user.subscription_end_date ? new Date(user.subscription_end_date) : null;
     
-    let daysRemaining = 0;
+    let days_remaining = 0;
     let progress = 0;
-    if (startDate && endDate) {
-        const totalDuration = endDate.getTime() - startDate.getTime();
-        const elapsed = new Date().getTime() - startDate.getTime();
-        daysRemaining = Math.max(0, Math.ceil((endDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)));
-        progress = Math.max(0, Math.min(100, (elapsed / totalDuration) * 100));
+    if (start_date && end_date) {
+        const total_duration = end_date.getTime() - start_date.getTime();
+        const elapsed = new Date().getTime() - start_date.getTime();
+        days_remaining = Math.max(0, Math.ceil((end_date.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)));
+        progress = Math.max(0, Math.min(100, (elapsed / total_duration) * 100));
     }
 
     return (
@@ -106,10 +106,10 @@ const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ user, onClose, onEd
                 {/* Body */}
                 <div className="p-6 max-h-[70vh] overflow-y-auto">
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-                        <StatCard title="إجمالي الموكلين" value={userStats.totalClients} icon={<UserGroupIcon className="w-6 h-6"/>} />
-                        <StatCard title="القضايا النشطة" value={userStats.activeCases} icon={<FolderIcon className="w-6 h-6"/>} />
-                        <StatCard title="الجلسات المسجلة" value={userStats.totalSessions} icon={<CalendarDaysIcon className="w-6 h-6"/>} />
-                        <StatCard title="الوثائق المرفوعة" value={userStats.totalDocuments} icon={<DocumentTextIcon className="w-6 h-6"/>} />
+                        <StatCard title="إجمالي الموكلين" value={user_stats.total_clients} icon={<UserGroupIcon className="w-6 h-6"/>} />
+                        <StatCard title="القضايا النشطة" value={user_stats.active_cases} icon={<FolderIcon className="w-6 h-6"/>} />
+                        <StatCard title="الجلسات المسجلة" value={user_stats.total_sessions} icon={<CalendarDaysIcon className="w-6 h-6"/>} />
+                        <StatCard title="الوثائق المرفوعة" value={user_stats.total_documents} icon={<DocumentTextIcon className="w-6 h-6"/>} />
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -117,17 +117,17 @@ const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ user, onClose, onEd
                         <div className="space-y-4">
                             <h3 className="text-lg font-semibold text-gray-800 border-b pb-2">معلومات الاشتراك</h3>
                              <div className="p-4 bg-white border rounded-lg">
-                                {startDate && endDate ? (
+                                {start_date && end_date ? (
                                     <>
                                         <div className="flex justify-between text-sm mb-1">
-                                            <span>{formatDate(startDate)}</span>
-                                            <span>{formatDate(endDate)}</span>
+                                            <span>{format_date(start_date)}</span>
+                                            <span>{format_date(end_date)}</span>
                                         </div>
                                         <div className="w-full bg-gray-200 rounded-full h-2.5">
                                             <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${progress}%` }}></div>
                                         </div>
                                         <div className="text-center mt-2">
-                                            <p className="font-semibold text-gray-700">{daysRemaining} يوم متبقي</p>
+                                            <p className="font-semibold text-gray-700">{days_remaining} يوم متبقي</p>
                                         </div>
                                     </>
                                 ) : (
@@ -135,7 +135,7 @@ const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ user, onClose, onEd
                                 )}
                             </div>
                             <div className="text-sm space-y-2">
-                                <p><strong className="font-medium text-gray-600">تاريخ التسجيل:</strong> {user.created_at ? formatDate(new Date(user.created_at)) : '-'}</p>
+                                <p><strong className="font-medium text-gray-600">تاريخ التسجيل:</strong> {user.created_at ? format_date(new Date(user.created_at)) : '-'}</p>
                             </div>
                             <button onClick={() => { onEdit(user); onClose(); }} className="flex items-center gap-2 text-sm px-4 py-2 bg-gray-100 text-gray-800 rounded-lg hover:bg-gray-200">
                                 <PencilIcon className="w-4 h-4" />
@@ -146,7 +146,7 @@ const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ user, onClose, onEd
                         {/* Financial History */}
                         <div className="space-y-4">
                             <h3 className="text-lg font-semibold text-gray-800 border-b pb-2">السجل المالي للاشتراكات</h3>
-                            {userStats.financialHistory.length > 0 ? (
+                            {user_stats.financial_history.length > 0 ? (
                                 <div className="border rounded-lg overflow-hidden max-h-64 overflow-y-auto">
                                 <table className="w-full text-sm text-right">
                                     <thead className="bg-gray-100">
@@ -157,9 +157,9 @@ const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ user, onClose, onEd
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {userStats.financialHistory.map(entry => (
+                                        {user_stats.financial_history.map(entry => (
                                             <tr key={entry.id} className="border-t">
-                                                <td className="px-4 py-2">{formatDate(new Date(entry.payment_date))}</td>
+                                                <td className="px-4 py-2">{format_date(new Date(entry.payment_date))}</td>
                                                 <td className="px-4 py-2">{entry.description}</td>
                                                 <td className="px-4 py-2 font-semibold text-green-600">{entry.amount.toLocaleString()} ل.س</td>
                                             </tr>
@@ -168,7 +168,7 @@ const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ user, onClose, onEd
                                     <tfoot>
                                         <tr className="border-t-2 bg-gray-50 font-bold">
                                             <td colSpan={2} className="px-4 py-2 text-left">الإجمالي المدفوع</td>
-                                            <td className="px-4 py-2">{userStats.totalPaid.toLocaleString()} ل.س</td>
+                                            <td className="px-4 py-2">{user_stats.total_paid.toLocaleString()} ل.س</td>
                                         </tr>
                                     </tfoot>
                                 </table>

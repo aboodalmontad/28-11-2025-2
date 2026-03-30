@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Session } from '../types';
-import { formatDate, toInputDateString } from '../utils/dateUtils';
+import { format_date, to_input_date_string } from '../utils/dateUtils';
 import { ExclamationTriangleIcon, CalendarIcon } from './icons';
 
 interface UnpostponedSessionsModalProps {
@@ -15,16 +15,16 @@ const SessionPostponeItem: React.FC<{
     session: Session;
     onPostpone: (sessionId: string, newDate: Date, newReason: string) => void;
 }> = ({ session, onPostpone }) => {
-    const [nextDate, setNextDate] = React.useState('');
-    const [nextReason, setNextReason] = React.useState('');
+    const [next_date, set_next_date] = React.useState('');
+    const [next_reason, set_next_reason] = React.useState('');
     const [error, setError] = React.useState<string | null>(null);
 
-    const handlePostpone = () => {
-        if (!nextDate || !nextReason) {
+    const handle_postpone = () => {
+        if (!next_date || !next_reason) {
             setError('يرجى إدخال تاريخ وسبب الجلسة القادمة.');
             return;
         }
-        const newDate = new Date(nextDate);
+        const newDate = new Date(next_date);
         const sessionDate = new Date(session.date);
 
         if (newDate <= sessionDate) {
@@ -33,23 +33,23 @@ const SessionPostponeItem: React.FC<{
         }
 
         setError(null);
-        onPostpone(session.id, newDate, nextReason);
+        onPostpone(session.id, newDate, next_reason);
     };
 
     return (
         <div className="p-4 border rounded-lg bg-gray-50 space-y-3">
             <div>
-                <p className="font-semibold text-gray-800">{session.clientName} ضد {session.opponentName}</p>
-                <p className="text-sm text-gray-600">{session.court} - أساس: {session.caseNumber}</p>
-                <p className="text-sm text-red-600">تاريخ الجلسة الفائتة: {formatDate(session.date)}</p>
+                <p className="font-semibold text-gray-800">{session.client_name} ضد {session.opponent_name}</p>
+                <p className="text-sm text-gray-600">{session.court} - أساس: {session.case_number}</p>
+                <p className="text-sm text-red-600">تاريخ الجلسة الفائتة: {format_date(session.date)}</p>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                     <label className="block text-xs font-medium text-gray-700">تاريخ الجلسة القادمة</label>
                     <input
                         type="date"
-                        value={nextDate}
-                        onChange={(e) => setNextDate(e.target.value)}
+                        value={next_date}
+                        onChange={(e) => set_next_date(e.target.value)}
                         className="mt-1 w-full p-2 border rounded-md text-sm"
                         aria-label="تاريخ الجلسة القادمة"
                     />
@@ -58,8 +58,8 @@ const SessionPostponeItem: React.FC<{
                     <label className="block text-xs font-medium text-gray-700">سبب التأجيل القادم</label>
                     <input
                         type="text"
-                        value={nextReason}
-                        onChange={(e) => setNextReason(e.target.value)}
+                        value={next_reason}
+                        onChange={(e) => set_next_reason(e.target.value)}
                         className="mt-1 w-full p-2 border rounded-md text-sm"
                         placeholder="سبب التأجيل..."
                         aria-label="سبب التأجيل القادم"
@@ -68,8 +68,8 @@ const SessionPostponeItem: React.FC<{
             </div>
             {error && <p className="text-xs text-red-500">{error}</p>}
             <button
-                onClick={handlePostpone}
-                disabled={!nextDate || !nextReason}
+                onClick={handle_postpone}
+                disabled={!next_date || !next_reason}
                 className="w-full px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:bg-blue-300 transition-colors"
             >
                 حفظ الترحيل

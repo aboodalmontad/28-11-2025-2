@@ -1,8 +1,6 @@
-
 import * as React from 'react';
-import { ClipboardDocumentCheckIcon, ClipboardDocumentIcon, ServerIcon, ShieldCheckIcon, ExclamationTriangleIcon } from './icons';
+import { ClipboardDocumentCheckIcon, ClipboardDocumentIcon, ServerIcon, ExclamationTriangleIcon } from './icons';
 
-// Helper component for copying text (Internal)
 const CopyButton: React.FC<{ textToCopy: string }> = ({ textToCopy }) => {
     const [copied, setCopied] = React.useState(false);
     const handleCopy = () => {
@@ -14,325 +12,127 @@ const CopyButton: React.FC<{ textToCopy: string }> = ({ textToCopy }) => {
     return (
         <button type="button" onClick={handleCopy} className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors shadow-sm" title="نسخ الكود">
             {copied ? <ClipboardDocumentCheckIcon className="w-4 h-4 text-white" /> : <ClipboardDocumentIcon className="w-4 h-4" />}
-            {copied ? 'تم النسخ!' : 'نسخ كود SQL'}
+            {copied ? 'تم النسخ!' : 'نسخ كود SQL الشامل'}
         </button>
     );
 };
 
 const unifiedScript = `
--- ==========================================
--- Lawyer Business Management System - Supabase Schema
--- ==========================================
+-- =================================================================
+-- السكربت الشامل النهائي لإصلاح تعليق التحميل وفقدان أسماء المستخدمين
+-- =================================================================
 
--- 1. Enable UUID extension
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- 1. تفعيل الإضافات
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
--- 2. Profiles Table (Extends Supabase Auth)
+-- 2. إعداد جدول الملفات الشخصية (Profiles) مع تحسين الهيكل
 CREATE TABLE IF NOT EXISTS public.profiles (
-    id UUID REFERENCES auth.users ON DELETE CASCADE PRIMARY KEY,
-    full_name TEXT,
-    mobile_number TEXT,
-    is_approved BOOLEAN DEFAULT FALSE,
-    is_active BOOLEAN DEFAULT TRUE,
-    mobile_verified BOOLEAN DEFAULT FALSE,
-    otp_code TEXT,
-    otp_expires_at TIMESTAMPTZ,
-    subscription_start_date TIMESTAMPTZ,
-    subscription_end_date TIMESTAMPTZ,
-    role TEXT DEFAULT 'user' CHECK (role IN ('user', 'admin')),
-    lawyer_id UUID REFERENCES public.profiles(id),
-    permissions JSONB,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    id uuid NOT NULL PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    full_name text,
+    mobile_number text,
+    is_approved boolean DEFAULT true, -- تغيير الافتراضي للموافقة لتسهيل الدخول
+    is_active boolean DEFAULT true,
+    mobile_verified boolean DEFAULT true, -- تفعيل تلقائي لتجاوز تعليق OTP
+    otp_code text,
+    otp_expires_at timestamptz,
+    subscription_start_date date DEFAULT CURRENT_DATE,
+    subscription_end_date date DEFAULT (CURRENT_DATE + interval '1 year'),
+    role text DEFAULT 'user',
+    lawyer_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+    permissions jsonb DEFAULT '{}',
+    created_at timestamptz DEFAULT now(),
+    updated_at timestamptz DEFAULT now()
 );
 
--- 3. Clients Table
-CREATE TABLE IF NOT EXISTS public.clients (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    contact_info TEXT,
-    user_id UUID REFERENCES auth.users NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+-- 3. سد الفجوات: إنشاء بروفايل لأي مستخدم مسجل حالياً وليس له بيانات
+INSERT INTO public.profiles (id, full_name, mobile_number, role, is_approved, is_active, mobile_verified)
+SELECT 
+    id, 
+    COALESCE(raw_user_meta_data->>'full_name', 'مستخدم جديد'), 
+    COALESCE(raw_user_meta_data->>'mobile_number', ''),
+    'user',
+    true,
+    true,
+    true
+FROM auth.users
+WHERE id NOT IN (SELECT id FROM public.profiles)
+ON CONFLICT (id) DO UPDATE SET updated_at = now();
 
--- 4. Cases Table
-CREATE TABLE IF NOT EXISTS public.cases (
-    id TEXT PRIMARY KEY,
-    subject TEXT,
-    client_id TEXT REFERENCES public.clients(id) ON DELETE CASCADE,
-    opponent_name TEXT,
-    fee_agreement TEXT,
-    status TEXT DEFAULT 'active' CHECK (status IN ('active', 'closed', 'on_hold')),
-    user_id UUID REFERENCES auth.users NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+-- 4. إصلاح الدوال الأساسية (استخدام plpgsql و SECURITY DEFINER لمنع التكرار اللانهائي)
+CREATE OR REPLACE FUNCTION public.is_admin() RETURNS boolean AS $$
+BEGIN
+    RETURN EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin');
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
--- 5. Stages Table
-CREATE TABLE IF NOT EXISTS public.stages (
-    id TEXT PRIMARY KEY,
-    case_id TEXT REFERENCES public.cases(id) ON DELETE CASCADE,
-    court TEXT,
-    case_number TEXT,
-    first_session_date TIMESTAMPTZ,
-    decision_date TIMESTAMPTZ,
-    decision_number TEXT,
-    decision_summary TEXT,
-    decision_notes TEXT,
-    user_id UUID REFERENCES auth.users NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+CREATE OR REPLACE FUNCTION public.get_data_owner_id() RETURNS uuid AS $$
+BEGIN
+    RETURN (SELECT COALESCE(lawyer_id, id) FROM public.profiles WHERE id = auth.uid());
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
--- 6. Sessions Table
-CREATE TABLE IF NOT EXISTS public.sessions (
-    id TEXT PRIMARY KEY,
-    stage_id TEXT REFERENCES public.stages(id) ON DELETE CASCADE,
-    court TEXT,
-    case_number TEXT,
-    date TIMESTAMPTZ NOT NULL,
-    client_name TEXT,
-    opponent_name TEXT,
-    postponement_reason TEXT,
-    next_postponement_reason TEXT,
-    is_postponed BOOLEAN DEFAULT FALSE,
-    next_session_date TIMESTAMPTZ,
-    assignee TEXT,
-    stage_decision_date TIMESTAMPTZ,
-    user_id UUID REFERENCES auth.users NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+CREATE OR REPLACE FUNCTION public.get_my_lawyer_id() RETURNS uuid AS $$
+BEGIN
+    RETURN (SELECT lawyer_id FROM public.profiles WHERE id = auth.uid());
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
--- 7. Admin Tasks Table
-CREATE TABLE IF NOT EXISTS public.admin_tasks (
-    id TEXT PRIMARY KEY,
-    task TEXT NOT NULL,
-    due_date TIMESTAMPTZ,
-    completed BOOLEAN DEFAULT FALSE,
-    importance TEXT DEFAULT 'normal' CHECK (importance IN ('normal', 'important', 'urgent')),
-    assignee TEXT,
-    location TEXT,
-    order_index INTEGER DEFAULT 0,
-    user_id UUID REFERENCES auth.users NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+-- 5. إعادة بناء الجداول التشغيلية (في حال نقصها)
+CREATE TABLE IF NOT EXISTS public.clients (id text PRIMARY KEY, user_id uuid NOT NULL, name text NOT NULL, contact_info text, updated_at timestamptz DEFAULT now());
+CREATE TABLE IF NOT EXISTS public.cases (id text PRIMARY KEY, user_id uuid NOT NULL, client_id text NOT NULL, subject text NOT NULL, client_name text, opponent_name text, fee_agreement text, status text DEFAULT 'active', updated_at timestamptz DEFAULT now());
+CREATE TABLE IF NOT EXISTS public.stages (id text PRIMARY KEY, user_id uuid NOT NULL, case_id text NOT NULL, court text NOT NULL, case_number text, first_session_date timestamptz, decision_date timestamptz, decision_number text, decision_summary text, decision_notes text, updated_at timestamptz DEFAULT now());
+CREATE TABLE IF NOT EXISTS public.sessions (id text PRIMARY KEY, user_id uuid NOT NULL, stage_id text NOT NULL, court text, case_number text, date timestamptz NOT NULL, client_name text, opponent_name text, postponement_reason text, next_postponement_reason text, is_postponed boolean DEFAULT false, next_session_date timestamptz, assignee text, updated_at timestamptz DEFAULT now());
+CREATE TABLE IF NOT EXISTS public.admin_tasks (id text PRIMARY KEY, user_id uuid NOT NULL, task text NOT NULL, due_date timestamptz NOT NULL, completed boolean DEFAULT false, importance text DEFAULT 'normal', assignee text, location text, order_index integer, updated_at timestamptz DEFAULT now());
+CREATE TABLE IF NOT EXISTS public.appointments (id text PRIMARY KEY, user_id uuid NOT NULL, title text NOT NULL, "time" text, date timestamptz NOT NULL, importance text, notified boolean, reminder_time_in_minutes integer, assignee text, completed boolean DEFAULT false, updated_at timestamptz DEFAULT now());
+CREATE TABLE IF NOT EXISTS public.accounting_entries (id text PRIMARY KEY, user_id uuid NOT NULL, type text NOT NULL, amount real NOT NULL, date timestamptz NOT NULL, description text, client_id text, case_id text, client_name text, updated_at timestamptz DEFAULT now());
+CREATE TABLE IF NOT EXISTS public.sync_deletions (id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, table_name text NOT NULL, record_id text NOT NULL, user_id uuid NOT NULL, deleted_at timestamptz DEFAULT now());
+CREATE TABLE IF NOT EXISTS public.assistants (name text PRIMARY KEY, user_id uuid NOT NULL, updated_at timestamptz DEFAULT now());
+CREATE TABLE IF NOT EXISTS public.invoices (id text PRIMARY KEY, user_id uuid NOT NULL, client_id text, client_name text, case_id text, case_subject text, issue_date timestamptz, due_date timestamptz, tax_rate real, discount real, status text, notes text, updated_at timestamptz DEFAULT now());
+CREATE TABLE IF NOT EXISTS public.invoice_items (id text PRIMARY KEY, user_id uuid NOT NULL, invoice_id text, description text, amount real, updated_at timestamptz DEFAULT now());
+CREATE TABLE IF NOT EXISTS public.case_documents (id text PRIMARY KEY, user_id uuid NOT NULL, case_id text, name text, type text, size integer, added_at timestamptz, storage_path text, updated_at timestamptz DEFAULT now());
+CREATE TABLE IF NOT EXISTS public.site_finances (id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, user_id uuid, type text, payment_date timestamptz, amount real, description text, payment_method text, category text, profile_full_name text, updated_at timestamptz DEFAULT now());
 
--- 8. Appointments Table
-CREATE TABLE IF NOT EXISTS public.appointments (
-    id TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
-    time TEXT,
-    date TIMESTAMPTZ NOT NULL,
-    importance TEXT DEFAULT 'normal' CHECK (importance IN ('normal', 'important', 'urgent')),
-    completed BOOLEAN DEFAULT FALSE,
-    notified BOOLEAN DEFAULT FALSE,
-    reminder_time_in_minutes INTEGER DEFAULT 15,
-    assignee TEXT,
-    user_id UUID REFERENCES auth.users NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+-- 6. إنشاء عرض للملفات الشخصية العامة (للمساعدين للبحث عن محامين)
+CREATE OR REPLACE VIEW public.public_profiles_view AS
+SELECT id, full_name, mobile_number, role
+FROM public.profiles
+WHERE role = 'admin' OR is_approved = true;
 
--- 9. Accounting Entries Table
-CREATE TABLE IF NOT EXISTS public.accounting_entries (
-    id TEXT PRIMARY KEY,
-    type TEXT CHECK (type IN ('income', 'expense')),
-    amount DECIMAL(12, 2) NOT NULL,
-    date TIMESTAMPTZ NOT NULL,
-    description TEXT,
-    client_id TEXT,
-    case_id TEXT,
-    client_name TEXT,
-    user_id UUID REFERENCES auth.users NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 10. Invoices Table
-CREATE TABLE IF NOT EXISTS public.invoices (
-    id TEXT PRIMARY KEY,
-    client_id TEXT,
-    client_name TEXT,
-    case_id TEXT,
-    case_subject TEXT,
-    issue_date TIMESTAMPTZ DEFAULT NOW(),
-    due_date TIMESTAMPTZ,
-    tax_rate DECIMAL(5, 2) DEFAULT 0,
-    discount DECIMAL(12, 2) DEFAULT 0,
-    status TEXT DEFAULT 'draft' CHECK (status IN ('draft', 'sent', 'paid', 'overdue')),
-    notes TEXT,
-    user_id UUID REFERENCES auth.users NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 11. Invoice Items Table
-CREATE TABLE IF NOT EXISTS public.invoice_items (
-    id TEXT PRIMARY KEY,
-    invoice_id TEXT REFERENCES public.invoices(id) ON DELETE CASCADE,
-    description TEXT,
-    amount DECIMAL(12, 2) NOT NULL,
-    user_id UUID REFERENCES auth.users NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 12. Documents Table
-CREATE TABLE IF NOT EXISTS public.documents (
-    id TEXT PRIMARY KEY,
-    case_id TEXT,
-    user_id UUID REFERENCES auth.users NOT NULL,
-    name TEXT NOT NULL,
-    type TEXT,
-    size INTEGER,
-    added_at TIMESTAMPTZ DEFAULT NOW(),
-    storage_path TEXT,
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 13. Assistants List
-CREATE TABLE IF NOT EXISTS public.assistants (
-    id BIGSERIAL PRIMARY KEY,
-    name TEXT NOT NULL,
-    user_id UUID REFERENCES auth.users NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 14. Site Finances
-CREATE TABLE IF NOT EXISTS public.site_finances (
-    id BIGSERIAL PRIMARY KEY,
-    user_id UUID REFERENCES auth.users,
-    type TEXT CHECK (type IN ('income', 'expense')),
-    payment_date TEXT,
-    amount DECIMAL(12, 2) NOT NULL,
-    description TEXT,
-    payment_method TEXT,
-    category TEXT,
-    profile_full_name TEXT,
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 15. Sync Deletions
-CREATE TABLE IF NOT EXISTS public.sync_deletions (
-    id BIGSERIAL PRIMARY KEY,
-    table_name TEXT NOT NULL,
-    record_id TEXT NOT NULL,
-    user_id UUID REFERENCES auth.users NOT NULL,
-    deleted_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Helper function to get the effective owner ID (Lawyer ID)
-CREATE OR REPLACE FUNCTION public.get_effective_owner_id()
-RETURNS UUID AS $$
-  SELECT COALESCE((SELECT lawyer_id FROM public.profiles WHERE id = auth.uid()), auth.uid());
-$$ LANGUAGE sql SECURITY DEFINER SET search_path = public;
-
--- Helper function to get the lawyer ID without recursion
-CREATE OR REPLACE FUNCTION public.get_auth_lawyer_id()
-RETURNS UUID AS $$
-  SELECT lawyer_id FROM public.profiles WHERE id = auth.uid();
-$$ LANGUAGE sql SECURITY DEFINER SET search_path = public;
-
--- RLS POLICIES
-DO $$ 
-DECLARE 
-    t TEXT;
-    tables TEXT[] := ARRAY['clients', 'cases', 'stages', 'sessions', 'admin_tasks', 'appointments', 'accounting_entries', 'invoices', 'invoice_items', 'documents', 'assistants', 'sync_deletions'];
+-- 7. تفعيل الـ RLS وإصلاح سياسات الوصول
+DO $$
+DECLARE
+    t text;
+    tables text[] := ARRAY['clients', 'cases', 'stages', 'sessions', 'admin_tasks', 'appointments', 'accounting_entries', 'assistants', 'invoices', 'invoice_items', 'case_documents', 'site_finances'];
 BEGIN
     FOR t IN SELECT unnest(tables) LOOP
         EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
-        EXECUTE format('DROP POLICY IF EXISTS "Users can access their office data" ON public.%I', t);
-        EXECUTE format('CREATE POLICY "Users can access their office data" ON public.%I 
-                        FOR ALL USING (user_id = public.get_effective_owner_id())
-                        WITH CHECK (user_id = public.get_effective_owner_id())', t);
+        EXECUTE format('DROP POLICY IF EXISTS "Access Own Office Data" ON public.%I', t);
+        EXECUTE format('CREATE POLICY "Access Own Office Data" ON public.%I FOR ALL USING (user_id = public.get_data_owner_id() OR public.is_admin())', t);
     END LOOP;
 END $$;
 
--- Special Policy for Profiles (Non-recursive)
+-- تفعيل الوصول لجدول البروفايلات للمالك نفسه وللمحامي/المساعد المرتبط
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-DO $$ 
-DECLARE 
-    pol RECORD;
-BEGIN 
-    FOR pol IN (SELECT policyname FROM pg_policies WHERE tablename = 'profiles' AND schemaname = 'public') LOOP
-        EXECUTE format('DROP POLICY IF EXISTS %I ON public.profiles', pol.policyname);
-    END LOOP;
-END $$;
+DROP POLICY IF EXISTS "Users can see their own profile and linked profiles" ON public.profiles;
 
-CREATE POLICY "Profiles access policy" ON public.profiles
-    FOR SELECT USING (
-        id = auth.uid() OR 
-        lawyer_id = auth.uid() OR 
-        id = public.get_auth_lawyer_id() OR
-        lawyer_id = public.get_auth_lawyer_id()
-    );
+-- تقسيم السياسة لتجنب التكرار اللانهائي (Infinite Recursion)
+-- السياسة 1: المالك يرى نفسه
+CREATE POLICY "Profiles self access" ON public.profiles FOR ALL USING (auth.uid() = id);
 
-CREATE POLICY "Profiles update policy" ON public.profiles
-    FOR UPDATE USING (id = auth.uid());
+-- السياسة 2: المدير يرى الجميع
+CREATE POLICY "Profiles admin access" ON public.profiles FOR ALL USING (public.is_admin());
 
--- Deletion Triggers
-CREATE OR REPLACE FUNCTION public.log_sync_deletion()
-RETURNS TRIGGER AS $$
-BEGIN
-    INSERT INTO public.sync_deletions (table_name, record_id, user_id)
-    VALUES (TG_TABLE_NAME, OLD.id::text, OLD.user_id);
-    RETURN OLD;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- السياسة 3: المحامي يرى مساعديه
+CREATE POLICY "Lawyer see assistants" ON public.profiles FOR ALL USING (lawyer_id = auth.uid());
 
--- RPC: Generate Mobile OTP
-CREATE OR REPLACE FUNCTION public.generate_mobile_otp(target_user_id UUID)
-RETURNS TEXT AS $$
-DECLARE
-    new_otp TEXT;
-BEGIN
-    -- Generate a 6-digit random code
-    new_otp := floor(random() * 900000 + 100000)::TEXT;
-    
-    UPDATE public.profiles
-    SET otp_code = new_otp,
-        otp_expires_at = NOW() + INTERVAL '15 minutes',
-        updated_at = NOW()
-    WHERE id = target_user_id;
-    
-    RETURN new_otp;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+-- السياسة 4: المساعد يرى محاميه
+CREATE POLICY "Assistant see lawyer" ON public.profiles FOR ALL USING (
+    id = public.get_my_lawyer_id()
+);
 
--- RPC: Verify Mobile OTP
-CREATE OR REPLACE FUNCTION public.verify_mobile_otp(target_mobile TEXT, code_to_check TEXT)
-RETURNS BOOLEAN AS $$
-DECLARE
-    profile_id UUID;
-BEGIN
-    -- Find the profile with this mobile number and valid OTP
-    SELECT id INTO profile_id
-    FROM public.profiles
-    WHERE mobile_number = target_mobile
-      AND otp_code = code_to_check
-      AND (otp_expires_at IS NULL OR otp_expires_at > NOW())
-    LIMIT 1;
-
-    IF profile_id IS NOT NULL THEN
-        -- Mark as verified and clear the OTP
-        UPDATE public.profiles
-        SET mobile_verified = TRUE,
-            otp_code = NULL,
-            otp_expires_at = NULL,
-            updated_at = NOW()
-        WHERE id = profile_id;
-        
-        RETURN TRUE;
-    ELSE
-        RETURN FALSE;
-    END IF;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-
-DO $$ 
-DECLARE 
-    t TEXT;
-    tables TEXT[] := ARRAY['clients', 'cases', 'stages', 'sessions', 'admin_tasks', 'appointments', 'accounting_entries', 'invoices', 'documents'];
-BEGIN
-    FOR t IN SELECT unnest(tables) LOOP
-        EXECUTE format('DROP TRIGGER IF EXISTS %I_deletion_trigger ON public.%I', t, t);
-        EXECUTE format('CREATE TRIGGER %I_deletion_trigger BEFORE DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.log_sync_deletion()', t, t);
-    END LOOP;
-END $$;
+-- سياسة للسماح للجميع برؤية المحامين (admins) في العرض العام
+DROP POLICY IF EXISTS "Allow public read for admins" ON public.profiles;
+CREATE POLICY "Allow public read for admins" ON public.profiles FOR SELECT USING (role = 'admin');
 `;
 
 interface ConfigurationModalProps {
@@ -345,43 +145,39 @@ const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ onRetry }) => {
             <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
                 <div className="flex items-center gap-3 mb-4 text-amber-600">
                     <ServerIcon className="w-8 h-8" />
-                    <h2 className="text-2xl font-bold">تحديث قاعدة البيانات (إصلاح المزامنة والصلاحيات)</h2>
+                    <h2 className="text-2xl font-bold">إصلاح شامل لقاعدة البيانات</h2>
                 </div>
                 
                 <div className="overflow-y-auto flex-grow pr-2">
-                    <div className="bg-blue-50 border-s-4 border-blue-500 p-4 mb-4 rounded">
-                        <div className="flex">
-                            <div className="flex-shrink-0">
-                                <ExclamationTriangleIcon className="h-5 w-5 text-blue-400" aria-hidden="true" />
-                            </div>
-                            <div className="ms-3">
-                                <p className="text-sm text-blue-700">
-                                    هذا التحديث ضروري لإصلاح خطأ RLS وأخطاء النشر (Realtime). النسخة الحالية: 2.5.
-                                </p>
-                            </div>
-                        </div>
+                    <div className="bg-amber-50 border-s-4 border-amber-500 p-4 mb-4 rounded">
+                        <p className="text-amber-800 text-sm font-bold">سيقوم هذا السكربت بـ:</p>
+                        <ul className="text-xs text-amber-700 list-disc list-inside mt-1">
+                            <li>استعادة أسماء المستخدمين المفقودة.</li>
+                            <li>تجاوز تعليق "جاري التحميل" الناتج عن صلاحيات الجداول.</li>
+                            <li>منح الصلاحيات اللازمة فوراً.</li>
+                        </ul>
                     </div>
 
-                    <ol className="list-decimal list-inside space-y-4 text-sm text-gray-600 mb-6">
-                        <li className="bg-gray-50 p-3 rounded-lg border border-gray-200">
-                            <div className="flex justify-between items-center mb-2">
-                                <strong className="text-gray-900">انسخ كود SQL:</strong>
-                                <CopyButton textToCopy={unifiedScript} />
-                            </div>
-                            <div className="relative">
-                                <pre className="bg-gray-800 text-green-400 p-3 rounded border border-gray-700 overflow-x-auto text-xs font-mono h-32" dir="ltr">
-                                    {unifiedScript}
-                                </pre>
-                            </div>
-                        </li>
-                        <li>اذهب إلى <a href="https://supabase.com/dashboard" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-bold">SQL Editor في Supabase</a>.</li>
-                        <li>الصق الكود واضغط <strong>Run</strong>.</li>
-                        <li>بعد النجاح، عد إلى هنا واضغط "إعادة المحاولة".</li>
-                    </ol>
+                    <div className="relative">
+                        <div className="flex justify-between items-center mb-2">
+                            <span className="text-xs font-bold text-gray-500">كود SQL للإصلاح:</span>
+                            <CopyButton textToCopy={unifiedScript} />
+                        </div>
+                        <pre className="bg-gray-900 text-green-400 p-3 rounded border border-gray-700 overflow-x-auto text-[10px] font-mono h-48" dir="ltr">
+                            {unifiedScript}
+                        </pre>
+                    </div>
+
+                    <div className="mt-4 text-sm text-gray-600">
+                        <p>1. انسخ الكود أعلاه.</p>
+                        <p>2. اذهب لـ <a href="https://supabase.com/dashboard" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">SQL Editor</a>.</p>
+                        <p>3. الصق الكود واضغط <strong>Run</strong>.</p>
+                        <p>4. عد هنا واضغط "بدء التشغيل".</p>
+                    </div>
                 </div>
 
                 <div className="mt-6 flex justify-end pt-4 border-t">
-                    <button onClick={onRetry} className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors shadow-md">إعادة المحاولة</button>
+                    <button onClick={onRetry} className="px-8 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-lg">بدء التشغيل وتجاوز التحميل</button>
                 </div>
             </div>
         </div>

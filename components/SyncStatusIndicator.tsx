@@ -1,30 +1,42 @@
 import * as React from 'react';
-import { ArrowPathIcon, NoSymbolIcon, CheckCircleIcon, ExclamationCircleIcon } from './icons';
-import { SyncStatus } from '../hooks/useSync';
+import { ArrowPathIcon, NoSymbolIcon, CheckCircleIcon, ExclamationCircleIcon, ListBulletIcon } from './icons';
+import { SyncStatus, SyncLogEntry } from '../hooks/useSync';
+import SyncLogModal from './SyncLogModal';
 
 interface SyncStatusIndicatorProps {
     status: SyncStatus;
-    lastError: string | null;
-    lastSyncResult: string | null;
-    isDirty: boolean;
-    isOnline: boolean;
-    onManualSync: () => void;
-    isAutoSyncEnabled: boolean;
-    lastSyncedAt: Date | null;
+    last_error: string | null;
+    is_dirty: boolean;
+    is_online: boolean;
+    on_manual_sync: () => void;
+    is_auto_sync_enabled: boolean;
     className?: string;
+    sync_log?: SyncLogEntry[];
+    on_clear_log?: () => void;
 }
 
-const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({ status, lastError, lastSyncResult, isDirty, isOnline, onManualSync, isAutoSyncEnabled, lastSyncedAt, className = "" }) => {
+const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({ 
+    status, 
+    last_error, 
+    is_dirty, 
+    is_online, 
+    on_manual_sync, 
+    is_auto_sync_enabled, 
+    className = "",
+    sync_log = [],
+    on_clear_log = () => {}
+}) => {
+    const [isLogOpen, setIsLogOpen] = React.useState(false);
     
     let displayStatus;
-    if (!isOnline) {
+    if (!is_online) {
         displayStatus = {
             icon: <NoSymbolIcon className="w-5 h-5 text-gray-500" />,
             text: 'غير متصل',
             className: 'text-gray-500',
             title: 'أنت غير متصل بالإنترنت. التغييرات محفوظة محلياً.'
         };
-    } else if (!isAutoSyncEnabled && isDirty) {
+    } else if (!is_auto_sync_enabled && is_dirty) {
         displayStatus = {
             icon: <ArrowPathIcon className="w-5 h-5 text-yellow-600 animate-pulse" />,
             text: 'مزامنة يدوية مطلوبة',
@@ -57,16 +69,9 @@ const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({ status, lastE
             icon: <ExclamationCircleIcon className="w-5 h-5 text-red-500" />,
             text: 'فشل المزامنة',
             className: 'text-red-500',
-            title: `فشل المزامنة: ${lastError}`
+            title: `فشل المزامنة: ${last_error}`
         };
-    } else if (status === 'synced' && !isDirty) {
-        displayStatus = {
-            icon: <CheckCircleIcon className="w-5 h-5 text-green-500" />,
-            text: 'تمت المزامنة',
-            className: 'text-green-500',
-            title: 'جميع بياناتك محدثة.'
-        };
-    } else if (isDirty) {
+    } else if (is_dirty) {
          displayStatus = {
             icon: <ArrowPathIcon className="w-5 h-5 text-yellow-600" />,
             text: 'تغييرات غير محفوظة',
@@ -76,22 +81,18 @@ const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({ status, lastE
     } else {
         displayStatus = {
             icon: <CheckCircleIcon className="w-5 h-5 text-green-500" />,
-            text: 'تمت المزامنة',
+            text: 'متزامن',
             className: 'text-green-500',
             title: 'جميع بياناتك محدثة.'
         };
     }
 
-    const canSyncManually = isOnline && status !== 'syncing' && status !== 'loading' && status !== 'unconfigured' && status !== 'uninitialized';
-
-    const formatLastSynced = (date: Date) => {
-        return date.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
-    };
+    const canSyncManually = is_online && status !== 'syncing' && status !== 'loading' && status !== 'unconfigured' && status !== 'uninitialized';
 
     return (
-        <div className="flex flex-col items-end">
+        <div className="flex items-center gap-1">
             <button
-                onClick={canSyncManually ? onManualSync : undefined}
+                onClick={canSyncManually ? on_manual_sync : undefined}
                 disabled={!canSyncManually}
                 className={`flex items-center gap-2 text-sm font-semibold p-2 rounded-lg ${canSyncManually ? 'cursor-pointer hover:bg-gray-100' : 'cursor-default'} ${className}`}
                 title={displayStatus.title}
@@ -99,28 +100,23 @@ const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({ status, lastE
                 {displayStatus.icon}
                 <span className={`${displayStatus.className} hidden sm:inline`}>{displayStatus.text}</span>
             </button>
-            {status === 'error' && lastError && (
-                <div className="flex flex-col items-end">
-                    <span className="text-[10px] text-red-600 font-bold px-2 max-w-[200px] break-words text-left">
-                        {lastError}
-                    </span>
-                    {lastError.includes('صلاحيات') && (
-                        <span className="text-[9px] text-gray-500 px-2 mt-1">
-                            تأكد من ربط حساب المساعد بالمحامي في الإعدادات.
-                        </span>
-                    )}
-                </div>
+
+            {sync_log.length > 0 && (
+                <button
+                    onClick={() => setIsLogOpen(true)}
+                    className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
+                    title="عرض سجل المزامنة"
+                >
+                    <ListBulletIcon className="w-5 h-5" />
+                </button>
             )}
-            {status === 'synced' && lastSyncResult && !isDirty && (
-                <span className="text-[10px] text-green-600 font-bold px-2 max-w-[200px] break-words">
-                    {lastSyncResult}
-                </span>
-            )}
-            {lastSyncedAt && status !== 'error' && (!lastSyncResult || isDirty) && (
-                <span className="text-[10px] text-gray-400 -mt-1 px-2 hidden sm:block">
-                    آخر مزامنة: {formatLastSynced(lastSyncedAt)}
-                </span>
-            )}
+
+            <SyncLogModal 
+                isOpen={isLogOpen} 
+                onClose={() => setIsLogOpen(false)} 
+                logs={sync_log} 
+                onClear={on_clear_log} 
+            />
         </div>
     );
 };

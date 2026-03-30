@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { getDaysInMonth, getFirstDayOfMonth, isSameDay, isToday, isWeekend, getPublicHoliday } from '../utils/dateUtils';
+import { get_days_in_month, get_first_day_of_month, is_same_day, is_today, is_weekend, get_public_holiday } from '../utils/dateUtils';
 import { Session, Appointment } from '../types';
 import { ChevronLeftIcon } from './icons';
 
@@ -17,8 +17,8 @@ const Calendar: React.FC<CalendarProps> = ({ onDateSelect, selectedDate, session
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
 
-    const daysInMonth = getDaysInMonth(year, month);
-    const firstDay = getFirstDayOfMonth(year, month);
+    const daysInMonth = get_days_in_month(year, month);
+    const firstDay = get_first_day_of_month(year, month);
 
     const weekDays = ['ح', 'ن', 'ث', 'ر', 'خ', 'ج', 'س'];
 
@@ -39,8 +39,8 @@ const Calendar: React.FC<CalendarProps> = ({ onDateSelect, selectedDate, session
     };
 
     const getEventsCountForDay = (day: Date) => {
-        const sessionCount = sessions.filter(s => isSameDay(s.date, day)).length;
-        const appointmentCount = appointments.filter(a => isSameDay(a.date, day)).length;
+        const sessionCount = sessions.filter(s => is_same_day(s.date, day)).length;
+        const appointmentCount = appointments.filter(a => is_same_day(a.date, day)).length;
         return { sessionCount, appointmentCount };
     };
 
@@ -64,10 +64,10 @@ const Calendar: React.FC<CalendarProps> = ({ onDateSelect, selectedDate, session
                 {Array.from({ length: firstDay }).map((_, i) => <div key={`empty-${i}`} />)}
                 {daysInMonth.map(day => {
                     const { sessionCount, appointmentCount } = getEventsCountForDay(day);
-                    const isSelected = isSameDay(day, selectedDate);
-                    const isCurrentDay = isToday(day);
-                    const holidayName = getPublicHoliday(day);
-                    const isWknd = isWeekend(day);
+                    const isSelected = is_same_day(day, selectedDate);
+                    const isCurrentDay = is_today(day);
+                    const holidayName = get_public_holiday(day);
+                    const isWknd = is_weekend(day);
                     let title = holidayName || '';
                     
                     let dayClasses = "relative flex flex-col items-center justify-start pt-2 h-12 w-full rounded-full cursor-pointer transition-colors duration-200";

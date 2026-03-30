@@ -1,7 +1,7 @@
 
 import * as React from 'react';
 import { Session, Stage } from '../types';
-import { formatDate, isBeforeToday, isWeekend, getPublicHoliday, parseInputDateString } from '../utils/dateUtils';
+import { format_date, is_before_today, is_today, is_weekend, get_public_holiday, parse_input_date_string } from '../utils/dateUtils';
 import { PencilIcon, TrashIcon, ScaleIcon, GavelIcon } from './icons';
 
 interface SessionsTableProps {
@@ -22,7 +22,7 @@ const SessionsTable: React.FC<SessionsTableProps> = ({ sessions, onPostpone, onE
     const [postponeData, setPostponeData] = React.useState<Record<string, { date: string; reason: string }>>({});
     const [errors, setErrors] = React.useState<Record<string, string>>({});
     const [editingCell, setEditingCell] = React.useState<{ sessionId: string; field: keyof Session } | null>(null);
-    const [editValue, setEditValue] = React.useState<string | number | undefined>('');
+    const [edit_value, set_edit_value] = React.useState<string | number | undefined>('');
     const longPressTimer = React.useRef<number | null>(null);
 
     const handleTouchStart = (e: React.TouchEvent, session: Session) => {
@@ -71,7 +71,7 @@ const SessionsTable: React.FC<SessionsTableProps> = ({ sessions, onPostpone, onE
         }
 
         if (data && data.date && data.reason) {
-            const newDate = parseInputDateString(data.date);
+            const newDate = parse_input_date_string(data.date);
 
             if (!newDate) {
                 setErrors(prev => ({ ...prev, [sessionId]: "التاريخ المحدد غير صالح." }));
@@ -80,15 +80,16 @@ const SessionsTable: React.FC<SessionsTableProps> = ({ sessions, onPostpone, onE
             
             // Normalize dates to the beginning of the day for accurate comparison
             const newDateStart = new Date(newDate.getFullYear(), newDate.getMonth(), newDate.getDate());
-            const sessionDateStart = new Date(session.date.getFullYear(), session.date.getMonth(), session.date.getDate());
+            const sessionDate = new Date(session.date);
+            const sessionDateStart = new Date(sessionDate.getFullYear(), sessionDate.getMonth(), sessionDate.getDate());
 
             if (newDateStart <= sessionDateStart) {
                 setErrors(prev => ({ ...prev, [sessionId]: "تاريخ الجلسة القادمة يجب أن يكون بعد تاريخ الجلسة الحالية." }));
                 return;
             }
 
-            const holidayName = getPublicHoliday(newDate);
-            const isWknd = isWeekend(newDate);
+            const holidayName = get_public_holiday(newDate);
+            const isWknd = is_weekend(newDate);
 
             if (holidayName || isWknd) {
                 let warningMessage = `تنبيه: التاريخ الذي اخترته هو يوم عطلة`;
@@ -126,19 +127,19 @@ const SessionsTable: React.FC<SessionsTableProps> = ({ sessions, onPostpone, onE
     const handleCellClick = (session: Session, field: keyof Session) => {
         if (!onUpdate) return;
         const value = session[field];
-        if (typeof value === 'boolean' || value instanceof Date) {
+        if (typeof value === 'boolean') {
             return;
         }
         setEditingCell({ sessionId: session.id, field });
-        setEditValue(value);
+        set_edit_value(value);
     };
 
     const handleSaveEdit = () => {
         if (!editingCell || !onUpdate) return;
         
         const currentSession = sessions.find(s => s.id === editingCell.sessionId);
-        if (currentSession && currentSession[editingCell.field] !== editValue) {
-             onUpdate(editingCell.sessionId, { [editingCell.field]: editValue });
+        if (currentSession && currentSession[editingCell.field] !== edit_value) {
+             onUpdate(editingCell.sessionId, { [editingCell.field]: edit_value });
         }
        
         setEditingCell(null);
@@ -181,12 +182,16 @@ const SessionsTable: React.FC<SessionsTableProps> = ({ sessions, onPostpone, onE
                 </thead>
                 <tbody>
                     {sessions.map(s => {
-                        const isStageDecided = stage ? !!stage.decisionDate : !!s.stageDecisionDate;
+                        const isStageDecided = stage ? !!stage.decision_date : !!s.stage_decision_date;
+                        const isOverdue = is_before_today(s.date) && !s.is_postponed && !isStageDecided;
+                        const isUpcoming = !is_before_today(s.date) && !is_today(s.date) && !s.is_postponed && !isStageDecided;
+                        const isTodaySession = is_today(s.date) && !s.is_postponed && !isStageDecided;
+
                         // IMPORTANT: Only show postponement fields if onPostpone is provided AND other conditions met
-                        const showPostponeFields = !!onPostpone && !s.isPostponed && !isStageDecided && (!isBeforeToday(s.date) || allowPostponingPastSessions);
+                        const showPostponeFields = !!onPostpone && !s.is_postponed && !isStageDecided && (!is_before_today(s.date) || allowPostponingPastSessions);
                         const isEditing = (field: keyof Session) => onUpdate && editingCell?.sessionId === s.id && editingCell?.field === field;
                         const cellClasses = onUpdate ? "cursor-pointer hover:bg-blue-50 transition-colors duration-150" : "";
-                        const nextReasonCellClasses = (onUpdate && s.isPostponed) ? "cursor-pointer hover:bg-blue-50 transition-colors duration-150" : "";
+                        const nextReasonCellClasses = (onUpdate && s.is_postponed) ? "cursor-pointer hover:bg-blue-50 transition-colors duration-150" : "";
 
                         return (
                         <tr 
@@ -195,29 +200,37 @@ const SessionsTable: React.FC<SessionsTableProps> = ({ sessions, onPostpone, onE
                             onTouchStart={(e) => handleTouchStart(e, s)}
                             onTouchEnd={handleTouchEnd}
                             onTouchMove={handleTouchEnd}
-                            className={`bg-white border-b hover:bg-gray-50 ${editingCell?.sessionId === s.id ? 'bg-blue-50' : ''}`}
+                            className={`bg-white border-b hover:bg-gray-50 ${editingCell?.sessionId === s.id ? 'bg-blue-50' : ''} ${isOverdue ? 'bg-red-50/50' : ''}`}
                         >
                             <td className={`px-2 sm:px-6 py-4 ${cellClasses}`} onClick={() => !isEditing('court') && handleCellClick(s, 'court')}>
-                                {isEditing('court') ? <input type="text" value={editValue || ''} onChange={e => setEditValue(e.target.value)} onBlur={handleSaveEdit} onKeyDown={handleInputKeyDown} className="p-1 border rounded bg-white w-full" autoFocus /> : s.court}
+                                <div className="flex flex-col gap-1">
+                                    {isEditing('court') ? <input type="text" value={edit_value || ''} onChange={e => set_edit_value(e.target.value)} onBlur={handleSaveEdit} onKeyDown={handleInputKeyDown} className="p-1 border rounded bg-white w-full" autoFocus /> : s.court}
+                                    <div className="flex flex-wrap gap-1">
+                                        {s.is_postponed && <span className="px-1.5 py-0.5 bg-orange-100 text-orange-700 text-[10px] rounded-md font-bold">مؤجلة</span>}
+                                        {isOverdue && <span className="px-1.5 py-0.5 bg-red-100 text-red-700 text-[10px] rounded-md font-bold">غير مرحلة</span>}
+                                        {isUpcoming && <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-[10px] rounded-md font-bold">جلسة قادمة</span>}
+                                        {isTodaySession && <span className="px-1.5 py-0.5 bg-green-100 text-green-700 text-[10px] rounded-md font-bold">جلسة اليوم</span>}
+                                    </div>
+                                </div>
                             </td>
-                            <td className={`px-2 sm:px-6 py-4 ${cellClasses}`} onClick={() => !isEditing('caseNumber') && handleCellClick(s, 'caseNumber')}>
-                                {isEditing('caseNumber') ? <input type="text" value={editValue || ''} onChange={e => setEditValue(e.target.value)} onBlur={handleSaveEdit} onKeyDown={handleInputKeyDown} className="p-1 border rounded bg-white w-full" autoFocus /> : s.caseNumber}
+                            <td className={`px-2 sm:px-6 py-4 ${cellClasses}`} onClick={() => !isEditing('case_number') && handleCellClick(s, 'case_number')}>
+                                {isEditing('case_number') ? <input type="text" value={edit_value || ''} onChange={e => set_edit_value(e.target.value)} onBlur={handleSaveEdit} onKeyDown={handleInputKeyDown} className="p-1 border rounded bg-white w-full" autoFocus /> : s.case_number}
                             </td>
-                            {showSessionDate && <td className="px-2 sm:px-6 py-4">{formatDate(s.date)}</td>}
-                            <td className={`px-2 sm:px-6 py-4 ${cellClasses}`} onClick={() => !isEditing('clientName') && handleCellClick(s, 'clientName')}>
-                                {isEditing('clientName') ? <input type="text" value={editValue || ''} onChange={e => setEditValue(e.target.value)} onBlur={handleSaveEdit} onKeyDown={handleInputKeyDown} className="p-1 border rounded bg-white w-full" autoFocus /> : s.clientName}
+                            {showSessionDate && <td className="px-2 sm:px-6 py-4">{format_date(s.date)}</td>}
+                            <td className={`px-2 sm:px-6 py-4 ${cellClasses}`} onClick={() => !isEditing('client_name') && handleCellClick(s, 'client_name')}>
+                                {isEditing('client_name') ? <input type="text" value={edit_value || ''} onChange={e => set_edit_value(e.target.value)} onBlur={handleSaveEdit} onKeyDown={handleInputKeyDown} className="p-1 border rounded bg-white w-full" autoFocus /> : s.client_name}
                             </td>
-                            <td className={`px-2 sm:px-6 py-4 ${cellClasses}`} onClick={() => !isEditing('opponentName') && handleCellClick(s, 'opponentName')}>
-                                {isEditing('opponentName') ? <input type="text" value={editValue || ''} onChange={e => setEditValue(e.target.value)} onBlur={handleSaveEdit} onKeyDown={handleInputKeyDown} className="p-1 border rounded bg-white w-full" autoFocus /> : s.opponentName}
+                            <td className={`px-2 sm:px-6 py-4 ${cellClasses}`} onClick={() => !isEditing('opponent_name') && handleCellClick(s, 'opponent_name')}>
+                                {isEditing('opponent_name') ? <input type="text" value={edit_value || ''} onChange={e => set_edit_value(e.target.value)} onBlur={handleSaveEdit} onKeyDown={handleInputKeyDown} className="p-1 border rounded bg-white w-full" autoFocus /> : s.opponent_name}
                             </td>
                             <td className={`px-2 sm:px-6 py-4 ${cellClasses}`} onClick={() => !isEditing('assignee') && handleCellClick(s, 'assignee')}>
-                                {isEditing('assignee') ? <select value={editValue || 'بدون تخصيص'} onChange={e => setEditValue(e.target.value)} onBlur={handleSaveEdit} onKeyDown={handleInputKeyDown} className="p-1 border rounded bg-white w-full" autoFocus>{assistants?.map(a => <option key={a} value={a}>{a}</option>)}</select> : (s.assignee || '-')}
+                                {isEditing('assignee') ? <select value={edit_value || 'بدون تخصيص'} onChange={e => set_edit_value(e.target.value)} onBlur={handleSaveEdit} onKeyDown={handleInputKeyDown} className="p-1 border rounded bg-white w-full" autoFocus>{assistants?.map((a, index) => <option key={`${a}-${index}`} value={a}>{a}</option>)}</select> : (s.assignee || '-')}
                             </td>
-                            <td className={`px-2 sm:px-6 py-4 ${isStageDecided ? '' : cellClasses}`} onClick={() => !isEditing('postponementReason') && !isStageDecided && handleCellClick(s, 'postponementReason')}>
-                                {isEditing('postponementReason') && !isStageDecided ? (
-                                    <input type="text" value={editValue || ''} onChange={e => setEditValue(e.target.value)} onBlur={handleSaveEdit} onKeyDown={handleInputKeyDown} className="p-1 border rounded bg-white w-full" autoFocus />
+                            <td className={`px-2 sm:px-6 py-4 ${isStageDecided ? '' : cellClasses}`} onClick={() => !isEditing('postponement_reason') && !isStageDecided && handleCellClick(s, 'postponement_reason')}>
+                                {isEditing('postponement_reason') && !isStageDecided ? (
+                                    <input type="text" value={edit_value || ''} onChange={e => set_edit_value(e.target.value)} onBlur={handleSaveEdit} onKeyDown={handleInputKeyDown} className="p-1 border rounded bg-white w-full" autoFocus />
                                 ) : (
-                                    s.postponementReason || 'لا يوجد'
+                                    s.postponement_reason || 'لا يوجد'
                                 )}
                             </td>
                             
@@ -264,9 +277,9 @@ const SessionsTable: React.FC<SessionsTableProps> = ({ sessions, onPostpone, onE
                                 </>
                             ) : (
                                 <>
-                                    <td className="px-2 sm:px-6 py-4 text-center">{s.nextSessionDate ? formatDate(s.nextSessionDate) : '-'}</td>
-                                    <td className={`px-2 sm:px-6 py-4 ${nextReasonCellClasses}`} onClick={() => !isEditing('nextPostponementReason') && s.isPostponed && handleCellClick(s, 'nextPostponementReason')}>
-                                        {isEditing('nextPostponementReason') ? <input type="text" value={editValue || ''} onChange={e => setEditValue(e.target.value)} onBlur={handleSaveEdit} onKeyDown={handleInputKeyDown} className="p-1 border rounded bg-white w-full" autoFocus /> : (s.nextPostponementReason || '-')}
+                                    <td className="px-2 sm:px-6 py-4 text-center">{s.next_session_date ? format_date(s.next_session_date) : '-'}</td>
+                                    <td className={`px-2 sm:px-6 py-4 ${nextReasonCellClasses}`} onClick={() => !isEditing('next_postponement_reason') && s.is_postponed && handleCellClick(s, 'next_postponement_reason')}>
+                                        {isEditing('next_postponement_reason') ? <input type="text" value={edit_value || ''} onChange={e => set_edit_value(e.target.value)} onBlur={handleSaveEdit} onKeyDown={handleInputKeyDown} className="p-1 border rounded bg-white w-full" autoFocus /> : (s.next_postponement_reason || '-')}
                                     </td>
                                     <td className="px-2 sm:px-6 py-4 text-center">
                                        {(onEdit || onDelete) ? (

@@ -44,7 +44,7 @@ export interface Permissions {
     can_view_reports: boolean;
 }
 
-export const defaultPermissions: Permissions = {
+export const default_permissions: Permissions = {
     // Default restricted permissions for a new assistant
     can_view_agenda: true,
 
@@ -83,67 +83,73 @@ export const defaultPermissions: Permissions = {
 };
 
 export interface Profile {
-  id: string; // uuid
+  id: string;
   full_name: string;
   mobile_number: string;
   is_approved: boolean;
   is_active: boolean;
-  mobile_verified?: boolean; 
-  otp_code?: string | null; 
-  otp_expires_at?: string | null; 
-  subscription_start_date: string | null; // ISO string
-  subscription_end_date: string | null; // ISO string
+  mobile_verified?: boolean;
+  subscription_start_date: string | null;
+  subscription_end_date: string | null;
   role: 'user' | 'admin';
-  lawyer_id?: string | null; // ID of the lawyer this user assists
-  permissions?: Permissions; // Granular permissions
-  created_at?: string; // ISO string
-  updated_at?: Date;
+  permissions?: Permissions | null;
+  role_id?: string | null;
+  lawyer_id?: string | null;
+  verification_code?: string | null;
+  otp_code?: string | null;
+  otp_expires_at?: string | null;
+  parent_id?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  admin_tasks_layout?: 'vertical' | 'horizontal';
 }
 
 
 export interface Session {
   id: string;
   court: string;
-  caseNumber: string;
-  date: Date;
-  clientName: string;
-  opponentName: string;
-  postponementReason?: string;
-  nextPostponementReason?: string;
-  isPostponed: boolean;
-  nextSessionDate?: Date;
+  case_number: string;
+  date: string;
+  client_name: string;
+  opponent_name: string;
+  postponement_reason?: string;
+  next_postponement_reason?: string;
+  is_postponed: boolean;
+  next_session_date?: string;
   assignee?: string;
   // For contextual rendering in flat lists
-  stageId?: string;
-  stageDecisionDate?: Date;
-  updated_at?: Date;
+  stage_id?: string;
+  stage_decision_date?: string;
+  updated_at?: string;
   user_id?: string;
 }
 
 export interface Stage {
   id: string;
   court: string;
-  caseNumber: string;
-  firstSessionDate?: Date;
+  case_number: string;
+  first_session_date?: string;
   sessions: Session[];
-  decisionDate?: Date;
-  decisionNumber?: string;
-  decisionSummary?: string;
-  decisionNotes?: string;
-  updated_at?: Date;
+  decision_date?: string;
+  decision_number?: string;
+  decision_summary?: string;
+  decision_notes?: string;
+  updated_at?: string;
   user_id?: string;
+  case_id?: string;
 }
 
 export interface Case {
   id: string;
   subject: string;
-  clientName: string;
-  opponentName: string;
+  client_name: string;
+  opponent_name: string;
   stages: Stage[];
-  feeAgreement: string;
+  fee_agreement: string;
   status: 'active' | 'closed' | 'on_hold';
-  updated_at?: Date;
+  updated_at?: string;
   user_id?: string;
+  client_id: string;
 }
 
 export interface Client {
@@ -151,34 +157,34 @@ export interface Client {
   name: string;
   contact_info: string;
   cases: Case[];
-  updated_at?: Date;
+  updated_at?: string;
   user_id?: string;
 }
 
 export interface AdminTask {
     id: string;
+    user_id?: string;
     task: string;
-    dueDate: Date;
+    due_date: string;
     completed: boolean;
     importance: 'normal' | 'important' | 'urgent';
     assignee?: string;
     location?: string;
-    updated_at?: Date;
-    orderIndex?: number;
-    user_id?: string;
+    updated_at?: string;
+    order_index?: number;
 }
 
 export interface Appointment {
     id: string;
     title: string;
     time: string;
-    date: Date;
+    date: string;
     importance: 'normal' | 'important' | 'urgent';
     completed: boolean;
     notified?: boolean;
-    reminderTimeInMinutes?: number;
+    reminder_time_in_minutes?: number;
     assignee?: string;
-    updated_at?: Date;
+    updated_at?: string;
     user_id?: string;
 }
 
@@ -186,36 +192,38 @@ export interface AccountingEntry {
     id: string;
     type: 'income' | 'expense';
     amount: number;
-    date: Date;
+    date: string;
     description: string;
-    clientId: string;
-    caseId: string;
-    clientName: string;
-    updated_at?: Date;
+    client_id: string;
+    case_id: string;
+    client_name: string;
+    updated_at?: string;
     user_id?: string;
 }
 
 export interface InvoiceItem {
   id: string;
+  invoice_id?: string;
   description: string;
   amount: number;
-  updated_at?: Date;
+  updated_at?: string;
+  user_id?: string;
 }
 
 export interface Invoice {
   id: string; // e.g., INV-2024-001
-  clientId: string;
-  clientName: string;
-  caseId?: string;
-  caseSubject?: string;
-  issueDate: Date;
-  dueDate: Date;
+  client_id: string;
+  client_name: string;
+  case_id?: string;
+  case_subject?: string;
+  issue_date: string;
+  due_date: string;
   items: InvoiceItem[];
-  taxRate: number; // Percentage, e.g., 14 for 14%
+  tax_rate: number; // Percentage, e.g., 14 for 14%
   discount: number; // Fixed amount
   status: 'draft' | 'sent' | 'paid' | 'overdue';
   notes?: string;
-  updated_at?: Date;
+  updated_at?: string;
   user_id?: string;
 }
 
@@ -229,32 +237,32 @@ export interface SiteFinancialEntry {
   payment_method: string | null;
   category?: string | null;
   profile_full_name?: string;
-  updated_at?: Date;
+  updated_at?: string;
 }
 
 export interface CaseDocument {
   id: string;
-  caseId: string;
-  userId: string;
+  case_id: string;
+  user_id: string;
   name: string;
   type: string;
   size: number;
-  addedAt: Date;
-  storagePath: string; // e.g., 'user-uuid/case-id/doc-id-filename.pdf'
-  localState: 'synced' | 'pending_upload' | 'pending_download' | 'error' | 'downloading';
-  updated_at?: Date;
+  added_at: string;
+  storage_path: string; // e.g., 'user-uuid/case-id/doc-id-filename.pdf'
+  local_state: 'synced' | 'pending_upload' | 'pending_download' | 'error' | 'downloading';
+  updated_at?: string;
 }
 
 export interface AppData {
     clients: Client[];
-    adminTasks: AdminTask[];
+    admin_tasks: AdminTask[];
     appointments: Appointment[];
-    accountingEntries: AccountingEntry[];
+    accounting_entries: AccountingEntry[];
     invoices: Invoice[];
     assistants: string[];
     documents: CaseDocument[];
     profiles: Profile[];
-    siteFinances: SiteFinancialEntry[];
+    site_finances: SiteFinancialEntry[];
 }
 
 export interface DeletedIds {
@@ -262,16 +270,16 @@ export interface DeletedIds {
     cases: string[];
     stages: string[];
     sessions: string[];
-    adminTasks: string[];
+    admin_tasks: string[];
     appointments: string[];
-    accountingEntries: string[];
+    accounting_entries: string[];
     invoices: string[];
-    invoiceItems: string[];
+    invoice_items: string[];
     assistants: string[];
     documents: string[];
-    documentPaths: string[];
+    document_paths: string[];
     profiles: string[];
-    siteFinances: string[];
+    site_finances: string[];
 }
 
 export interface SyncDeletion {
@@ -282,6 +290,6 @@ export interface SyncDeletion {
     deleted_at: string;
 }
 
-export const getInitialDeletedIds = (): DeletedIds => ({
-    clients: [], cases: [], stages: [], sessions: [], adminTasks: [], appointments: [], accountingEntries: [], invoices: [], invoiceItems: [], assistants: [], documents: [], documentPaths: [], profiles: [], siteFinances: []
+export const get_initial_deleted_ids = (): DeletedIds => ({
+    clients: [], cases: [], stages: [], sessions: [], admin_tasks: [], appointments: [], accounting_entries: [], invoices: [], invoice_items: [], assistants: [], documents: [], document_paths: [], profiles: [], site_finances: []
 });

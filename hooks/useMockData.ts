@@ -4,97 +4,121 @@ import { Client, AdminTask, Appointment, AccountingEntry, Invoice, Case, Stage, 
 export const mockAssistants: string[] = ['أحمد', 'فاطمة', 'سارة', 'بدون تخصيص'];
 
 const today = new Date();
-const createDate = (daysOffset: number = 0, hours: number = 0, minutes: number = 0): Date => {
+const createDate = (daysOffset: number = 0, hours: number = 0, minutes: number = 0): string => {
     const date = new Date(today);
     date.setDate(date.getDate() + daysOffset);
     date.setHours(hours, minutes, 0, 0);
-    return date;
+    return date.toISOString();
 };
 
 // --- Mock Sessions ---
 const session1_1_1: Session = {
     id: 'session-1',
     court: 'محكمة البداية المدنية الأولى',
-    caseNumber: '123/2023',
+    case_number: '123/2023',
     date: createDate(-10),
-    clientName: 'عبد الرحمن قضماني',
-    opponentName: 'شركة الإسكان الحديثة',
-    isPostponed: true,
-    postponementReason: 'لتقديم المستندات',
-    nextSessionDate: createDate(5),
-    nextPostponementReason: 'لإبراز الوكالة',
+    client_name: 'عبد الرحمن قضماني',
+    opponent_name: 'شركة الإسكان الحديثة',
+    is_postponed: true,
+    postponement_reason: 'لتقديم المستندات',
+    next_session_date: createDate(5),
+    next_postponement_reason: 'لإبراز الوكالة',
     assignee: 'أحمد',
+    updated_at: new Date().toISOString(),
+    user_id: 'u1',
+    stage_id: 'stage-1'
 };
 
 const session1_1_2: Session = {
     id: 'session-2',
     court: 'محكمة البداية المدنية الأولى',
-    caseNumber: '123/2023',
+    case_number: '123/2023',
     date: createDate(5),
-    clientName: 'عبد الرحمن قضماني',
-    opponentName: 'شركة الإسكان الحديثة',
-    isPostponed: false,
-    postponementReason: 'لإبراز الوكالة',
+    client_name: 'عبد الرحمن قضماني',
+    opponent_name: 'شركة الإسكان الحديثة',
+    is_postponed: false,
+    postponement_reason: 'لإبراز الوكالة',
     assignee: 'أحمد',
+    updated_at: new Date().toISOString(),
+    user_id: 'u1',
+    stage_id: 'stage-1'
 };
 
 const session2_1_1: Session = {
     id: 'session-3',
     court: 'محكمة العمل',
-    caseNumber: '45/2024',
+    case_number: '45/2024',
     date: createDate(2),
-    clientName: 'فاطمة الزهراء',
-    opponentName: 'المؤسسة التجارية المتحدة',
-    isPostponed: false,
+    client_name: 'فاطمة الزهراء',
+    opponent_name: 'المؤسسة التجارية المتحدة',
+    is_postponed: false,
     assignee: 'فاطمة',
+    updated_at: new Date().toISOString(),
+    user_id: 'u1',
+    stage_id: 'stage-2'
 };
 
 // --- Mock Stages ---
 const stage1_1: Stage = {
     id: 'stage-1',
     court: 'محكمة البداية المدنية الأولى',
-    caseNumber: '123/2023',
-    firstSessionDate: createDate(-10),
-    sessions: [session1_1_1, session1_1_2],
+    case_number: '123/2023',
+    first_session_date: createDate(-10),
+    sessions: [],
+    updated_at: new Date().toISOString(),
+    user_id: 'u1',
+    case_id: 'case-1'
 };
 
 const stage2_1: Stage = {
     id: 'stage-2',
     court: 'محكمة العمل',
-    caseNumber: '45/2024',
-    firstSessionDate: createDate(2),
-    sessions: [session2_1_1],
+    case_number: '45/2024',
+    first_session_date: createDate(2),
+    sessions: [],
+    updated_at: new Date().toISOString(),
+    user_id: 'u1',
+    case_id: 'case-2'
 };
 
 // --- Mock Cases ---
 const case1: Case = {
     id: 'case-1',
+    client_id: 'client-1',
     subject: 'نزاع عقاري على ملكية',
-    clientName: 'عبد الرحمن قضماني',
-    opponentName: 'شركة الإسكان الحديثة',
-    stages: [stage1_1],
-    feeAgreement: '10% من قيمة العقار عند الحكم النهائي',
+    client_name: 'عبد الرحمن قضماني',
+    opponent_name: 'شركة الإسكان الحديثة',
+    fee_agreement: '10% من قيمة العقار عند الحكم النهائي',
     status: 'active',
+    stages: [],
+    updated_at: new Date().toISOString(),
+    user_id: 'u1'
 };
 
 const case2: Case = {
     id: 'case-2',
+    client_id: 'client-2',
     subject: 'قضية عمالية - فصل تعسفي',
-    clientName: 'فاطمة الزهراء',
-    opponentName: 'المؤسسة التجارية المتحدة',
-    stages: [stage2_1],
-    feeAgreement: '500,000 ل.س مقدماً و 1,000,000 ل.س عند صدور الحكم',
+    client_name: 'فاطمة الزهراء',
+    opponent_name: 'المؤسسة التجارية المتحدة',
+    fee_agreement: '500,000 ل.س مقدماً و 1,000,000 ل.س عند صدور الحكم',
     status: 'active',
+    stages: [],
+    updated_at: new Date().toISOString(),
+    user_id: 'u1'
 };
 
 const case3: Case = {
     id: 'case-3',
+    client_id: 'client-1',
     subject: 'قضية إيجارية مغلقة',
-    clientName: 'عبد الرحمن قضماني',
-    opponentName: 'مستأجر سابق',
-    stages: [],
-    feeAgreement: 'مبلغ مقطوع 250,000 ل.س',
+    client_name: 'عبد الرحمن قضماني',
+    opponent_name: 'مستأجر سابق',
+    fee_agreement: 'مبلغ مقطوع 250,000 ل.س',
     status: 'closed',
+    stages: [],
+    updated_at: new Date().toISOString(),
+    user_id: 'u1'
 };
 
 
@@ -104,19 +128,25 @@ export const mockClients: Client[] = [
         id: 'client-1',
         name: 'عبد الرحمن قضماني',
         contact_info: '0987654321 - a.kadmani@email.com',
-        cases: [case1, case3],
+        cases: [],
+        updated_at: new Date().toISOString(),
+        user_id: 'u1'
     },
     {
         id: 'client-2',
         name: 'فاطمة الزهراء',
         contact_info: '0912345678 - fatima.z@email.com',
-        cases: [case2],
+        cases: [],
+        updated_at: new Date().toISOString(),
+        user_id: 'u1'
     },
      {
         id: 'client-3',
         name: 'محمد الشامي',
         contact_info: '0933445566',
         cases: [],
+        updated_at: new Date().toISOString(),
+        user_id: 'u1'
     },
 ];
 
@@ -125,29 +155,38 @@ export const mockAdminTasks: AdminTask[] = [
     {
         id: 'task-1',
         task: 'مراجعة السجل العقاري بخصوص القضية رقم 123/2023',
-        dueDate: createDate(1),
+        due_date: createDate(1),
         completed: false,
         importance: 'important',
         assignee: 'أحمد',
-        location: 'السجل العقاري'
+        location: 'السجل العقاري',
+        updated_at: new Date().toISOString(),
+        user_id: 'u1',
+        order_index: 0
     },
     {
         id: 'task-2',
         task: 'تحضير لائحة الرد على قضية الفصل التعسفي',
-        dueDate: createDate(3),
+        due_date: createDate(3),
         completed: false,
         importance: 'urgent',
         assignee: 'فاطمة',
-        location: 'المكتب'
+        location: 'المكتب',
+        updated_at: new Date().toISOString(),
+        user_id: 'u1',
+        order_index: 1
     },
     {
         id: 'task-3',
         task: 'شراء مستلزمات مكتبية',
-        dueDate: createDate(-2),
+        due_date: createDate(-2),
         completed: true,
         importance: 'normal',
         assignee: 'سارة',
-        location: 'خارج المكتب'
+        location: 'خارج المكتب',
+        updated_at: new Date().toISOString(),
+        user_id: 'u1',
+        order_index: 2
     },
 ];
 
@@ -161,8 +200,10 @@ export const mockAppointments: Appointment[] = [
         importance: 'important',
         assignee: 'أحمد',
         completed: false,
-        reminderTimeInMinutes: 15,
+        reminder_time_in_minutes: 15,
         notified: false,
+        updated_at: new Date().toISOString(),
+        user_id: 'u1'
     },
     {
         id: 'apt-2',
@@ -172,8 +213,10 @@ export const mockAppointments: Appointment[] = [
         importance: 'normal',
         assignee: 'فاطمة',
         completed: true,
-        reminderTimeInMinutes: 30,
+        reminder_time_in_minutes: 30,
         notified: true,
+        updated_at: new Date().toISOString(),
+        user_id: 'u1'
     },
 ];
 
@@ -185,9 +228,11 @@ export const mockAccountingEntries: AccountingEntry[] = [
         amount: 500000,
         date: createDate(-20),
         description: 'دفعة مقدمة - قضية فصل تعسفي',
-        clientId: 'client-2',
-        caseId: 'case-2',
-        clientName: 'فاطمة الزهراء',
+        client_id: 'client-2',
+        case_id: 'case-2',
+        client_name: 'فاطمة الزهراء',
+        updated_at: new Date().toISOString(),
+        user_id: 'u1'
     },
     {
         id: 'acc-2',
@@ -195,9 +240,11 @@ export const mockAccountingEntries: AccountingEntry[] = [
         amount: 25000,
         date: createDate(-15),
         description: 'رسوم قضائية - قضية نزاع عقاري',
-        clientId: 'client-1',
-        caseId: 'case-1',
-        clientName: 'عبد الرحمن قضماني',
+        client_id: 'client-1',
+        case_id: 'case-1',
+        client_name: 'عبد الرحمن قضماني',
+        updated_at: new Date().toISOString(),
+        user_id: 'u1'
     },
      {
         id: 'acc-3',
@@ -205,32 +252,36 @@ export const mockAccountingEntries: AccountingEntry[] = [
         amount: 15000,
         date: createDate(-5),
         description: 'مصاريف تنقلات للمحكمة',
-        clientId: '',
-        caseId: '',
-        clientName: 'مصاريف عامة',
+        client_id: '',
+        case_id: '',
+        client_name: 'مصاريف عامة',
+        updated_at: new Date().toISOString(),
+        user_id: 'u1'
     },
 ];
 
 // --- Mock Invoices ---
 const invoice1Items: InvoiceItem[] = [
-    { id: 'invitem-1', description: 'أتعاب محاماة - الدفعة الأولى', amount: 250000 },
-    { id: 'invitem-2', description: 'رسوم ومصاريف قضائية', amount: 35000 },
+    { id: 'invitem-1', description: 'أتعاب محاماة - الدفعة الأولى', amount: 250000, updated_at: new Date().toISOString(), user_id: 'u1', invoice_id: 'INV-2024-001' },
+    { id: 'invitem-2', description: 'رسوم ومصاريف قضائية', amount: 35000, updated_at: new Date().toISOString(), user_id: 'u1', invoice_id: 'INV-2024-001' },
 ];
 
 export const mockInvoices: Invoice[] = [
     {
         id: 'INV-2024-001',
-        clientId: 'client-1',
-        clientName: 'عبد الرحمن قضماني',
-        caseId: 'case-1',
-        caseSubject: 'نزاع عقاري على ملكية',
-        issueDate: createDate(-5),
-        dueDate: createDate(10),
+        client_id: 'client-1',
+        client_name: 'عبد الرحمن قضماني',
+        case_id: 'case-1',
+        case_subject: 'نزاع عقاري على ملكية',
+        issue_date: createDate(-5),
+        due_date: createDate(10),
         items: invoice1Items,
-        taxRate: 0,
+        tax_rate: 0,
         discount: 10000,
         status: 'sent',
-        notes: 'يرجى سداد المبلغ قبل تاريخ الاستحقاق.'
+        notes: 'يرجى سداد المبلغ قبل تاريخ الاستحقاق.',
+        updated_at: new Date().toISOString(),
+        user_id: 'u1'
     }
 ];
 

@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Client, AccountingEntry, Case } from '../types';
-import { formatDate } from '../utils/dateUtils';
+import { format_date } from '../utils/dateUtils';
 
 interface PrintableClientReportProps {
     client: Client;
@@ -57,10 +57,10 @@ const PrintableClientReport: React.FC<PrintableClientReportProps> = ({ client, c
                             </thead>
                             <tbody>
                                 {entries.map(entry => {
-                                    const relatedCase = client.cases.find(c => c.id === entry.caseId);
+                                    const relatedCase = client.cases.find(c => c.id === entry.case_id);
                                     return (
                                         <tr key={entry.id} className="bg-white border-b">
-                                            <td className="px-4 py-3">{formatDate(entry.date)}</td>
+                                            <td className="px-4 py-3">{format_date(entry.date)}</td>
                                             <td className="px-4 py-3">{entry.description}</td>
                                             <td className="px-4 py-3">{relatedCase?.subject || 'عام'}</td>
                                             <td className="px-4 py-3 font-semibold text-green-600">

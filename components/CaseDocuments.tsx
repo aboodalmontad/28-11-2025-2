@@ -4,13 +4,12 @@ import { useData } from '../context/DataContext';
 import { CaseDocument } from '../types';
 import { DocumentArrowUpIcon, TrashIcon, DocumentTextIcon, XMarkIcon, ExclamationTriangleIcon, ArrowPathIcon, CameraIcon, CloudArrowUpIcon, CloudArrowDownIcon, CheckCircleIcon, ExclamationCircleIcon, ArrowDownTrayIcon, MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon, ArrowsPointingOutIcon, ArrowTopRightOnSquareIcon } from './icons';
 import { renderAsync } from 'docx-preview';
-import { getFriendlyErrorMessage } from '../hooks/useOnlineData';
 
 interface CaseDocumentsProps {
     caseId: string;
 }
 
-const SyncStatusIcon: React.FC<{ state: CaseDocument['localState'] }> = ({ state }) => {
+const SyncStatusIcon: React.FC<{ state: CaseDocument['local_state'] }> = ({ state }) => {
     switch (state) {
         case 'synced':
             return <CheckCircleIcon className="w-5 h-5 text-green-500" title="تمت المزامنة" />;
@@ -31,19 +30,19 @@ const SyncStatusIcon: React.FC<{ state: CaseDocument['localState'] }> = ({ state
 const FilePreview: React.FC<{ doc: CaseDocument, onPreview: (doc: CaseDocument) => void, onDelete: (doc: CaseDocument) => void }> = ({ doc, onPreview, onDelete }) => {
     const [thumbnailUrl, setThumbnailUrl] = React.useState<string | null>(null);
     const [isLoadingThumbnail, setIsLoadingThumbnail] = React.useState(false);
-    const { getDocumentFile } = useData();
+    const { get_document_file } = useData();
 
     React.useEffect(() => {
         let objectUrl: string | null = null;
         let isMounted = true;
         const generateThumbnail = async () => {
-            if (doc.localState === 'pending_download' || !doc.type.startsWith('image/')) {
+            if (doc.local_state === 'pending_download' || !doc.type.startsWith('image/')) {
                  setIsLoadingThumbnail(false);
                  return;
             }
 
             setIsLoadingThumbnail(true);
-            const file = await getDocumentFile(doc.id);
+            const file = await get_document_file(doc.id);
             if (!file || !isMounted) {
                 setIsLoadingThumbnail(false);
                 return;
@@ -64,7 +63,7 @@ const FilePreview: React.FC<{ doc: CaseDocument, onPreview: (doc: CaseDocument) 
                 URL.revokeObjectURL(objectUrl);
             }
         };
-    }, [doc.id, doc.type, doc.localState, getDocumentFile]);
+    }, [doc.id, doc.type, doc.local_state, get_document_file]);
     
     return (
         <div className="relative group border rounded-lg overflow-hidden bg-gray-50 flex flex-col aspect-w-1 aspect-h-1">
@@ -74,7 +73,7 @@ const FilePreview: React.FC<{ doc: CaseDocument, onPreview: (doc: CaseDocument) 
                 </button>
             </div>
              <div className="absolute top-2 left-2 z-10">
-                <SyncStatusIcon state={doc.localState} />
+                <SyncStatusIcon state={doc.local_state} />
             </div>
             <div 
                 className="flex-grow flex items-center justify-center cursor-pointer overflow-hidden"
@@ -218,7 +217,7 @@ const ImageViewer: React.FC<{ src: string; name: string }> = ({ src, name }) => 
 };
 
 const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ doc, onClose }) => {
-    const { getDocumentFile, documents } = useData();
+    const { get_document_file, documents } = useData();
     const [file, setFile] = React.useState<File | null>(null);
     const [objectUrl, setObjectUrl] = React.useState<string | null>(null);
     const [error, setError] = React.useState<string | null>(null);
@@ -232,14 +231,14 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
             setIsLoading(true);
             setError(null);
             try {
-                const retrievedFile = await getDocumentFile(doc.id);
+                const retrievedFile = await get_document_file(doc.id);
                 
                 if (retrievedFile) {
                     setFile(retrievedFile);
                     url = URL.createObjectURL(retrievedFile);
                     setObjectUrl(url);
                 } else {
-                    const latestDocState = documents.find(d => d.id === doc.id)?.localState;
+                    const latestDocState = documents.find(d => d.id === doc.id)?.local_state;
                     if (latestDocState === 'error') {
                         setError('فشل تنزيل الملف. تحقق من الاتصال.');
                     } else {
@@ -247,7 +246,7 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
                     }
                 }
             } catch (e: any) {
-                setError(getFriendlyErrorMessage(e, 'حدث خطأ غير متوقع أثناء تحميل الملف.'));
+                setError('خطأ غير متوقع: ' + e.message);
             } finally {
                 setIsLoading(false);
             }
@@ -258,7 +257,7 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
         return () => {
             if (url) URL.revokeObjectURL(url);
         };
-    }, [doc.id, getDocumentFile]);
+    }, [doc.id, get_document_file]);
 
     const handleDownload = () => {
         if (objectUrl) {
@@ -296,7 +295,7 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
             );
         }
 
-        if (currentDoc.localState === 'downloading') {
+        if (currentDoc.local_state === 'downloading') {
             return (
                 <div className="flex flex-col items-center justify-center h-full text-white">
                     <CloudArrowDownIcon className="w-12 h-12 text-blue-500 animate-spin mb-4" />
@@ -525,7 +524,7 @@ const DocumentScannerModal: React.FC<{ onClose: () => void; onCapture: (file: Fi
 
 
 const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
-    const { documents, addDocuments, deleteDocument, getDocumentFile } = useData();
+    const { documents, add_documents, delete_document, get_document_file } = useData();
     const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false);
     const [docToDelete, setDocToDelete] = React.useState<CaseDocument | null>(null);
     const [previewDoc, setPreviewDoc] = React.useState<CaseDocument | null>(null);
@@ -534,19 +533,19 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
     const fileInputRef = React.useRef<HTMLInputElement>(null);
 
     const caseDocuments = React.useMemo(() => 
-        documents.filter(doc => doc.caseId === caseId).sort((a,b) => b.addedAt.getTime() - a.addedAt.getTime()), 
+        documents.filter(doc => doc.case_id === caseId).sort((a,b) => new Date(b.added_at).getTime() - new Date(a.added_at).getTime()), 
         [documents, caseId]
     );
 
     const handleFileChange = async (files: FileList | null) => {
         if (files && files.length > 0) {
             try {
-                await addDocuments(caseId, files);
+                await add_documents(caseId, files);
                 if (fileInputRef.current) {
                     fileInputRef.current.value = '';
                 }
             } catch (err: any) {
-                alert(`فشل في إضافة الوثائق: ${getFriendlyErrorMessage(err)}`);
+                alert(`فشل في إضافة الوثائق: ${err.message}`);
             }
         }
     };
@@ -578,9 +577,9 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
     const confirmDelete = async () => {
         if (docToDelete) {
             try {
-                await deleteDocument(docToDelete);
+                await delete_document(docToDelete);
             } catch (err: any) {
-                alert(`فشل في حذف الوثيقة: ${getFriendlyErrorMessage(err)}`);
+                alert(`فشل في حذف الوثيقة: ${err.message}`);
             }
         }
         setIsDeleteModalOpen(false);
@@ -591,9 +590,9 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
         const fileList = new DataTransfer();
         fileList.items.add(file);
         try {
-            await addDocuments(caseId, fileList.files);
+            await add_documents(caseId, fileList.files);
         } catch (err: any) {
-            alert(`فشل في إضافة الوثيقة الملتقطة: ${getFriendlyErrorMessage(err)}`);
+            alert(`فشل في إضافة الوثيقة الملتقطة: ${err.message}`);
         }
         setIsCameraOpen(false);
     };
@@ -605,7 +604,7 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
 
         if (isPdf || isLegacyWord) {
             try {
-                const file = await getDocumentFile(doc.id);
+                const file = await get_document_file(doc.id);
                 if (file) {
                     const objectUrl = URL.createObjectURL(file);
                     
