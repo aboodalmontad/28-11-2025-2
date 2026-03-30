@@ -479,34 +479,34 @@ const HomePage: React.FC<HomePageProps> = ({
                             currentDate={calendar_view_date}
                             setCurrentDate={set_calendar_view_date}
                         />
-                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                         <div className="grid grid-cols-3 gap-1 sm:gap-2">
                             <div className="relative">
                                 <button
                                     onClick={() => set_view_mode('unpostponed')}
-                                    className={`w-full flex items-center justify-center gap-2 px-4 py-2 text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 text-sm font-semibold ${view_mode === 'unpostponed' ? 'bg-red-700' : 'bg-red-600 hover:bg-red-700'}`}
+                                    className={`w-full flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-1 sm:px-4 py-1.5 sm:py-2 text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 font-semibold ${view_mode === 'unpostponed' ? 'bg-red-700' : 'bg-red-600 hover:bg-red-700'}`}
                                 >
-                                    <ExclamationTriangleIcon className="w-5 h-5" />
-                                    <span>غير المرحلة</span>
+                                    <ExclamationTriangleIcon className="w-4 h-4 sm:w-5 sm:h-5" />
+                                    <span className="text-[10px] sm:text-sm text-center leading-tight">غير مرحلة</span>
                                 </button>
                                 {overdue_sessions.length > 0 && (
-                                     <span className="absolute -top-2 -start-2 flex h-5 w-5 items-center justify-center rounded-full bg-yellow-400 text-black text-xs font-bold ring-2 ring-white animate-pulse" title={`${overdue_sessions.length} جلسات غير مرحلة`}>
+                                     <span className="absolute -top-2 -start-2 flex h-4 w-4 sm:h-5 sm:w-5 items-center justify-center rounded-full bg-yellow-400 text-black text-[9px] sm:text-xs font-bold ring-1 sm:ring-2 ring-white animate-pulse" title={`${overdue_sessions.length} جلسات غير مرحلة`}>
                                         {overdue_sessions.length}
                                     </span>
                                 )}
                             </div>
                             <button
                                 onClick={handle_show_todays_agenda}
-                                className={`w-full flex items-center justify-center gap-2 px-4 py-2 text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 text-sm font-semibold ${view_mode === 'daily' ? 'bg-blue-700' : 'bg-blue-600 hover:bg-blue-700'}`}
+                                className={`w-full flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-1 sm:px-4 py-1.5 sm:py-2 text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 font-semibold ${view_mode === 'daily' ? 'bg-blue-700' : 'bg-blue-600 hover:bg-blue-700'}`}
                             >
-                                <CalendarIcon className="w-5 h-5" />
-                                <span>أجندة اليوم</span>
+                                <CalendarIcon className="w-4 h-4 sm:w-5 sm:h-5" />
+                                <span className="text-[10px] sm:text-sm text-center leading-tight">أجندة اليوم</span>
                             </button>
                             <button
                                 onClick={() => set_view_mode('upcoming')}
-                                className={`w-full flex items-center justify-center gap-2 px-4 py-2 text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 text-sm font-semibold ${view_mode === 'upcoming' ? 'bg-green-700' : 'bg-green-600 hover:bg-green-700'}`}
+                                className={`w-full flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-1 sm:px-4 py-1.5 sm:py-2 text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 font-semibold ${view_mode === 'upcoming' ? 'bg-green-700' : 'bg-green-600 hover:bg-green-700'}`}
                             >
-                                <ChevronLeftIcon className="w-5 h-5" />
-                                <span>القادمة</span>
+                                <ChevronLeftIcon className="w-4 h-4 sm:w-5 sm:h-5" />
+                                <span className="text-[10px] sm:text-sm text-center leading-tight">القادمة</span>
                             </button>
                         </div>
                     </div>
