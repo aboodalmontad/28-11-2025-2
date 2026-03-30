@@ -2,6 +2,8 @@ import * as React from 'react';
 import { XMarkIcon, TrashIcon, CheckCircleIcon, ExclamationCircleIcon, InformationCircleIcon, ExclamationTriangleIcon } from './icons';
 import { SyncLogEntry } from '../hooks/useSync';
 
+import { safe_revive_date } from '../utils/dateUtils';
+
 interface SyncLogModalProps {
     isOpen: boolean;
     onClose: () => void;
@@ -59,7 +61,7 @@ const SyncLogModal: React.FC<SyncLogModalProps> = ({ isOpen, onClose, logs, onCl
                                 <div className="flex-grow min-w-0">
                                     <div className="flex justify-between items-start mb-1">
                                         <span className="text-xs font-medium text-gray-400">
-                                            {new Date(log.timestamp).toLocaleTimeString('ar-EG')}
+                                            {safe_revive_date(log.timestamp).toLocaleTimeString('ar-EG')}
                                         </span>
                                     </div>
                                     <p className="text-sm text-gray-800 font-medium leading-relaxed">{log.message}</p>

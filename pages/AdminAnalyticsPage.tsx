@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useData } from '../context/DataContext';
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { UserGroupIcon, ChartBarIcon, ClockIcon } from '../components/icons';
+import { safe_revive_date, to_input_date_string } from '../utils/dateUtils';
 
 const StatCard: React.FC<{ title: string; value: string | number; icon: React.ReactNode }> = ({ title, value, icon }) => (
     <div className="bg-white p-6 rounded-lg shadow-md flex items-center space-x-4 space-x-reverse">
@@ -39,7 +40,7 @@ const AdminAnalyticsPage: React.FC = () => {
 
         try {
             const today = new Date();
-            const activeSubscriptions = profiles.filter(p => p.subscription_end_date && new Date(p.subscription_end_date) >= today).length;
+            const activeSubscriptions = profiles.filter(p => p.subscription_end_date && safe_revive_date(p.subscription_end_date) >= today).length;
             const pendingApprovals = profiles.filter(p => !p.is_approved).length;
 
             const allCases = clients.flatMap(c => c.cases);
@@ -56,16 +57,16 @@ const AdminAnalyticsPage: React.FC = () => {
             const thirtyDaysAgo = new Date();
             thirtyDaysAgo.setDate(today.getDate() - 30);
             const userSignups = profiles
-                .filter(p => p.created_at && new Date(p.created_at) >= thirtyDaysAgo)
+                .filter(p => p.created_at && safe_revive_date(p.created_at) >= thirtyDaysAgo)
                 .reduce((acc, p) => {
-                    const dateStr = new Date(p.created_at!).toLocaleDateString('en-CA'); // YYYY-MM-DD
+                    const dateStr = to_input_date_string(safe_revive_date(p.created_at!)); // YYYY-MM-DD
                     acc[dateStr] = (acc[dateStr] || 0) + 1;
                     return acc;
                 }, {} as Record<string, number>);
 
             const userSignupsData = Object.entries(userSignups)
                 .map(([date, count]) => ({ date, "مستخدمين جدد": count }))
-                .sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+                .sort((a,b) => safe_revive_date(a.date).getTime() - safe_revive_date(b.date).getTime());
 
             const activityByUser = profiles.map(p => {
                 const clientCount = clients.filter(c => (c as any).user_id === p.id).length;

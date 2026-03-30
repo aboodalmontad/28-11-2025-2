@@ -2,6 +2,7 @@
 import { get_supabase_client } from '../supabaseClient';
 import { Client, AdminTask, Appointment, AccountingEntry, Invoice, InvoiceItem, CaseDocument, Profile, SiteFinancialEntry, SyncDeletion } from '../types';
 import type { User } from '@supabase/supabase-js';
+import { safe_revive_date, to_input_date_string } from '../utils/dateUtils';
 
 export type FlatData = {
     clients: Omit<Client, 'cases'>[];
@@ -166,15 +167,16 @@ export const fetch_data_from_supabase = async (user_id?: string): Promise<Partia
 export const fetch_deletions_from_supabase = async (): Promise<SyncDeletion[]> => {
     const supabase = get_supabase_client();
     if (!supabase) return [];
-    const thirty_days_ago = new Date();
+    const thirty_days_ago = safe_revive_date(new Date());
     thirty_days_ago.setDate(thirty_days_ago.getDate() - 30);
+    const thirty_days_ago_str = to_input_date_string(thirty_days_ago);
     
     const max_retries = 3;
     let attempt = 0;
 
     while (attempt < max_retries) {
         try {
-            const { data, error } = await supabase.from('sync_deletions').select('*').gte('deleted_at', thirty_days_ago.toISOString());
+            const { data, error } = await supabase.from('sync_deletions').select('*').gte('deleted_at', thirty_days_ago_str);
             if (error) {
                 const message = String(error.message || '').toLowerCase();
                 if (message.includes('abort') || message.includes('lock') || message.includes('failed to fetch')) {

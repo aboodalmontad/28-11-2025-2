@@ -1,7 +1,7 @@
 
 import * as React from 'react';
 import { Case, Client, AccountingEntry } from '../types';
-import { format_date } from '../utils/dateUtils';
+import { format_date, to_input_date_string, safe_revive_date } from '../utils/dateUtils';
 import { PlusIcon, PencilIcon, TrashIcon, ExclamationCircleIcon } from './icons';
 import { useData } from '../context/DataContext';
 
@@ -31,7 +31,7 @@ const CaseAccounting: React.FC<CaseAccountingProps> = ({ case_data, client, case
     }
 
     const sortedEntries = React.useMemo(() =>
-        [...case_accounting_entries].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+        [...case_accounting_entries].sort((a, b) => safe_revive_date(b.date).getTime() - safe_revive_date(a.date).getTime()),
         [case_accounting_entries]
     );
 
@@ -51,7 +51,7 @@ const CaseAccounting: React.FC<CaseAccountingProps> = ({ case_data, client, case
     };
 
     const handle_open_modal = (type: 'income' | 'expense', entry?: AccountingEntry) => {
-        set_form_data(entry ? { ...entry, date: entry.date } : { date: new Date().toISOString() });
+        set_form_data(entry ? { ...entry, date: entry.date } : { date: to_input_date_string(new Date()) });
         set_modal({ is_open: true, data: entry, type });
     };
 
@@ -59,7 +59,7 @@ const CaseAccounting: React.FC<CaseAccountingProps> = ({ case_data, client, case
 
     const handle_form_change = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
-        set_form_data(prev => ({ ...prev, [name]: name === 'amount' ? parseFloat(value) : (name === 'date' ? new Date(value).toISOString() : value) }));
+        set_form_data(prev => ({ ...prev, [name]: name === 'amount' ? parseFloat(value) : value }));
     };
 
     const handle_submit = (e: React.FormEvent) => {
@@ -192,7 +192,7 @@ const CaseAccounting: React.FC<CaseAccountingProps> = ({ case_data, client, case
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700">التاريخ</label>
-                                <input type="date" name="date" value={form_data.date ? form_data.date.split('T')[0] : ''} onChange={handle_form_change} className="w-full p-2 border rounded" placeholder="DD/MM/YYYY" required />
+                                <input type="date" name="date" value={form_data.date ? to_input_date_string(form_data.date) : ''} onChange={handle_form_change} className="w-full p-2 border rounded" placeholder="DD/MM/YYYY" required />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700">البيان</label>

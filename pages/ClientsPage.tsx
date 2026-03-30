@@ -265,7 +265,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ show_context_menu, on_open_ad
                             id: `stage-${Date.now()}`,
                             court: court || 'غير محدد',
                             case_number: case_number || '',
-                            first_session_date: parsed_first_session_date?.toISOString() || undefined,
+                            first_session_date: parsed_first_session_date ? to_input_date_string(parsed_first_session_date) : undefined,
                             sessions: [],
                             updated_at: new Date().toISOString(),
                             user_id: effective_user_id,
@@ -277,7 +277,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ show_context_menu, on_open_ad
                                 id: `session-${Date.now()}-first`,
                                 court: new_stage.court,
                                 case_number: new_stage.case_number,
-                                date: parsed_first_session_date.toISOString(),
+                                date: to_input_date_string(parsed_first_session_date),
                                 client_name: client_for_case.name,
                                 opponent_name: new_case.opponent_name,
                                 is_postponed: false,
@@ -299,8 +299,10 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ show_context_menu, on_open_ad
         } else if (type === 'stage') {
             if (is_editing) {
                 const stage_data = { ...form_data };
-                stage_data.first_session_date = parse_input_date_string(stage_data.first_session_date) || undefined;
-                stage_data.decision_date = parse_input_date_string(stage_data.decision_date) || undefined;
+                const parsed_first = parse_input_date_string(stage_data.first_session_date);
+                const parsed_decision = parse_input_date_string(stage_data.decision_date);
+                stage_data.first_session_date = parsed_first ? to_input_date_string(parsed_first) : undefined;
+                stage_data.decision_date = parsed_decision ? to_input_date_string(parsed_decision) : undefined;
                 
                 set_clients(prev => prev.map(c => c.id === context.client.id ? {
                     ...c,
@@ -318,7 +320,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ show_context_menu, on_open_ad
                     id: `stage-${Date.now()}`,
                     court: stage_data.court || 'غير محدد',
                     case_number: stage_data.case_number || '',
-                    first_session_date: parsed_first_session_date?.toISOString() || undefined,
+                    first_session_date: parsed_first_session_date ? to_input_date_string(parsed_first_session_date) : undefined,
                     sessions: [],
                     user_id: effective_user_id,
                     updated_at: new Date().toISOString(),
@@ -331,7 +333,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ show_context_menu, on_open_ad
                             id: `session-${Date.now()}-first`,
                             court: new_stage.court,
                             case_number: new_stage.case_number,
-                            date: parsed_first_session_date.toISOString(),
+                            date: to_input_date_string(parsed_first_session_date),
                             client_name: client.name,
                             opponent_name: case_item.opponent_name,
                             is_postponed: false,
@@ -356,8 +358,9 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ show_context_menu, on_open_ad
                      alert("تاريخ الجلسة غير صالح.");
                      return;
                  }
-                 session_data.date = parsed_date;
-                 session_data.next_session_date = parse_input_date_string(session_data.next_session_date) || undefined;
+                 session_data.date = to_input_date_string(parsed_date);
+                 const parsed_next = parse_input_date_string(session_data.next_session_date);
+                 session_data.next_session_date = parsed_next ? to_input_date_string(parsed_next) : undefined;
 
                  set_clients(prev => prev.map(c => c.id === context.client.id ? {
                     ...c,
@@ -384,7 +387,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ show_context_menu, on_open_ad
                 if (client && case_item && stage) {
                     const new_session: Session = {
                         id: `session-${Date.now()}`,
-                        date: parsed_date.toISOString(),
+                        date: to_input_date_string(parsed_date),
                         court: stage.court,
                         case_number: stage.case_number,
                         client_name: client.name,

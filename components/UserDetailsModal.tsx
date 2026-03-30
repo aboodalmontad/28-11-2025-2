@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Profile, SiteFinancialEntry } from '../types';
 import { useData } from '../context/DataContext';
-import { format_date } from '../utils/dateUtils';
+import { format_date, safe_revive_date } from '../utils/dateUtils';
 import { XMarkIcon, PhoneIcon, UserGroupIcon, FolderIcon, CalendarDaysIcon, DocumentTextIcon, CheckCircleIcon, NoSymbolIcon, PencilIcon, ExclamationTriangleIcon } from './icons';
 
 interface UserDetailsModalProps {
@@ -51,7 +51,7 @@ const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ user, onClose, onEd
             active_cases: user_cases.filter(c => c.status === 'active').length,
             total_sessions: user_sessions.length,
             total_documents: user_documents.length,
-            financial_history: user_financials.sort((a,b) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime()),
+            financial_history: user_financials.sort((a,b) => safe_revive_date(b.payment_date).getTime() - safe_revive_date(a.payment_date).getTime()),
             total_paid: user_financials.reduce((sum, entry) => sum + entry.amount, 0),
         };
     }, [user, clients, all_sessions, documents, site_finances]);
@@ -62,7 +62,7 @@ const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ user, onClose, onEd
         if (!user.is_approved) return { text: 'بانتظار الموافقة', color: 'bg-yellow-100 text-yellow-800' };
         if (!user.is_active) return { text: 'حساب غير نشط', color: 'bg-red-100 text-red-800' };
         
-        const end_date = user.subscription_end_date ? new Date(user.subscription_end_date) : null;
+        const end_date = user.subscription_end_date ? safe_revive_date(user.subscription_end_date) : null;
         if (end_date && end_date < new Date()) {
             return { text: 'اشتراك منتهي', color: 'bg-red-100 text-red-800' };
         }
@@ -71,8 +71,8 @@ const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ user, onClose, onEd
     };
 
     const status = getStatusInfo();
-    const start_date = user.subscription_start_date ? new Date(user.subscription_start_date) : null;
-    const end_date = user.subscription_end_date ? new Date(user.subscription_end_date) : null;
+    const start_date = user.subscription_start_date ? safe_revive_date(user.subscription_start_date) : null;
+    const end_date = user.subscription_end_date ? safe_revive_date(user.subscription_end_date) : null;
     
     let days_remaining = 0;
     let progress = 0;
@@ -135,7 +135,7 @@ const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ user, onClose, onEd
                                 )}
                             </div>
                             <div className="text-sm space-y-2">
-                                <p><strong className="font-medium text-gray-600">تاريخ التسجيل:</strong> {user.created_at ? format_date(new Date(user.created_at)) : '-'}</p>
+                                <p><strong className="font-medium text-gray-600">تاريخ التسجيل:</strong> {user.created_at ? format_date(user.created_at) : '-'}</p>
                             </div>
                             <button onClick={() => { onEdit(user); onClose(); }} className="flex items-center gap-2 text-sm px-4 py-2 bg-gray-100 text-gray-800 rounded-lg hover:bg-gray-200">
                                 <PencilIcon className="w-4 h-4" />
@@ -159,7 +159,7 @@ const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ user, onClose, onEd
                                     <tbody>
                                         {user_stats.financial_history.map(entry => (
                                             <tr key={entry.id} className="border-t">
-                                                <td className="px-4 py-2">{format_date(new Date(entry.payment_date))}</td>
+                                                <td className="px-4 py-2">{format_date(entry.payment_date)}</td>
                                                 <td className="px-4 py-2">{entry.description}</td>
                                                 <td className="px-4 py-2 font-semibold text-green-600">{entry.amount.toLocaleString()} ل.س</td>
                                             </tr>

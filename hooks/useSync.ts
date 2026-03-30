@@ -6,6 +6,7 @@ import { check_supabase_schema, fetch_data_from_supabase, upsert_data_to_supabas
 import { get_supabase_client } from '../supabaseClient';
 import { Client, Case, Stage, Session, CaseDocument, AppData, DeletedIds, get_initial_deleted_ids, SyncDeletion } from '../types';
 import { get_db, DOCS_FILES_STORE_NAME } from '../utils/db';
+import { safe_revive_date } from '../utils/dateUtils';
 
 export type SyncStatus = 'loading' | 'syncing' | 'synced' | 'error' | 'unconfigured' | 'uninitialized';
 
@@ -115,8 +116,8 @@ const merge_for_refresh = <T extends { id: any; updated_at?: Date | string }>(lo
         const id = remote_item.id ?? (remote_item as any).name;
         const existing_item = final_items.get(id);
         if (existing_item) {
-            const remote_date = new Date(remote_item.updated_at || 0);
-            const local_date = new Date(existing_item.updated_at || 0);
+            const remote_date = safe_revive_date(remote_item.updated_at || 0);
+            const local_date = safe_revive_date(existing_item.updated_at || 0);
             if (remote_date > local_date) final_items.set(id, remote_item);
         } else { final_items.set(id, remote_item); }
     }
@@ -138,8 +139,8 @@ const apply_deletions_to_local = (local_flat_data: FlatData, deletions: SyncDele
             const deleted_at_str = deletion_map.get(key);
             
             if (deleted_at_str) {
-                const deleted_at = new Date(deleted_at_str).getTime();
-                const updated_at = new Date(item.updated_at || 0).getTime();
+                const deleted_at = safe_revive_date(deleted_at_str).getTime();
+                const updated_at = safe_revive_date(item.updated_at || 0).getTime();
                 if (updated_at < (deleted_at + 2000)) {
                     return false;
                 }
@@ -187,8 +188,8 @@ const apply_deletions_to_local = (local_flat_data: FlatData, deletions: SyncDele
 };
 
 const cleanup_expired_documents = async (remote_docs: any[], supabase: any) => {
-    const hours_72_ago = new Date(Date.now() - 72 * 60 * 60 * 1000);
-    const expired_docs = remote_docs.filter((d: any) => new Date(d.added_at) < hours_72_ago);
+    const hours_72_ago = safe_revive_date(Date.now() - 72 * 60 * 60 * 1000);
+    const expired_docs = remote_docs.filter((d: any) => safe_revive_date(d.added_at) < hours_72_ago);
 
     if (expired_docs.length > 0) {
         console.log(`Cleaning up ${expired_docs.length} expired documents from cloud...`);
@@ -380,8 +381,8 @@ export const use_sync = ({ user, local_data, deleted_ids, on_data_synced, on_del
 
                     const remote_item = remote_map.get(id);
                     if (remote_item) {
-                        const local_date = new Date(local_item.updated_at || 0).getTime();
-                        const remote_date = new Date(remote_item.updated_at || 0).getTime();
+                        const local_date = safe_revive_date(local_item.updated_at || 0).getTime();
+                        const remote_date = safe_revive_date(remote_item.updated_at || 0).getTime();
                         if (local_date > remote_date) {
                             items_to_upsert.push(local_item);
                             final_merged_items.set(id, local_item);

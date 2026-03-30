@@ -4,7 +4,7 @@ import { useOnlineStatus } from './useOnlineStatus';
 import type { User } from '@supabase/supabase-js';
 import { use_sync, SyncStatus as SyncStatusType, SyncLogEntry } from './useSync';
 import { get_supabase_client } from '../supabaseClient';
-import { is_before_today, to_input_date_string, is_holiday } from '../utils/dateUtils';
+import { is_before_today, to_input_date_string, is_holiday, safe_revive_date } from '../utils/dateUtils';
 import { RealtimeAlert } from '../components/RealtimeNotifier';
 import { get_db, DATA_STORE_NAME, DELETED_IDS_STORE_NAME, DOCS_FILES_STORE_NAME } from '../utils/db';
 
@@ -673,7 +673,7 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
             return await db.get(DOCS_FILES_STORE_NAME, id);
         },
         postpone_session: (session_id: string, next_date: string, reason: string): string | null => {
-            if (is_holiday(new Date(next_date))) {
+            if (is_holiday(safe_revive_date(next_date))) {
                 return 'تحذير: التاريخ المختار يصادف عطلة رسمية أو نهاية أسبوع.';
             }
             set_full_data(prev => {

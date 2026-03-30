@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Session } from '../types';
-import { format_date, to_input_date_string } from '../utils/dateUtils';
+import { format_date, to_input_date_string, safe_revive_date } from '../utils/dateUtils';
 import { ExclamationTriangleIcon, CalendarIcon } from './icons';
 
 interface UnpostponedSessionsModalProps {
@@ -24,8 +24,8 @@ const SessionPostponeItem: React.FC<{
             setError('يرجى إدخال تاريخ وسبب الجلسة القادمة.');
             return;
         }
-        const newDate = new Date(next_date);
-        const sessionDate = new Date(session.date);
+        const newDate = safe_revive_date(next_date);
+        const sessionDate = safe_revive_date(session.date);
 
         if (newDate <= sessionDate) {
             setError('تاريخ الجلسة القادمة يجب أن يكون بعد تاريخ الجلسة الحالية.');

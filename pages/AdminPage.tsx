@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { get_supabase_client } from '../supabaseClient';
 import { Profile } from '../types';
-import { format_date, to_input_date_string } from '../utils/dateUtils';
+import { format_date, to_input_date_string, safe_revive_date } from '../utils/dateUtils';
 import { CheckCircleIcon, NoSymbolIcon, PencilIcon, TrashIcon, ExclamationTriangleIcon, PhoneIcon, ShareIcon, ArrowPathIcon, ClipboardDocumentIcon, UserIcon, UserGroupIcon } from '../components/icons';
 import { useData } from '../context/DataContext';
 import UserDetailsModal from '../components/UserDetailsModal';
@@ -10,8 +10,8 @@ import UserDetailsModal from '../components/UserDetailsModal';
 const formatSubscriptionDateRange = (user: Profile): string => {
     const { subscription_start_date, subscription_end_date } = user;
     if (!subscription_start_date || !subscription_end_date) return 'لا يوجد';
-    const startDate = new Date(subscription_start_date);
-    const endDate = new Date(subscription_end_date);
+    const startDate = safe_revive_date(subscription_start_date);
+    const endDate = safe_revive_date(subscription_end_date);
     if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) return 'تاريخ غير صالح';
     return `${format_date(startDate)} - ${format_date(endDate)}`;
 };
@@ -62,7 +62,7 @@ const UserRow: React.FC<UserRowProps> = ({ user, lawyer, on_view, on_edit, on_de
     const is_assistant = !!lawyer;
     
     // Check parent status: Active, Approved, and Subscription Valid
-    const is_parent_subscription_valid = lawyer ? (!lawyer.subscription_end_date || new Date(lawyer.subscription_end_date) >= new Date()) : true;
+    const is_parent_subscription_valid = lawyer ? (!lawyer.subscription_end_date || safe_revive_date(lawyer.subscription_end_date) >= new Date()) : true;
     const is_parent_active = lawyer ? (lawyer.is_active && lawyer.is_approved && is_parent_subscription_valid) : true;
 
     return (
@@ -88,7 +88,7 @@ const UserRow: React.FC<UserRowProps> = ({ user, lawyer, on_view, on_edit, on_de
                 </div>
             </td>
             <td className="px-6 py-4 text-sm" dir="ltr">{getDisplayPhoneNumber(user.mobile_number)}</td>
-            <td className="px-6 py-4 text-sm text-gray-500">{user.created_at ? format_date(new Date(user.created_at)) : '-'}</td>
+            <td className="px-6 py-4 text-sm text-gray-500">{user.created_at ? format_date(user.created_at) : '-'}</td>
             <td className="px-6 py-4">
                 <div className="flex flex-col gap-2">
                     {/* Status Badge */}
@@ -304,8 +304,8 @@ const AdminPage: React.FC = () => {
         const sortedLawyers = [...lawyers].sort((a, b) => {
              if (a.role === 'admin' && b.role !== 'admin') return -1;
              if (a.role !== 'admin' && b.role === 'admin') return 1;
-             const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
-             const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+             const dateA = a.created_at ? safe_revive_date(a.created_at).getTime() : 0;
+             const dateB = b.created_at ? safe_revive_date(b.created_at).getTime() : 0;
              return dateB - dateA;
         });
 

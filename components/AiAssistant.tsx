@@ -3,7 +3,7 @@ import * as React from 'react';
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 import { useData } from '../context/DataContext';
 import { SparklesIcon, XMarkIcon, PaperAirplaneIcon, ArrowPathIcon, MagnifyingGlassIcon } from './icons';
-import { format_date } from '../utils/dateUtils';
+import { format_date, is_before_today } from '../utils/dateUtils';
 
 // Extension of icons for AI
 const RobotIcon = ({ className = "w-6 h-6" }) => (
@@ -42,7 +42,7 @@ const AiAssistant: React.FC = () => {
     const generateSystemContext = () => {
         const client_summary = clients.map(c => `- ${c.name}: ${c.cases.length} قضايا`).join('\n');
         const session_summary = all_sessions
-            .filter(s => new Date(s.date) >= new Date())
+            .filter(s => !is_before_today(s.date))
             .slice(0, 5)
             .map(s => `- ${format_date(s.date)}: ${s.client_name} ضد ${s.opponent_name} (${s.court})`)
             .join('\n');

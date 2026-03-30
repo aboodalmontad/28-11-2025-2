@@ -4,7 +4,7 @@ import { Client, Case, Stage, Session, AccountingEntry, CaseDocument, Permission
 import { PlusIcon, PencilIcon, TrashIcon, PrintIcon, ChevronLeftIcon, UserIcon, FolderIcon, ClipboardDocumentIcon, CalendarDaysIcon, GavelIcon, BuildingLibraryIcon, ShareIcon, DocumentTextIcon, DocumentDuplicateIcon } from './icons';
 import SessionsTable from './SessionsTable';
 import CaseAccounting from './CaseAccounting';
-import { format_date } from '../utils/dateUtils';
+import { format_date, safe_revive_date } from '../utils/dateUtils';
 import { MenuItem } from './ContextMenu';
 import CaseDocuments from './CaseDocuments';
 
@@ -42,7 +42,7 @@ const StageItem: React.FC<{ stage: Stage; caseItem: Case; client: Client; props:
     const { permissions } = props;
 
     const handleContextMenu = (event: React.MouseEvent) => {
-        const latestSession = stage.sessions.length > 0 ? stage.sessions.reduce((latest, current) => new Date(current.date) > new Date(latest.date) ? current : latest) : null;
+        const latestSession = stage.sessions.length > 0 ? stage.sessions.reduce((latest, current) => safe_revive_date(current.date) > safe_revive_date(latest.date) ? current : latest) : null;
 
         const details = [
             `*الموكل:* ${client.name}`,
@@ -59,7 +59,7 @@ const StageItem: React.FC<{ stage: Stage; caseItem: Case; client: Client; props:
         if (stage.decision_date) {
             details.push('---');
             details.push(`*تم حسم المرحلة:*`);
-            details.push(`*تاريخ الحسم:* ${format_date(new Date(stage.decision_date))}`);
+            details.push(`*تاريخ الحسم:* ${format_date(stage.decision_date)}`);
             if (stage.decision_number) details.push(`*رقم القرار:* ${stage.decision_number}`);
             if (stage.decision_summary) details.push(`*ملخص القرار:* ${stage.decision_summary}`);
         }
@@ -116,7 +116,7 @@ const StageItem: React.FC<{ stage: Stage; caseItem: Case; client: Client; props:
         if (stage.decision_date) {
             details.push('---');
             details.push(`*تم حسم المرحلة:*`);
-            details.push(`*تاريخ الحسم:* ${format_date(new Date(stage.decision_date))}`);
+            details.push(`*تاريخ الحسم:* ${format_date(stage.decision_date)}`);
             if (stage.decision_number) details.push(`*رقم القرار:* ${stage.decision_number}`);
             if (stage.decision_summary) details.push(`*ملخص القرار:* ${stage.decision_summary}`);
         }
@@ -170,7 +170,7 @@ const StageItem: React.FC<{ stage: Stage; caseItem: Case; client: Client; props:
                                     <div className="flex items-center">
                                         <GavelIcon className="w-4 h-4 text-green-700 me-2 flex-shrink-0" />
                                         <strong className="font-semibold">تاريخ الحسم:</strong>
-                                        <span className="ms-1">{format_date(new Date(stage.decision_date))}</span>
+                                        <span className="ms-1">{format_date(stage.decision_date)}</span>
                                     </div>
                                     {stage.decision_number && (
                                         <div className="flex items-center">
@@ -259,7 +259,7 @@ const CaseItem: React.FC<{ caseItem: Case; client: Client; props: ClientsTreeVie
         if (caseItem.stages.length > 0) {
             const allSessions = caseItem.stages.flatMap(s => s.sessions);
             if (allSessions.length > 0) {
-                latestSession = allSessions.reduce((latest, current) => new Date(current.date) > new Date(latest.date) ? current : latest);
+                latestSession = allSessions.reduce((latest, current) => safe_revive_date(current.date) > safe_revive_date(latest.date) ? current : latest);
                 latestStage = caseItem.stages.find(s => s.sessions.some(sess => sess.id === latestSession!.id)) || null;
             } else {
                 latestStage = caseItem.stages[caseItem.stages.length - 1];
@@ -278,7 +278,7 @@ const CaseItem: React.FC<{ caseItem: Case; client: Client; props: ClientsTreeVie
             
             if (latestStage.decision_date) {
                 details.push(`*تم حسم المرحلة:*`);
-                details.push(`*تاريخ الحسم:* ${format_date(new Date(latestStage.decision_date))}`);
+                details.push(`*تاريخ الحسم:* ${format_date(latestStage.decision_date)}`);
                 if (latestStage.decision_number) details.push(`*رقم القرار:* ${latestStage.decision_number}`);
                 if (latestStage.decision_summary) details.push(`*ملخص القرار:* ${latestStage.decision_summary}`);
             }

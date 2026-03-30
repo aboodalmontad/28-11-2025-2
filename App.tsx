@@ -82,6 +82,42 @@ const Navbar: React.FC<NavbarProps> = ({ currentPage, onNavigate, onLogout, sync
     );
 };
 
+interface BottomNavProps {
+    currentPage: Page;
+    onNavigate: (page: Page) => void;
+    permissions: any;
+}
+
+const BottomNav: React.FC<BottomNavProps> = ({ currentPage, onNavigate, permissions }) => {
+    const navItems = [
+        { id: 'home', label: 'المفكرة', icon: CalendarDaysIcon, visible: permissions.can_view_agenda }, 
+        { id: 'admin-tasks', label: 'المهام', icon: ClipboardDocumentCheckIcon, visible: permissions.can_view_admin_tasks },
+        { id: 'clients', label: 'الموكلين', icon: UserIcon, visible: permissions.can_view_clients },
+        { id: 'accounting', label: 'المحاسبة', icon: CalculatorIcon, visible: permissions.can_view_finance },
+    ].filter(i => i.visible);
+
+    if (navItems.length === 0) return null;
+
+    return (
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex justify-around items-center z-40 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+            {navItems.map(item => {
+                const Icon = item.icon;
+                const isActive = currentPage === item.id;
+                return (
+                    <button
+                        key={item.id}
+                        onClick={() => onNavigate(item.id as Page)}
+                        className={`flex flex-col items-center justify-center w-full py-2 space-y-1 transition-colors ${isActive ? 'text-blue-600' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'}`}
+                    >
+                        <Icon className={`w-6 h-6 ${isActive ? 'text-blue-600' : 'text-gray-500'}`} />
+                        <span className="text-[10px] font-medium">{item.label}</span>
+                    </button>
+                );
+            })}
+        </nav>
+    );
+};
+
 const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
     const [session, setSession] = useState<AuthSession | null>(() => {
         try {
@@ -281,7 +317,7 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
                     sync_log={syncLog}
                     on_clear_log={clearSyncLog}
                 />
-                <main className="flex-grow p-4 overflow-y-auto pb-20">
+                <main className="flex-grow p-4 overflow-y-auto pb-24 md:pb-4">
                     {data.is_data_loading && <div className="p-4 text-center text-gray-500 flex items-center justify-center gap-2"><ArrowPathIcon className="w-4 h-4 animate-spin"/> جاري جلب آخر التحديثات...</div>}
                     {currentPage === 'home' && <HomePage on_open_admin_task_modal={(initialData) => { setAdminTaskInitialData(initialData); setIsAdminTaskModalOpen(true); }} show_context_menu={(e, m) => setContextMenu({isOpen: true, position: {x: e.clientX, y: e.clientY}, menuItems: m})} main_view="agenda" selected_date={selectedDate} set_selected_date={setSelectedDate} />}
                     {currentPage === 'clients' && <ClientsPage on_open_admin_task_modal={(initialData) => { setAdminTaskInitialData(initialData); setIsAdminTaskModalOpen(true); }} show_context_menu={(e, m) => setContextMenu({isOpen: true, position: {x: e.clientX, y: e.clientY}, menuItems: m})} on_create_invoice={()=>{}} />}
@@ -305,6 +341,7 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
                 />
                 <ContextMenu isOpen={contextMenu.isOpen} position={contextMenu.position} menuItems={contextMenu.menuItems} onClose={() => setContextMenu({...contextMenu, isOpen: false})} />
                 <NotificationCenter appointmentAlerts={data.triggered_alerts} realtimeAlerts={data.realtime_alerts} userApprovalAlerts={data.user_approval_alerts} dismissAppointmentAlert={data.dismiss_alert} dismissRealtimeAlert={data.dismiss_realtime_alert} dismissUserApprovalAlert={data.dismiss_user_approval_alert} />
+                <BottomNav currentPage={currentPage} onNavigate={setCurrentPage} permissions={data.permissions} />
             </div>
         </DataProvider>
     );

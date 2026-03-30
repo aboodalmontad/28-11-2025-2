@@ -1,14 +1,15 @@
 import { Client, AdminTask, Appointment, AccountingEntry, Invoice, Case, Stage, Session, InvoiceItem } from '../types';
+import { to_input_date_string, safe_revive_date } from '../utils/dateUtils';
 
 // Default list of assistants for assignment dropdowns
 export const mockAssistants: string[] = ['أحمد', 'فاطمة', 'سارة', 'بدون تخصيص'];
 
-const today = new Date();
+const today = safe_revive_date(new Date());
 const createDate = (daysOffset: number = 0, hours: number = 0, minutes: number = 0): string => {
-    const date = new Date(today);
+    const date = safe_revive_date(today);
     date.setDate(date.getDate() + daysOffset);
     date.setHours(hours, minutes, 0, 0);
-    return date.toISOString();
+    return to_input_date_string(date);
 };
 
 // --- Mock Sessions ---

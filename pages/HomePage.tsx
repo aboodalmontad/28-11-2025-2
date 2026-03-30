@@ -2,7 +2,7 @@
 import * as React from 'react';
 import Calendar from '../components/Calendar';
 import { Session, AdminTask, Appointment, Stage, Client } from '../types';
-import { format_date, is_same_day, is_before_today, to_input_date_string } from '../utils/dateUtils';
+import { format_date, is_same_day, is_before_today, to_input_date_string, safe_revive_date } from '../utils/dateUtils';
 import { PrintIcon, PlusIcon, PencilIcon, TrashIcon, SearchIcon, ExclamationTriangleIcon, CalendarIcon, ChevronLeftIcon, ScaleIcon, BuildingLibraryIcon, ShareIcon, UserIcon, ClipboardDocumentIcon, ClipboardDocumentCheckIcon, HomeIcon, ListBulletIcon, ViewColumnsIcon } from '../components/icons';
 import SessionsTable from '../components/SessionsTable';
 import PrintableReport from '../components/PrintableReport';
@@ -226,7 +226,7 @@ const HomePage: React.FC<HomePageProps> = ({
         const { name, value } = e.target;
         
         if (name === 'date' && !editing_appointment) {
-            const selectedInputDate = new Date(`${value}T00:00:00`);
+            const selectedInputDate = safe_revive_date(value);
             if (is_before_today(selectedInputDate)) {
                 set_date_warning('تنبيه: التاريخ المحدد في الماضي.');
             } else {
@@ -242,14 +242,13 @@ const HomePage: React.FC<HomePageProps> = ({
         e.preventDefault();
         if (!new_appointment.title || !new_appointment.time || !new_appointment.date) return;
         
-        const [year, month, day] = new_appointment.date.split('-').map(Number);
-        const appointmentDate = new Date(year, month - 1, day);
+        const appointmentDate = safe_revive_date(new_appointment.date);
 
         if (editing_appointment) {
             set_appointments(prev => prev.map(apt => apt.id === editing_appointment.id ? {
                 ...apt,
                 title: new_appointment.title,
-                date: appointmentDate,
+                date: to_input_date_string(appointmentDate),
                 time: new_appointment.time,
                 importance: new_appointment.importance,
                 reminder_time_in_minutes: new_appointment.reminder_time_in_minutes,
@@ -262,7 +261,7 @@ const HomePage: React.FC<HomePageProps> = ({
                 id: `apt-${Date.now()}`,
                 title: new_appointment.title,
                 time: new_appointment.time,
-                date: appointmentDate.toISOString(),
+                date: to_input_date_string(appointmentDate),
                 importance: new_appointment.importance,
                 completed: false,
                 reminder_time_in_minutes: new_appointment.reminder_time_in_minutes,
@@ -406,7 +405,7 @@ const HomePage: React.FC<HomePageProps> = ({
     const handle_group_drop = (e: React.DragEvent, targetLocation: string) => { e.preventDefault(); const taskId = e.dataTransfer.getData('application/lawyer-app-task-id'); if (taskId) { handle_task_drop(null, targetLocation, 'after'); } };
 
     // Session Handlers
-    const handle_postpone_session = (sessionId: string, newDate: Date, newReason: string) => { postpone_session(sessionId, newDate.toISOString(), newReason); };
+    const handle_postpone_session = (sessionId: string, newDate: Date, newReason: string) => { postpone_session(sessionId, to_input_date_string(newDate), newReason); };
     const handle_update_session = (sessionId: string, updatedFields: Partial<Session>) => { set_clients(currentClients => { return currentClients.map(client => ({ ...client, updated_at: new Date().toISOString(), cases: client.cases.map(caseItem => ({ ...caseItem, updated_at: new Date().toISOString(), stages: caseItem.stages.map(stage => { const sessionIndex = stage.sessions.findIndex(s => s.id === sessionId); if (sessionIndex === -1) { return stage; } const updatedSessions = [...stage.sessions]; updatedSessions[sessionIndex] = { ...updatedSessions[sessionIndex], ...updatedFields, updated_at: new Date().toISOString(), }; return { ...stage, sessions: updatedSessions, updated_at: new Date().toISOString(), }; }), })), })); }); };
     const handle_open_decide_modal = (session: Session) => { if (!session.stage_id) { console.error("Cannot decide session: stage_id is missing.", session); return; } let foundStage: Stage | null = null; for (const client of clients) { for (const caseItem of client.cases) { const stage = caseItem.stages.find(st => st.id === session.stage_id); if (stage) { foundStage = stage; break; } } if (foundStage) break; } if (!foundStage) { console.error("Cannot decide session: Corresponding stage not found for stage_id:", session.stage_id); return; } set_decide_form_data({ decision_number: '', decision_summary: '', decision_notes: '' }); set_decide_modal({ is_open: true, session, stage: foundStage }); };
     const handle_close_decide_modal = () => { set_decide_modal({ is_open: false }); };
@@ -417,7 +416,7 @@ const HomePage: React.FC<HomePageProps> = ({
     const get_title = () => { switch(view_mode) { case 'unpostponed': return "الجلسات غير المرحلة"; case 'upcoming': return `الجلسات القادمة (بعد ${format_date(selected_date)})`; case 'daily': default: return `جدول أعمال يوم: ${format_date(selected_date)}`; } };
     
     const handle_appointment_context_menu = (event: React.MouseEvent, appointment: Appointment) => { const menuItems: MenuItem[] = [ { label: 'إرسال إلى المهام الإدارية', icon: <BuildingLibraryIcon className="w-4 h-4" />, onClick: () => { const description = `متابعة موعد "${appointment.title}" يوم ${format_date(appointment.date)} الساعة ${format_time(appointment.time)}.\nالمكلف: ${appointment.assignee || 'غير محدد'}.\nالأهمية: ${importance_map[appointment.importance]?.text}.`; on_open_admin_task_modal({ task: description, assignee: appointment.assignee, importance: appointment.importance, }); } }, { label: 'مشاركة عبر واتساب', icon: <ShareIcon className="w-4 h-4" />, onClick: () => { const message = [ `*موعد:* ${appointment.title}`, `*التاريخ:* ${format_date(appointment.date)}`, `*الوقت:* ${format_time(appointment.time)}`, `*المسؤول:* ${appointment.assignee || 'غير محدد'}`, `*الأهمية:* ${importance_map[appointment.importance]?.text}` ].join('\n'); const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`; window.open(whatsappUrl, '_blank'); } } ]; show_context_menu(event, menuItems); }
-    const handle_session_context_menu = (event: React.MouseEvent, session: Session) => { let client, caseItem, stage; for (const c of clients) { for (const cs of c.cases) { const s = cs.stages.find(st => st.id === session.stage_id); if (s) { client = c; caseItem = cs; stage = s; break; } } if (stage) break; } let description = ''; let message = ''; if (client && caseItem && stage) { const details = [ `*الموكل:* ${client.name}`, `*الخصم:* ${caseItem.opponent_name}`, `*القضية:* ${caseItem.subject}`, `*المحكمة:* ${stage.court}`, `*رقم الأساس:* ${stage.case_number}`, `*تاريخ الجلسة:* ${format_date(session.date)}`, `*المكلف بالحضور:* ${session.assignee || 'غير محدد'}`, `*سبب التأجيل السابق:* ${session.postponement_reason || 'لا يوجد'}` ]; if (session.stage_decision_date) { details.push('---'); details.push(`*تم حسم المرحلة:*`); details.push(`*تاريخ الحسم:* ${format_date(new Date(session.stage_decision_date))}`); if (stage.decision_number) details.push(`*رقم القرار:* ${stage.decision_number}`); if (stage.decision_summary) details.push(`*ملخص القرار:* ${stage.decision_summary}`); } description = `متابعة جلسة قضائية:\n- ${details.join('\n- ')}`; message = `*ملخص جلسة قضائية:*\n${details.join('\n')}`; } else { description = `متابعة جلسة قضية (${session.client_name} ضد ${session.opponent_name}) يوم ${format_date(session.date)} في محكمة ${session.court} (أساس: ${session.case_number}).\nسبب التأجيل السابق: ${session.postponement_reason || 'لا يوجد'}.\nالمكلف بالحضور: ${session.assignee}.`; message = [ `*جلسة قضائية:*`, `*القضية:* ${session.client_name} ضد ${session.opponent_name}`, `*المحكمة:* ${session.court} (أساس: ${session.case_number})`, `*التاريخ:* ${format_date(session.date)}`, `*المسؤول:* ${session.assignee || 'غير محدد'}`, `*سبب التأجيل السابق:* ${session.postponement_reason || 'لا يوجد'}` ].join('\n'); } const menuItems: MenuItem[] = [ { label: 'إرسال إلى المهام الإدارية', icon: <BuildingLibraryIcon className="w-4 h-4" />, onClick: () => { on_open_admin_task_modal({ task: description, assignee: session.assignee, }); } }, { label: 'مشاركة عبر واتساب', icon: <ShareIcon className="w-4 h-4" />, onClick: () => { const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`; window.open(whatsappUrl, '_blank'); } } ]; show_context_menu(event, menuItems); }
+    const handle_session_context_menu = (event: React.MouseEvent, session: Session) => { let client, caseItem, stage; for (const c of clients) { for (const cs of c.cases) { const s = cs.stages.find(st => st.id === session.stage_id); if (s) { client = c; caseItem = cs; stage = s; break; } } if (stage) break; } let description = ''; let message = ''; if (client && caseItem && stage) { const details = [ `*الموكل:* ${client.name}`, `*الخصم:* ${caseItem.opponent_name}`, `*القضية:* ${caseItem.subject}`, `*المحكمة:* ${stage.court}`, `*رقم الأساس:* ${stage.case_number}`, `*تاريخ الجلسة:* ${format_date(session.date)}`, `*المكلف بالحضور:* ${session.assignee || 'غير محدد'}`, `*سبب التأجيل السابق:* ${session.postponement_reason || 'لا يوجد'}` ]; if (session.stage_decision_date) { details.push('---'); details.push(`*تم حسم المرحلة:*`); details.push(`*تاريخ الحسم:* ${format_date(session.stage_decision_date)}`); if (stage.decision_number) details.push(`*رقم القرار:* ${stage.decision_number}`); if (stage.decision_summary) details.push(`*ملخص القرار:* ${stage.decision_summary}`); } description = `متابعة جلسة قضائية:\n- ${details.join('\n- ')}`; message = `*ملخص جلسة قضائية:*\n${details.join('\n')}`; } else { description = `متابعة جلسة قضية (${session.client_name} ضد ${session.opponent_name}) يوم ${format_date(session.date)} في محكمة ${session.court} (أساس: ${session.case_number}).\nسبب التأجيل السابق: ${session.postponement_reason || 'لا يوجد'}.\nالمكلف بالحضور: ${session.assignee}.`; message = [ `*جلسة قضائية:*`, `*القضية:* ${session.client_name} ضد ${session.opponent_name}`, `*المحكمة:* ${session.court} (أساس: ${session.case_number})`, `*التاريخ:* ${format_date(session.date)}`, `*المسؤول:* ${session.assignee || 'غير محدد'}`, `*سبب التأجيل السابق:* ${session.postponement_reason || 'لا يوجد'}` ].join('\n'); } const menuItems: MenuItem[] = [ { label: 'إرسال إلى المهام الإدارية', icon: <BuildingLibraryIcon className="w-4 h-4" />, onClick: () => { on_open_admin_task_modal({ task: description, assignee: session.assignee, }); } }, { label: 'مشاركة عبر واتساب', icon: <ShareIcon className="w-4 h-4" />, onClick: () => { const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`; window.open(whatsappUrl, '_blank'); } } ]; show_context_menu(event, menuItems); }
 
     // Memos
     const overdue_sessions = React.useMemo(() => {
@@ -425,7 +424,12 @@ const HomePage: React.FC<HomePageProps> = ({
     }, [unpostponed_sessions]);
 
     const daily_data = React.useMemo(() => ({ daily_sessions: all_sessions.filter(s => is_same_day(s.date, selected_date)), daily_appointments: appointments.filter(a => is_same_day(a.date, selected_date)) }), [selected_date, all_sessions, appointments]);
-    const upcoming_sessions = React.useMemo(() => { const tomorrow = new Date(selected_date); tomorrow.setDate(tomorrow.getDate() + 1); tomorrow.setHours(0, 0, 0, 0); return unpostponed_sessions.filter(s => new Date(s.date) >= tomorrow).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()); }, [unpostponed_sessions, selected_date]);
+    const upcoming_sessions = React.useMemo(() => { 
+        const tomorrow = new Date(selected_date); 
+        tomorrow.setDate(tomorrow.getDate() + 1); 
+        tomorrow.setHours(0, 0, 0, 0); 
+        return unpostponed_sessions.filter(s => safe_revive_date(s.date) >= tomorrow).sort((a, b) => safe_revive_date(a.date).getTime() - safe_revive_date(b.date).getTime()); 
+    }, [unpostponed_sessions, selected_date]);
     const grouped_tasks: Record<string, AdminTask[]> = React.useMemo(() => {
         const isCompleted = active_task_tab === 'completed';
         const filtered = admin_tasks.filter(task => {

@@ -19,6 +19,21 @@ export const get_first_day_of_month = (year: number, month: number): number => {
  */
 export const safe_revive_date = (date: any): Date => {
     if (!date) return new Date();
+    
+    // Handle strings specifically to avoid browser inconsistencies and timezone shifts
+    if (typeof date === 'string') {
+        // Handle YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss...
+        // If it's a date-only string or a date-time string at midnight, 
+        // we treat it as a local calendar date to avoid shifting back a day in negative timezones.
+        const dateMatch = date.match(/^(\d{4})-(\d{2})-(\d{2})(T(00:00:00|23:59:59))?/);
+        if (dateMatch) {
+            const y = parseInt(dateMatch[1], 10);
+            const m = parseInt(dateMatch[2], 10);
+            const d = parseInt(dateMatch[3], 10);
+            return new Date(y, m - 1, d);
+        }
+    }
+    
     const d = new Date(date);
     return isNaN(d.getTime()) ? new Date() : d;
 };
@@ -37,7 +52,7 @@ export const is_today = (date: Date | string): boolean => {
 }
 
 export const is_before_today = (date: Date | string): boolean => {
-    const d = new Date(date);
+    const d = safe_revive_date(date);
     if (isNaN(d.getTime())) return false;
     
     const s_date = to_input_date_string(d);
@@ -47,7 +62,7 @@ export const is_before_today = (date: Date | string): boolean => {
 }
 
 export const format_date = (date: Date | string): string => {
-    const d = new Date(date);
+    const d = safe_revive_date(date);
     if (isNaN(d.getTime())) return 'تاريخ غير صالح';
     return new Intl.DateTimeFormat('ar-SY', {
         year: 'numeric',
@@ -70,17 +85,10 @@ export const to_input_date_string = (date: Date | string | null | undefined): st
         return date;
     }
 
-    const d = new Date(date);
+    const d = safe_revive_date(date);
     if (isNaN(d.getTime())) { // Handles invalid dates
         return '';
     }
-    
-    // If it's a string that might be an ISO string, we need to be careful.
-    // If it was created from a string like "2026-03-26", new Date() makes it UTC.
-    // We want the date part that the user intended.
-    
-    // If the input was a string and contains 'T', it's likely an ISO string with time.
-    // In that case, we should use local time parts.
     
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -96,8 +104,18 @@ export const to_input_date_string = (date: Date | string | null | undefined): st
  */
 export const parse_input_date_string = (date_string: string | null | undefined): Date | null => {
     if (!date_string) return null;
-    // The 'T00:00:00' part ensures the date is parsed in the local timezone, not UTC.
-    const d = new Date(`${date_string}T00:00:00`);
+    
+    // Manual parsing to ensure consistency across browsers and force local midnight
+    const parts = date_string.split('-');
+    if (parts.length === 3) {
+        const year = parseInt(parts[0], 10);
+        const month = parseInt(parts[1], 10) - 1;
+        const day = parseInt(parts[2], 10);
+        const d = new Date(year, month, day);
+        if (!isNaN(d.getTime())) return d;
+    }
+    
+    const d = new Date(date_string);
     if (isNaN(d.getTime())) {
         console.warn(`Invalid date string provided to parse_input_date_string: ${date_string}`);
         return null;
@@ -144,7 +162,7 @@ const floating_holidays: { [year: number]: { month: number; day: number; name: s
  * @returns True if the date is a Friday or Saturday.
  */
 export const is_weekend = (date: Date | string): boolean => {
-    const d = new Date(date);
+    const d = safe_revive_date(date);
     if (isNaN(d.getTime())) return false;
     const day = d.getDay();
     return day === 5 || day === 6; // 5 = Friday, 6 = Saturday
@@ -165,7 +183,7 @@ export const is_holiday = (date: Date | string): boolean => {
  * @returns The name of the holiday if it is one, otherwise null.
  */
 export const get_public_holiday = (date: Date | string): string | null => {
-    const d = new Date(date);
+    const d = safe_revive_date(date);
     if (isNaN(d.getTime())) return null;
     
     const year = d.getFullYear();

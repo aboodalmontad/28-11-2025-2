@@ -1,7 +1,7 @@
 
 import * as React from 'react';
 import { AccountingEntry, Client, Invoice, InvoiceItem, Case, Stage, Session } from '../types';
-import { format_date, to_input_date_string, parse_input_date_string } from '../utils/dateUtils';
+import { format_date, to_input_date_string, parse_input_date_string, safe_revive_date } from '../utils/dateUtils';
 import { PlusIcon, PencilIcon, TrashIcon, SearchIcon, ExclamationTriangleIcon, PrintIcon, DocumentTextIcon, CalculatorIcon, ChartPieIcon } from '../components/icons';
 import { useData } from '../context/DataContext';
 import PrintableInvoice from '../components/PrintableInvoice';
@@ -33,7 +33,7 @@ const EntriesTab: React.FC = () => {
                 entry.amount.toString().includes(search_query)
             );
         });
-        return filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        return filtered.sort((a, b) => safe_revive_date(b.date).getTime() - safe_revive_date(a.date).getTime());
     }, [accounting_entries, search_query]);
 
     const handle_open_modal = (entry?: AccountingEntry) => {
@@ -205,8 +205,8 @@ const InvoicesTab: React.FC<{ initial_invoice_data?: { client_id: string, case_i
                 client_name: client?.name || '',
                 case_id: initial_invoice_data.case_id,
                 case_subject: case_item?.subject,
-                issue_date: new Date().toISOString(),
-                due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // +1 week
+                issue_date: to_input_date_string(new Date()),
+                due_date: to_input_date_string(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)), // +1 week
                 items: [{ id: `item-${Date.now()}`, description: 'أتعاب محاماة', amount: 0 }],
                 tax_rate: 0,
                 discount: 0,
@@ -313,13 +313,17 @@ const InvoiceModal: React.FC<{ is_open: boolean; on_close: () => void; initial_d
         tax_rate: 0,
         discount: 0,
         status: 'draft',
-        issue_date: new Date().toISOString(),
-        due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+        issue_date: to_input_date_string(new Date()),
+        due_date: to_input_date_string(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000))
     });
 
     React.useEffect(() => {
         if (initial_data) {
-            set_form_data({ ...initial_data, issue_date: initial_data.issue_date || new Date().toISOString(), due_date: initial_data.due_date || new Date().toISOString() });
+            set_form_data({ 
+                ...initial_data, 
+                issue_date: initial_data.issue_date || to_input_date_string(new Date()), 
+                due_date: initial_data.due_date || to_input_date_string(new Date()) 
+            });
         }
     }, [initial_data]);
 
@@ -381,8 +385,8 @@ const InvoiceModal: React.FC<{ is_open: boolean; on_close: () => void; initial_d
                                 {clients.find(c => c.id === form_data.client_id)?.cases.map(cs => <option key={cs.id} value={cs.id}>{cs.subject}</option>)}
                             </select>
                         </div>
-                        <div><label className="block text-sm font-medium">تاريخ الإصدار</label><input type="date" value={to_input_date_string(form_data.issue_date)} onChange={e => set_form_data({...form_data, issue_date: new Date(e.target.value).toISOString()})} className="w-full p-2 border rounded" required /></div>
-                        <div><label className="block text-sm font-medium">تاريخ الاستحقاق</label><input type="date" value={to_input_date_string(form_data.due_date)} onChange={e => set_form_data({...form_data, due_date: new Date(e.target.value).toISOString()})} className="w-full p-2 border rounded" required /></div>
+                        <div><label className="block text-sm font-medium">تاريخ الإصدار</label><input type="date" value={to_input_date_string(form_data.issue_date)} onChange={e => set_form_data({...form_data, issue_date: e.target.value})} className="w-full p-2 border rounded" required /></div>
+                        <div><label className="block text-sm font-medium">تاريخ الاستحقاق</label><input type="date" value={to_input_date_string(form_data.due_date)} onChange={e => set_form_data({...form_data, due_date: e.target.value})} className="w-full p-2 border rounded" required /></div>
                     </div>
 
                     <div className="border-t pt-4">

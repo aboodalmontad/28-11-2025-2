@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { get_supabase_client } from '../supabaseClient';
 import { SiteFinancialEntry, Profile } from '../types';
-import { format_date, to_input_date_string } from '../utils/dateUtils';
+import { format_date, to_input_date_string, safe_revive_date } from '../utils/dateUtils';
 import { PlusIcon, PencilIcon, TrashIcon, ExclamationTriangleIcon } from '../components/icons';
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useData } from '../context/DataContext';
@@ -98,7 +98,7 @@ const SiteFinancesPage: React.FC = () => {
     const reports_data = React.useMemo(() => {
         type MonthlyData = { month: string; monthDate: Date; income: number; expense: number };
         const monthlyData = entries.reduce((acc: Record<string, MonthlyData>, entry) => {
-            const d = new Date(entry.payment_date);
+            const d = safe_revive_date(entry.payment_date);
             if (isNaN(d.getTime())) {
                 console.warn("Skipping financial entry with invalid date:", entry);
                 return acc; 
@@ -139,7 +139,7 @@ const SiteFinancesPage: React.FC = () => {
             }, {} as Record<string, number>);
 
         return {
-            monthly: Object.values(monthlyData).sort((a: MonthlyData, b: MonthlyData) => new Date(a.monthDate).getTime() - new Date(b.monthDate).getTime()),
+            monthly: Object.values(monthlyData).sort((a: MonthlyData, b: MonthlyData) => safe_revive_date(a.monthDate).getTime() - safe_revive_date(b.monthDate).getTime()),
             income: Object.entries(incomeBreakdown).map(([name, value]) => ({ name, value })),
             expense: Object.entries(expenseBreakdown).map(([name, value]) => ({ name, value })),
         };
@@ -183,7 +183,7 @@ const SiteFinancesPage: React.FC = () => {
                                 <tbody>
                                     {entries.map(entry => (
                                         <tr key={entry.id} className="bg-white border-b hover:bg-gray-50">
-                                            <td className="px-6 py-4">{format_date(new Date(entry.payment_date))}</td>
+                                            <td className="px-6 py-4">{format_date(entry.payment_date)}</td>
                                             <td className="px-6 py-4">{entry.description}</td>
                                             <td className="px-6 py-4">{entry.category || '-'}</td>
                                             <td className="px-6 py-4">{users.find(u => u.id === entry.user_id)?.full_name || 'N/A'}</td>

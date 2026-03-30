@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { useData } from '../context/DataContext';
 import { CaseDocument } from '../types';
+import { format_date, safe_revive_date } from '../utils/dateUtils';
 import { DocumentArrowUpIcon, TrashIcon, DocumentTextIcon, XMarkIcon, ExclamationTriangleIcon, ArrowPathIcon, CameraIcon, CloudArrowUpIcon, CloudArrowDownIcon, CheckCircleIcon, ExclamationCircleIcon, ArrowDownTrayIcon, MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon, ArrowsPointingOutIcon, ArrowTopRightOnSquareIcon } from './icons';
 import { renderAsync } from 'docx-preview';
 
@@ -533,7 +534,7 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
     const fileInputRef = React.useRef<HTMLInputElement>(null);
 
     const caseDocuments = React.useMemo(() => 
-        documents.filter(doc => doc.case_id === caseId).sort((a,b) => new Date(b.added_at).getTime() - new Date(a.added_at).getTime()), 
+        documents.filter(doc => doc.case_id === caseId).sort((a,b) => safe_revive_date(b.added_at).getTime() - safe_revive_date(a.added_at).getTime()), 
         [documents, caseId]
     );
 

@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { AdminTask } from '../types';
-import { to_input_date_string } from '../utils/dateUtils';
+import { to_input_date_string, safe_revive_date } from '../utils/dateUtils';
 
 interface AdminTaskModalProps {
     isOpen: boolean;
@@ -46,8 +46,7 @@ const AdminTaskModal: React.FC<AdminTaskModalProps> = ({ isOpen, onClose, onSubm
         e.preventDefault();
         if (!task_form_data.task || !task_form_data.due_date) return;
 
-        const [year, month, day] = task_form_data.due_date.split('-').map(Number);
-        const taskDate = new Date(year, month - 1, day);
+        const taskDate = safe_revive_date(task_form_data.due_date);
 
         // Explicitly construct the payload for onSubmit to ensure type safety and prevent spreading unwanted properties.
         onSubmit({

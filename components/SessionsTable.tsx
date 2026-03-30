@@ -1,7 +1,7 @@
 
 import * as React from 'react';
 import { Session, Stage } from '../types';
-import { format_date, is_before_today, is_today, is_weekend, get_public_holiday, parse_input_date_string } from '../utils/dateUtils';
+import { format_date, is_before_today, is_today, is_weekend, get_public_holiday, parse_input_date_string, safe_revive_date } from '../utils/dateUtils';
 import { PencilIcon, TrashIcon, ScaleIcon, GavelIcon } from './icons';
 
 interface SessionsTableProps {
@@ -80,7 +80,7 @@ const SessionsTable: React.FC<SessionsTableProps> = ({ sessions, onPostpone, onE
             
             // Normalize dates to the beginning of the day for accurate comparison
             const newDateStart = new Date(newDate.getFullYear(), newDate.getMonth(), newDate.getDate());
-            const sessionDate = new Date(session.date);
+            const sessionDate = safe_revive_date(session.date);
             const sessionDateStart = new Date(sessionDate.getFullYear(), sessionDate.getMonth(), sessionDate.getDate());
 
             if (newDateStart <= sessionDateStart) {
