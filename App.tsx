@@ -12,13 +12,14 @@ import SubscriptionExpiredPage from './pages/SubscriptionExpiredPage';
 
 import ConfigurationModal from './components/ConfigurationModal';
 import { useSupabaseData, SyncStatus } from './hooks/useSupabaseData';
-import { UserIcon, CalculatorIcon, Cog6ToothIcon, PowerIcon, CalendarDaysIcon, ClipboardDocumentCheckIcon, ExclamationTriangleIcon, ArrowPathIcon } from './components/icons';
+import { UserIcon, CalculatorIcon, Cog6ToothIcon, PowerIcon, CalendarDaysIcon, ClipboardDocumentCheckIcon, ExclamationTriangleIcon, ArrowPathIcon, PrintIcon } from './components/icons';
 import ContextMenu, { MenuItem } from './components/ContextMenu';
 import AdminTaskModal from './components/AdminTaskModal';
 import { get_supabase_client } from './supabaseClient';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
 import { DataProvider } from './context/DataContext';
 import { safe_revive_date } from './utils/dateUtils';
+import { printElement } from './utils/printUtils';
 import SyncStatusIndicator from './components/SyncStatusIndicator';
 import NotificationCenter from './components/RealtimeNotifier';
 
@@ -65,6 +66,11 @@ const Navbar: React.FC<NavbarProps> = ({ currentPage, onNavigate, onLogout, sync
                 </div>
             </div>
             <div className="flex items-center gap-2">
+                {currentPage === 'home' && (
+                    <button onClick={() => window.print()} className="p-2 rounded-full text-gray-500 hover:bg-gray-100" title="طباعة جدول الأعمال">
+                        <PrintIcon className="w-5 h-5" />
+                    </button>
+                )}
                 <SyncStatusIndicator 
                     status={sync_status} 
                     last_error={last_sync_error} 
@@ -99,7 +105,7 @@ const BottomNav: React.FC<BottomNavProps> = ({ currentPage, onNavigate, permissi
     if (navItems.length === 0) return null;
 
     return (
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex justify-around items-center z-40 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex justify-around items-center z-40 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] no-print">
             {navItems.map(item => {
                 const Icon = item.icon;
                 const isActive = currentPage === item.id;
@@ -301,7 +307,7 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
 
     return (
         <DataProvider value={data}>
-            <div className="flex flex-col h-screen bg-gray-50">
+            <div className="flex flex-col h-screen print:h-auto bg-gray-50 print:bg-white">
                 <Navbar 
                     currentPage={currentPage} 
                     onNavigate={setCurrentPage} 
@@ -317,7 +323,7 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
                     sync_log={syncLog}
                     on_clear_log={clearSyncLog}
                 />
-                <main className="flex-grow p-4 overflow-y-auto pb-24 md:pb-4">
+                <main className="flex-grow p-4 overflow-y-auto print:overflow-visible print:p-0 pb-24 md:pb-4 print:pb-0">
                     {data.is_data_loading && <div className="p-4 text-center text-gray-500 flex items-center justify-center gap-2"><ArrowPathIcon className="w-4 h-4 animate-spin"/> جاري جلب آخر التحديثات...</div>}
                     {currentPage === 'home' && <HomePage on_open_admin_task_modal={(initialData) => { setAdminTaskInitialData(initialData); setIsAdminTaskModalOpen(true); }} show_context_menu={(e, m) => setContextMenu({isOpen: true, position: {x: e.clientX, y: e.clientY}, menuItems: m})} main_view="agenda" selected_date={selectedDate} set_selected_date={setSelectedDate} />}
                     {currentPage === 'clients' && <ClientsPage on_open_admin_task_modal={(initialData) => { setAdminTaskInitialData(initialData); setIsAdminTaskModalOpen(true); }} show_context_menu={(e, m) => setContextMenu({isOpen: true, position: {x: e.clientX, y: e.clientY}, menuItems: m})} on_create_invoice={()=>{}} />}

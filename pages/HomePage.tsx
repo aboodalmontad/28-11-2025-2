@@ -54,7 +54,7 @@ const AppointmentsTable: React.FC<{ appointments: Appointment[], on_add_appointm
     };
 
     return (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
+        <div className="bg-white rounded-lg shadow overflow-hidden print:overflow-visible">
             <div className="flex justify-between items-center p-4 bg-gray-50 border-b">
                 <h3 className="text-lg font-bold">سجل المواعيد</h3>
                 <button onClick={on_add_appointment} className="no-print flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors text-sm">
@@ -63,16 +63,16 @@ const AppointmentsTable: React.FC<{ appointments: Appointment[], on_add_appointm
                 </button>
             </div>
             {appointments.length > 0 ? (
-                 <div className="overflow-x-auto">
+                 <div className="overflow-x-auto print:overflow-visible">
                     <table className="w-full text-sm text-right text-gray-600">
                         <thead className="text-xs text-gray-700 uppercase bg-gray-100">
                             <tr>
-                                <th className="px-6 py-3">تم</th>
+                                <th className="px-6 py-3 no-print">تم</th>
                                 <th className="px-6 py-3">الموعد</th>
                                 <th className="px-6 py-3">الوقت</th>
                                 <th className="px-6 py-3">الشخص المسؤول</th>
                                 <th className="px-6 py-3">الأهمية</th>
-                                <th className="px-6 py-3">إجراءات</th>
+                                <th className="px-6 py-3 no-print">إجراءات</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -84,7 +84,7 @@ const AppointmentsTable: React.FC<{ appointments: Appointment[], on_add_appointm
                                     onTouchEnd={handle_touch_end}
                                     onTouchMove={handle_touch_end}
                                     className={`border-b transition-colors ${a.completed ? 'bg-green-50 text-gray-500 hover:bg-green-100' : 'bg-white hover:bg-gray-50'}`}>
-                                    <td className="px-6 py-4">
+                                    <td className="px-6 py-4 no-print">
                                         <input
                                             type="checkbox"
                                             checked={a.completed}
@@ -101,7 +101,7 @@ const AppointmentsTable: React.FC<{ appointments: Appointment[], on_add_appointm
                                             {importance_map[a.importance]?.text}
                                         </span>
                                     </td>
-                                    <td className="px-6 py-4 flex items-center gap-2">
+                                    <td className="px-6 py-4 flex items-center gap-2 no-print">
                                         <button onClick={() => on_edit(a)} className="p-2 text-gray-500 hover:text-blue-600" aria-label="تعديل"><PencilIcon className="w-4 h-4" /></button>
                                         <button onClick={() => on_delete(a)} className="p-2 text-gray-500 hover:text-red-600" aria-label="حذف"><TrashIcon className="w-4 h-4" /></button>
                                     </td>
@@ -469,7 +469,7 @@ const HomePage: React.FC<HomePageProps> = ({
         <div className="space-y-6">
             
             {main_view === 'agenda' && (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in">
+                <div className="grid grid-cols-1 lg:grid-cols-3 print:block gap-6 animate-fade-in">
                     <div className="lg:col-span-1 bg-white p-4 rounded-lg shadow space-y-4 no-print">
                         <Calendar 
                             onDateSelect={handle_date_select} 
@@ -519,7 +519,7 @@ const HomePage: React.FC<HomePageProps> = ({
                             <div className="space-y-6">
                                 {view_mode === 'daily' && (
                                     <>
-                                        <div className="bg-white rounded-lg shadow overflow-hidden">
+                                        <div className="bg-white rounded-lg shadow overflow-hidden print:overflow-visible">
                                             <h3 className="text-lg font-bold p-4 bg-gray-50 border-b">جدول الجلسات</h3>
                                             <SessionsTable 
                                                 sessions={daily_data.daily_sessions} 
@@ -543,7 +543,7 @@ const HomePage: React.FC<HomePageProps> = ({
                                     </>
                                 )}
                                 {view_mode === 'unpostponed' && (
-                                    <div className="bg-white rounded-lg shadow overflow-hidden">
+                                    <div className="bg-white rounded-lg shadow overflow-hidden print:overflow-visible">
                                         <SessionsTable 
                                             sessions={overdue_sessions} 
                                             onPostpone={permissions.can_postpone_session ? handle_postpone_session : undefined} 
@@ -557,7 +557,7 @@ const HomePage: React.FC<HomePageProps> = ({
                                     </div>
                                 )}
                                 {view_mode === 'upcoming' && (
-                                    <div className="bg-white rounded-lg shadow overflow-hidden">
+                                    <div className="bg-white rounded-lg shadow overflow-hidden print:overflow-visible">
                                         <SessionsTable 
                                             sessions={upcoming_sessions} 
                                             onPostpone={permissions.can_postpone_session ? handle_postpone_session : undefined} 

@@ -163,7 +163,7 @@ const SessionsTable: React.FC<SessionsTableProps> = ({ sessions, onPostpone, onE
     }
 
     return (
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto print:overflow-visible">
             <table className="w-full text-sm text-right text-gray-600">
                 <thead className="text-xs text-gray-700 uppercase bg-gray-100">
                     <tr>
@@ -175,9 +175,9 @@ const SessionsTable: React.FC<SessionsTableProps> = ({ sessions, onPostpone, onE
                         <th className="px-2 sm:px-6 py-3">المكلف بالحضور</th>
                         <th className="px-2 sm:px-6 py-3">سبب التأجيل</th>
                         {/* Only show these headers if postponement is allowed/possible in general */}
-                        <th className="px-2 sm:px-6 py-3 min-w-[170px]">تاريخ الجلسة القادمة</th>
-                        <th className="px-2 sm:px-6 py-3 min-w-[200px]">سبب التأجيل القادم</th>
-                        <th className="px-2 sm:px-6 py-3">إجراءات</th>
+                        <th className="px-2 sm:px-6 py-3 min-w-[170px] no-print">تاريخ الجلسة القادمة</th>
+                        <th className="px-2 sm:px-6 py-3 min-w-[200px] no-print">سبب التأجيل القادم</th>
+                        <th className="px-2 sm:px-6 py-3 no-print">إجراءات</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -236,7 +236,7 @@ const SessionsTable: React.FC<SessionsTableProps> = ({ sessions, onPostpone, onE
                             
                             {showPostponeFields ? (
                                 <>
-                                    <td className="px-2 sm:px-6 py-4">
+                                    <td className="px-2 sm:px-6 py-4 no-print">
                                         <input 
                                             type="date" 
                                             className={`p-2 border rounded-md w-full focus:outline-none focus:ring-2 ${errors[s.id] ? 'border-red-500 focus:ring-red-500' : 'focus:ring-blue-500'}`}
@@ -246,7 +246,7 @@ const SessionsTable: React.FC<SessionsTableProps> = ({ sessions, onPostpone, onE
                                             placeholder="DD/MM/YYYY"
                                         />
                                     </td>
-                                    <td className="px-2 sm:px-6 py-4">
+                                    <td className="px-2 sm:px-6 py-4 no-print">
                                         <input 
                                             type="text" 
                                             placeholder="سبب التأجيل..." 
@@ -256,7 +256,7 @@ const SessionsTable: React.FC<SessionsTableProps> = ({ sessions, onPostpone, onE
                                             aria-label="سبب التأجيل القادم"
                                         />
                                     </td>
-                                    <td className="px-2 sm:px-6 py-4">
+                                    <td className="px-2 sm:px-6 py-4 no-print">
                                         <div className="flex flex-col items-start gap-1">
                                             <div className="flex items-center gap-1">
                                                 <button 
@@ -277,11 +277,11 @@ const SessionsTable: React.FC<SessionsTableProps> = ({ sessions, onPostpone, onE
                                 </>
                             ) : (
                                 <>
-                                    <td className="px-2 sm:px-6 py-4 text-center">{s.next_session_date ? format_date(s.next_session_date) : '-'}</td>
-                                    <td className={`px-2 sm:px-6 py-4 ${nextReasonCellClasses}`} onClick={() => !isEditing('next_postponement_reason') && s.is_postponed && handleCellClick(s, 'next_postponement_reason')}>
+                                    <td className="px-2 sm:px-6 py-4 text-center no-print">{s.next_session_date ? format_date(s.next_session_date) : '-'}</td>
+                                    <td className={`px-2 sm:px-6 py-4 no-print ${nextReasonCellClasses}`} onClick={() => !isEditing('next_postponement_reason') && s.is_postponed && handleCellClick(s, 'next_postponement_reason')}>
                                         {isEditing('next_postponement_reason') ? <input type="text" value={edit_value || ''} onChange={e => set_edit_value(e.target.value)} onBlur={handleSaveEdit} onKeyDown={handleInputKeyDown} className="p-1 border rounded bg-white w-full" autoFocus /> : (s.next_postponement_reason || '-')}
                                     </td>
-                                    <td className="px-2 sm:px-6 py-4 text-center">
+                                    <td className="px-2 sm:px-6 py-4 text-center no-print">
                                        {(onEdit || onDelete) ? (
                                             <div className="flex items-center justify-center gap-2">
                                                 {onEdit && <button onClick={() => onEdit(s)} className="p-2 text-gray-500 hover:text-blue-600" aria-label="تعديل"><PencilIcon className="w-4 h-4" /></button>}

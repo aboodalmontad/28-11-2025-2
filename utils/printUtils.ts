@@ -4,48 +4,48 @@ export const printElement = (element: HTMLElement | null) => {
         return;
     }
 
-    const printWindow = window.open('', '', 'height=800,width=1000');
+    try {
+        const printWindow = window.open('', '_blank', 'height=800,width=1000');
+        
+        if (!printWindow) {
+            alert("يرجى السماح بالنوافذ المنبثقة في متصفحك لتمكين الطباعة.");
+            return;
+        }
 
-    if (!printWindow) {
-        alert('يرجى السماح بالنوافذ المنبثقة لطباعة التقارير.');
-        return;
+        const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
+            .map(style => style.outerHTML)
+            .join('');
+
+        const doc = printWindow.document;
+        doc.open();
+        doc.write(`
+            <!DOCTYPE html>
+            <html lang="ar" dir="rtl">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>طباعة تقرير</title>
+                ${styles}
+            </head>
+            <body>
+                ${element.innerHTML}
+            </body>
+            </html>
+        `);
+        doc.close();
+
+        // Use a timeout to ensure styles are loaded before printing
+        setTimeout(() => {
+            printWindow.focus();
+            printWindow.print();
+            
+            // Close the window after printing
+            setTimeout(() => {
+                printWindow.close();
+            }, 2000);
+        }, 1000);
+    } catch (error) {
+        console.error("Print Error:", error);
+        alert("حدث خطأ أثناء الطباعة. يرجى المحاولة مرة أخرى.");
     }
-
-    printWindow.document.write(`
-        <!DOCTYPE html>
-        <html lang="ar" dir="rtl">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>طباعة تقرير</title>
-            <script src="https://cdn.tailwindcss.com"></script>
-            <style>
-                @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap');
-                body {
-                    font-family: 'Tajawal', sans-serif;
-                }
-                @page {
-                    size: A4;
-                    margin: 20mm;
-                }
-                body {
-                    -webkit-print-color-adjust: exact !important;
-                    print-color-adjust: exact !important;
-                }
-            </style>
-        </head>
-        <body>
-            ${element.innerHTML}
-        </body>
-        </html>
-    `);
-
-    printWindow.document.close();
-    printWindow.focus(); // Necessary for some browsers
-    
-    // Use a timeout to ensure styles are loaded before printing
-    setTimeout(() => {
-        printWindow.print();
-        printWindow.close();
-    }, 500);
 };

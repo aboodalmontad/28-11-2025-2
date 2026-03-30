@@ -243,7 +243,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ show_context_menu, on_open_ad
                     cases: c.cases.map(cs => cs.id === context.item.id ? { ...cs, ...form_data, updated_at: new Date().toISOString() } : cs)
                 } : c));
             } else {
-                const client_for_case = clients.find(c => c.id === context.clientId);
+                const client_for_case = clients.find(c => c.id === context.client_id);
                 if (client_for_case) {
                     const new_case: Case = {
                         id: `case-${Date.now()}`,
@@ -326,8 +326,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ show_context_menu, on_open_ad
                     updated_at: new Date().toISOString(),
                 };
                  if (parsed_first_session_date) {
-                    const client = clients.find(c => c.id === context.clientId);
-                    const case_item = client?.cases.find(c => c.id === context.caseId);
+                    const client = clients.find(c => c.id === context.client_id);
+                    const case_item = client?.cases.find(c => c.id === context.case_id);
                     if (client && case_item) {
                         new_stage.sessions.push({
                             id: `session-${Date.now()}-first`,

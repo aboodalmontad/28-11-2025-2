@@ -52,3 +52,20 @@ body:has(#root:not(:empty)) #initial-loader {
     opacity: 0;
     pointer-events: none;
 }
+
+@media print {
+    .no-print {
+        display: none !important;
+    }
+    .only-print {
+        display: block !important;
+    }
+    body {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+    @page {
+        size: A4;
+        margin: 15mm;
+    }
+}
