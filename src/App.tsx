@@ -1,7 +1,8 @@
-import { Scale, BookOpen, Users, Phone, Mail, MapPin, ArrowLeft } from 'lucide-react';
+import { Scale, BookOpen, Users, Phone, Mail, MapPin, ArrowLeft, Printer } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useState } from 'react';
 import { supabase } from './supabaseClient';
+import { printElement } from '../utils/printUtils';
 
 export default function App() {
   const [form_data, set_form_data] = useState({ name: '', phone: '', message: '' });
@@ -50,6 +51,18 @@ export default function App() {
             <a href="#services" className="hover:text-amber-500 transition-colors">خدماتنا</a>
             <a href="#about" className="hover:text-amber-500 transition-colors">من نحن</a>
             <a href="#contact" className="hover:text-amber-500 transition-colors">اتصل بنا</a>
+            <button 
+                onClick={() => {
+                    const element = document.getElementById('print-section');
+                    if (element) {
+                        printElement(element);
+                    }
+                }}
+                className="hover:text-amber-500 transition-colors flex items-center gap-1"
+            >
+                <Printer className="w-4 h-4" />
+                <span>طباعة</span>
+            </button>
           </nav>
           <a href="#contact" className="hidden md:flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold py-2 px-6 rounded-lg transition-colors">
             <span>استشارة مجانية</span>

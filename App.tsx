@@ -66,11 +66,16 @@ const Navbar: React.FC<NavbarProps> = ({ currentPage, onNavigate, onLogout, sync
                 </div>
             </div>
             <div className="flex items-center gap-2">
-                {currentPage === 'home' && (
-                    <button onClick={() => window.print()} className="p-2 rounded-full text-gray-500 hover:bg-gray-100" title="طباعة جدول الأعمال">
-                        <PrintIcon className="w-5 h-5" />
-                    </button>
-                )}
+                <button onClick={() => {
+                    const agendaElement = document.getElementById('print-section');
+                    if (agendaElement) {
+                        printElement(agendaElement);
+                    } else {
+                        window.print();
+                    }
+                }} className="p-2 rounded-full text-gray-500 hover:bg-gray-100" title="طباعة">
+                    <PrintIcon className="w-5 h-5" />
+                </button>
                 <SyncStatusIndicator 
                     status={sync_status} 
                     last_error={last_sync_error} 

@@ -36,6 +36,14 @@ const EntriesTab: React.FC = () => {
         return filtered.sort((a, b) => safe_revive_date(b.date).getTime() - safe_revive_date(a.date).getTime());
     }, [accounting_entries, search_query]);
 
+    const table_totals = React.useMemo(() => {
+        return filtered_and_sorted_entries.reduce((acc, entry) => {
+            if (entry.type === 'income') acc.income += entry.amount;
+            else acc.expense += entry.amount;
+            return acc;
+        }, { income: 0, expense: 0 });
+    }, [filtered_and_sorted_entries]);
+
     const handle_open_modal = (entry?: AccountingEntry) => {
         set_form_data(entry ? { ...entry, date: to_input_date_string(entry.date) as unknown as any } : { type: 'income', date: to_input_date_string(new Date()) as unknown as any });
         set_modal({ is_open: true, data: entry });
@@ -126,7 +134,8 @@ const EntriesTab: React.FC = () => {
                                 <th className="px-4 py-3">التاريخ</th>
                                 <th className="px-4 py-3">البيان</th>
                                 <th className="px-4 py-3">الموكل</th>
-                                <th className="px-4 py-3">المبلغ</th>
+                                <th className="px-4 py-3 text-green-600">مقبوضات</th>
+                                <th className="px-4 py-3 text-red-600">مدفوعات</th>
                                 <th className="px-4 py-3">إجراءات</th>
                             </tr>
                         </thead>
@@ -136,8 +145,11 @@ const EntriesTab: React.FC = () => {
                                     <td className="px-4 py-3">{format_date(entry.date)}</td>
                                     <td className="px-4 py-3">{entry.description}</td>
                                     <td className="px-4 py-3">{entry.client_name || '-'}</td>
-                                    <td className={`px-4 py-3 font-bold ${entry.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>
-                                        {entry.amount.toLocaleString()}
+                                    <td className="px-4 py-3 font-bold text-green-600">
+                                        {entry.type === 'income' ? entry.amount.toLocaleString() : '-'}
+                                    </td>
+                                    <td className="px-4 py-3 font-bold text-red-600">
+                                        {entry.type === 'expense' ? entry.amount.toLocaleString() : '-'}
                                     </td>
                                     <td className="px-4 py-3 flex gap-2">
                                         <button onClick={() => handle_open_modal(entry)} className="p-1 text-gray-500 hover:text-blue-600"><PencilIcon className="w-4 h-4" /></button>
@@ -145,8 +157,16 @@ const EntriesTab: React.FC = () => {
                                     </td>
                                 </tr>
                             ))}
-                            {filtered_and_sorted_entries.length === 0 && <tr><td colSpan={5} className="text-center p-4">لا توجد قيود.</td></tr>}
+                            {filtered_and_sorted_entries.length === 0 && <tr><td colSpan={6} className="text-center p-4">لا توجد قيود.</td></tr>}
                         </tbody>
+                        <tfoot className="bg-gray-100 font-bold">
+                            <tr>
+                                <td colSpan={3} className="px-4 py-3 text-left">الإجمالي</td>
+                                <td className="px-4 py-3 text-green-700">{table_totals.income.toLocaleString()}</td>
+                                <td className="px-4 py-3 text-red-700">{table_totals.expense.toLocaleString()}</td>
+                                <td className="px-4 py-3 text-blue-800">الفرق: {(table_totals.income - table_totals.expense).toLocaleString()}</td>
+                            </tr>
+                        </tfoot>
                     </table>
                 </div>
             </div>

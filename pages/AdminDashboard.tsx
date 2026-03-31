@@ -6,6 +6,7 @@ import { useData } from '../context/DataContext';
 import AdminAnalyticsPage from './AdminAnalyticsPage';
 import SiteFinancesPage from './SiteFinancesPage';
 import AdminSettingsPage from './AdminSettingsPage';
+import AdminTestsPage from './AdminTestsPage';
 import SyncStatusIndicator from '../components/SyncStatusIndicator';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 
@@ -16,7 +17,7 @@ interface AdminDashboardProps {
     on_clear_log?: () => void;
 }
 
-type AdminView = 'analytics' | 'users' | 'finances' | 'settings';
+type AdminView = 'analytics' | 'users' | 'finances' | 'settings' | 'tests';
 
 const NavLink: React.FC<{
     label: string;
@@ -106,6 +107,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ on_logout, on_open_conf
                 return <SiteFinancesPage />;
             case 'settings':
                 return <AdminSettingsPage on_open_config={on_open_config} />;
+            case 'tests':
+                return <AdminTestsPage />;
             default:
                 return <AdminPage />;
         }
@@ -139,6 +142,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ on_logout, on_open_conf
                     icon={<CurrencyDollarIcon className="w-6 h-6" />}
                     is_active={view === 'finances'}
                     on_click={() => { set_view('finances'); set_is_sidebar_open(false); }}
+                />
+                <NavLink
+                    label="اختبارات الإدارة"
+                    icon={<ExclamationTriangleIcon className="w-6 h-6" />}
+                    is_active={view === 'tests'}
+                    on_click={() => { set_view('tests'); set_is_sidebar_open(false); }}
                 />
                 <NavLink
                     label="الإعدادات"

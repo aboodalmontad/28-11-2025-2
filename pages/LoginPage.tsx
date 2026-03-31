@@ -6,6 +6,7 @@ import { get_db, DATA_STORE_NAME } from '../utils/db';
 import { get_app_data_key } from '../hooks/useSupabaseData';
 import { ExclamationCircleIcon, EyeIcon, EyeSlashIcon, ClipboardDocumentIcon, ClipboardDocumentCheckIcon, ArrowTopRightOnSquareIcon, CheckCircleIcon, UserGroupIcon, KeyIcon, ArrowPathIcon } from '../components/icons';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
+import { normalize_mobile_for_db, normalize_mobile_to_e164 } from '../utils/mobileUtils';
 import type { User } from '@supabase/supabase-js';
 
 interface auth_page_props {
@@ -57,20 +58,13 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
     const [otp_code, set_otp_code] = React.useState('');
     const [new_password, set_new_password] = React.useState('');
     const [is_assistant_signup, set_is_assistant_signup] = React.useState(false);
-    const [show_lawyers_modal, set_show_lawyers_modal] = React.useState(false);
-    const [show_diagnostic_modal, set_show_diagnostic_modal] = React.useState(false);
-    const [lawyers_list, set_lawyers_list] = React.useState<any[]>([]);
     const [db_status, set_db_status] = React.useState<'checking' | 'connected' | 'failed'>('checking');
-    const [diagnostic_tasks, set_diagnostic_tasks] = React.useState<any[] | null>(null);
-    const [diagnostic_loading, set_diagnostic_loading] = React.useState(false);
-    const [diagnostic_clients, set_diagnostic_clients] = React.useState<any[] | null>(null);
-    const [diagnostic_clients_loading, set_diagnostic_clients_loading] = React.useState(false);
-    const [diagnostic_profiles, set_diagnostic_profiles] = React.useState<any[] | null>(null);
-    const [diagnostic_profiles_loading, set_diagnostic_profiles_loading] = React.useState(false);
-    const [diagnostic_auth, set_diagnostic_auth] = React.useState<any | null>(null);
-    const [diagnostic_auth_loading, set_diagnostic_auth_loading] = React.useState(false);
-    const [force_sync_loading, set_force_sync_loading] = React.useState(false);
     const [is_cleaned, set_is_cleaned] = React.useState(false);
+    const [force_sync_loading, set_force_sync_loading] = React.useState(false);
+    const [diagnostic_loading, set_diagnostic_loading] = React.useState(false);
+    const [diagnostic_clients_loading, set_diagnostic_clients_loading] = React.useState(false);
+    const [diagnostic_profiles_loading, set_diagnostic_profiles_loading] = React.useState(false);
+    const [show_diagnostic_modal, set_show_diagnostic_modal] = React.useState(false);
     const is_online = useOnlineStatus();
 
     const [form, set_form] = React.useState({
@@ -92,149 +86,6 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
     }, [current_mobile]);
 
     const supabase = get_supabase_client();
-
-    const fetch_lawyers = async () => {
-        if (!supabase) return;
-        const { data, error: err } = await supabase.from('public_profiles_view').select('full_name');
-        if (data) {
-            set_lawyers_list(data);
-            set_show_lawyers_modal(true);
-        } else if (err) {
-            console.error("Error fetching lawyers:", err);
-            set_error("تعذر جلب قائمة المحامين.");
-        }
-    };
-
-    const fetch_diagnostic_tasks = async (user_id?: string) => {
-        if (!supabase) return;
-        // @ts-ignore - الوصول للرابط الداخلي للتشخيص
-        console.log("Connecting to Supabase URL:", supabase.supabaseUrl);
-        set_diagnostic_loading(true);
-        try {
-            let query = supabase.from('admin_tasks').select('*');
-            if (user_id) query = query.eq('user_id', user_id);
-            const { data, error: err } = await query;
-            if (err) throw err;
-            console.log("Diagnostic data received:", data);
-            set_diagnostic_tasks(data || []);
-        } catch (err: any) {
-            console.error("Diagnostic fetch failed:", err);
-            alert("فشل جلب المهام: " + err.message);
-        } finally {
-            set_diagnostic_loading(false);
-        }
-    };
-
-    const fetch_diagnostic_clients = async (user_id?: string) => {
-        if (!supabase) return;
-        console.log("Fetching clients from Supabase (Diagnostic)...");
-        set_diagnostic_clients_loading(true);
-        try {
-            let query = supabase
-                .from('clients')
-                .select('*')
-                .order('updated_at', { ascending: false })
-                .limit(5000);
-            if (user_id) query = query.eq('user_id', user_id);
-            const { data, error: err } = await query;
-
-            if (err) throw err;
-            console.log(`Diagnostic clients received: ${data?.length || 0} records`, data);
-            set_diagnostic_clients(data || []);
-            return data;
-        } catch (err: any) {
-            console.error("Diagnostic fetch failed:", err);
-            set_error("فشل جلب الموكلين: " + err.message);
-            return null;
-        } finally {
-            set_diagnostic_clients_loading(false);
-        }
-    };
-
-    const fetch_diagnostic_profiles = async (user_id?: string) => {
-        if (!supabase) return;
-        console.log("Fetching profiles from Supabase (Diagnostic)...");
-        set_diagnostic_profiles_loading(true);
-        try {
-            let query = supabase
-                .from('profiles')
-                .select('*')
-                .order('created_at', { ascending: false })
-                .limit(1000);
-            if (user_id) query = query.eq('id', user_id);
-            const { data, error: err } = await query;
-
-            if (err) throw err;
-            console.log(`Diagnostic profiles received: ${data?.length || 0} records`, data);
-            set_diagnostic_profiles(data || []);
-            return data;
-        } catch (err: any) {
-            console.error("Diagnostic profiles fetch failed:", err);
-            set_error("فشل جلب المستخدمين: " + err.message);
-            return null;
-        } finally {
-            set_diagnostic_profiles_loading(false);
-        }
-    };
-
-    const run_auth_diagnostic = async () => {
-        if (!supabase) return;
-        set_diagnostic_auth_loading(true);
-        set_error(null);
-        set_diagnostic_auth(null);
-        
-        const phone = normalize_mobile_to_e164(form.mobile);
-        const normalized_mobile = normalize_mobile_for_db(form.mobile);
-        const email = phone ? `sy${phone.substring(1)}@email.com` : null;
-        
-        try {
-            const results: any = {
-                input: form.mobile,
-                normalized_db: normalized_mobile,
-                normalized_auth_email: email,
-                steps: []
-            };
-
-            // Step 1: Check if profile exists in public.profiles
-            results.steps.push("البحث في جدول profiles...");
-            const { data: profile, error: p_error } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('mobile_number', normalized_mobile || form.mobile)
-                .maybeSingle();
-            
-            if (p_error) results.profiles_error = p_error.message;
-            results.profile_found = !!profile;
-            results.profile_data = profile;
-
-            // Step 2: Try to check if user exists in Auth (using service role capabilities)
-            results.steps.push("محاولة فحص نظام المصادقة (Auth)...");
-            // Note: signInWithPassword will tell us if user exists or not via error message
-            const { error: auth_error } = await supabase.auth.signInWithPassword({
-                email: email || '',
-                password: 'dummy-password-for-test'
-            });
-
-            if (auth_error) {
-                results.auth_response = auth_error.message;
-                results.auth_code = auth_error.code;
-                
-                if (auth_error.message.includes('Invalid login credentials')) {
-                    results.diagnosis = "الحساب موجود في نظام المصادقة ولكن كلمة المرور غير صحيحة (أو الحساب غير مفعل).";
-                } else if (auth_error.message.includes('Email not confirmed')) {
-                    results.diagnosis = "الحساب موجود ولكن البريد الإلكتروني غير مؤكد.";
-                } else {
-                    results.diagnosis = "نظام المصادقة لم يتعرف على هذا البريد: " + auth_error.message;
-                }
-            }
-
-            set_diagnostic_auth(results);
-        } catch (err: any) {
-            set_error("خطأ في التشخيص: " + err.message);
-        } finally {
-            set_diagnostic_auth_loading(false);
-        }
-    };
 
     const sync_user_cloud_data_to_local = async (user_id: string) => {
         if (!supabase) return;
@@ -418,6 +269,19 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
         }
     };
 
+    const fetch_diagnostic_tasks = async (user_id?: string) => {
+        // Implementation placeholder
+        console.log("Fetching diagnostic tasks for:", user_id);
+    };
+    const fetch_diagnostic_clients = async (user_id?: string) => {
+        // Implementation placeholder
+        console.log("Fetching diagnostic clients for:", user_id);
+    };
+    const fetch_diagnostic_profiles = async (user_id?: string) => {
+        // Implementation placeholder
+        console.log("Fetching diagnostic profiles for:", user_id);
+    };
+
     const toggle_view = (e: React.MouseEvent) => {
         e.preventDefault();
         set_auth_step(prev => prev === 'login' ? 'signup' : 'login');
@@ -426,28 +290,6 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
         set_info(is_online ? null : "أنت غير متصل. تسجيل الدخول متاح فقط للمستخدم الأخير الذي سجل دخوله على هذا الجهاز.");
         set_auth_failed(false);
         set_is_assistant_signup(false);
-    };
-
-    const normalize_mobile_to_e164 = (mobile: string): string | null => {
-        const digits = mobile.replace(/\D/g, '');
-        if (digits.length >= 9) {
-            const last_nine = digits.slice(-9);
-            if (last_nine.startsWith('9')) {
-                return `+963${last_nine}`;
-            }
-        }
-        return null;
-    };
-    
-    const normalize_mobile_for_db = (mobile: string): string | null => {
-        const digits = mobile.replace(/\D/g, '');
-        if (digits.length >= 9) {
-            const last_nine = digits.slice(-9);
-            if (last_nine.startsWith('9')) {
-                return '0' + last_nine;
-            }
-        }
-        return null;
     };
 
     const handle_input_change = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -752,11 +594,6 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
                         {auth_step === 'login' ? 'تسجيل الدخول' : (auth_step === 'signup' ? 'إنشاء حساب جديد' : (auth_step === 'forgot-password' ? 'استعادة كلمة المرور' : 'تأكيد رقم الجوال'))}
                     </h2>
 
-                    <div className="mb-6 text-center">
-                        <button onClick={fetch_lawyers} className="w-full py-3 bg-blue-100 hover:bg-blue-200 text-blue-800 font-bold rounded-md text-lg transition-colors border-2 border-blue-300">
-                            عرض قائمة المحامين المسجلين
-                        </button>
-                    </div>
 
                     {error && <div className="mb-4 p-4 text-sm text-red-800 bg-red-100 rounded-lg flex items-start gap-3"><ExclamationCircleIcon className="w-5 h-5 flex-shrink-0 mt-0.5" /><div>{error}</div></div>}
                     {message && <div className="mb-4 p-4 text-sm text-green-800 bg-green-100 rounded-lg flex items-center gap-2"><CheckCircleIcon className="w-5 h-5"/>{message}</div>}
@@ -855,268 +692,6 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
                             {auth_step === 'login' ? 'ليس لديك حساب؟' : 'لديك حساب بالفعل؟'}
                             <a href="#" onClick={toggle_view} className="font-medium text-blue-600 ms-1">{auth_step === 'login' ? 'أنشئ حساباً جديداً' : 'سجل الدخول'}</a>
                         </p>
-                    )}
-                </div>
-                
-                <div className="mt-6 text-center">
-                    <button onClick={fetch_lawyers} className="w-full max-w-md py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg transition-all transform hover:scale-105 z-50 relative">
-                        عرض قائمة المحامين المسجلين
-                    </button>
-                </div>
-                
-                {show_lawyers_modal && (
-                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                        <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-sm">
-                            <h3 className="text-lg font-bold mb-4">المحامون المسجلون</h3>
-                            <ul className="space-y-2 max-h-60 overflow-y-auto">
-                                {lawyers_list.map((l, i) => <li key={i} className="p-2 bg-gray-50 rounded">{l.full_name}</li>)}
-                            </ul>
-                            <button onClick={() => set_show_lawyers_modal(false)} className="mt-4 w-full bg-gray-200 p-2 rounded">إغلاق</button>
-                        </div>
-                    </div>
-                )}
-
-                {show_diagnostic_modal && (
-                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                        <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-2xl max-h-[80vh] overflow-y-auto">
-                            <h3 className="text-lg font-bold mb-4">تشخيص البيانات الشامل</h3>
-                            <pre className="bg-gray-100 p-4 rounded text-xs overflow-x-auto text-left" dir="ltr">
-                                {JSON.stringify({ auth_step, form, db_status, lawyers_list, diagnostic_tasks, diagnostic_clients, is_online }, null, 2)}
-                            </pre>
-                            <button onClick={() => set_show_diagnostic_modal(false)} className="mt-4 w-full bg-gray-200 p-2 rounded">إغلاق</button>
-                        </div>
-                    </div>
-                )}
-
-                <div className="mt-4 flex flex-col items-center gap-2">
-                    <div className="flex flex-col items-center gap-2 w-full">
-                        <button 
-                            onClick={async () => {
-                                console.log("Starting cleanup process...");
-                                set_loading(true);
-                                try {
-                                    // 1. مسح LocalStorage
-                                    console.log("Clearing LocalStorage...");
-                                    localStorage.clear();
-                                    
-                                    // 2. مسح Cache
-                                    console.log("Clearing Cache...");
-                                    if ('caches' in window) {
-                                        const keys = await caches.keys();
-                                        for (let k of keys) await caches.delete(k);
-                                    }
-                                    
-                                    // 3. مسح Service Workers
-                                    console.log("Unregistering Service Workers...");
-                                    if ('serviceWorker' in navigator) {
-                                        const regs = await navigator.serviceWorker.getRegistrations();
-                                        for (let r of regs) await r.unregister();
-                                    }
-                                    
-                                    // 4. مسح IndexedDB
-                                    console.log("Deleting IndexedDB databases...");
-                                    if (window.indexedDB && (window.indexedDB as any).databases) {
-                                        try {
-                                            const dbs = await (window.indexedDB as any).databases();
-                                            for (const db of dbs) {
-                                                if (db.name) window.indexedDB.deleteDatabase(db.name);
-                                            }
-                                        } catch (e) { console.warn("IndexedDB databases list failed", e); }
-                                    }
-                                    
-                                    // مسح قواعد بيانات مححددة نعرفها
-                                    window.indexedDB.deleteDatabase('lawyer-app-db');
-                                    window.indexedDB.deleteDatabase('supabase-auth-token');
-
-                                    set_is_cleaned(true);
-                                    console.log("Cleanup successful!");
-                                    set_message("✅ تم تنظيف البيانات بنجاح. سيتم إعادة تشغيل التطبيق...");
-                                    
-                                    setTimeout(() => {
-                                        window.location.href = window.location.origin + window.location.pathname + '?clear=true';
-                                    }, 1500);
-                                } catch (err) {
-                                    console.error("Cleanup failed:", err);
-                                    set_error("حدث خطأ أثناء التنظيف. يرجى تحديث الصفحة يدوياً.");
-                                } finally {
-                                    set_loading(false);
-                                }
-                            }} 
-                            disabled={loading}
-                            className={`mt-3 w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-bold rounded-lg border shadow-md transition-all ${is_cleaned ? 'bg-green-600 text-white border-green-700' : 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100'}`}
-                        >
-                            <DatabaseIcon className={`w-5 h-5 ${is_cleaned ? 'text-white' : 'text-red-600'}`} />
-                            <span>{is_cleaned ? 'تم التنظيف - جاري إعادة التشغيل...' : 'تنظيف شامل للبيانات (حل مشكلة المزامنة)'}</span>
-                        </button>
-                        <p className="text-[10px] text-gray-400 text-center px-4">استخدم هذا الزر إذا كنت ترى بيانات قديمة أو تواجه مشاكل في تسجيل الدخول.</p>
-                    </div>
-                    
-                    <div className="flex flex-wrap justify-center gap-2">
-                        <button 
-                            onClick={() => fetch_all_diagnostic_data()}
-                            disabled={diagnostic_loading || diagnostic_clients_loading}
-                            className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-purple-600 bg-white hover:bg-purple-50 rounded-full border border-purple-200 shadow-sm disabled:opacity-50"
-                        >
-                            <span>{diagnostic_loading || diagnostic_clients_loading ? 'جاري جلب البيانات...' : 'تشخيص البيانات الشامل'}</span>
-                        </button>
-
-                        <button 
-                            onClick={() => fetch_diagnostic_tasks()} 
-                            disabled={diagnostic_loading}
-                            className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-blue-600 bg-white hover:bg-blue-50 rounded-full border border-blue-200 shadow-sm disabled:opacity-50"
-                        >
-                            {diagnostic_loading ? 'جاري الجلب...' : 'اختبار جلب المهام (التشخيص)'}
-                        </button>
-
-                        <button 
-                            onClick={() => fetch_diagnostic_clients()} 
-                            disabled={diagnostic_clients_loading}
-                            className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-green-600 bg-white hover:bg-green-50 rounded-full border border-green-200 shadow-sm disabled:opacity-50"
-                        >
-                            {diagnostic_clients_loading ? 'جاري الجلب...' : 'اختبار جلب الموكلين (التشخيص)'}
-                        </button>
-
-                        <button 
-                            onClick={() => fetch_diagnostic_profiles()} 
-                            disabled={diagnostic_profiles_loading}
-                            className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-orange-600 bg-white hover:bg-orange-50 rounded-full border border-orange-200 shadow-sm disabled:opacity-50"
-                        >
-                            {diagnostic_profiles_loading ? 'جاري الجلب...' : 'اختبار جلب المستخدمين (التشخيص)'}
-                        </button>
-
-                        <button 
-                            onClick={run_auth_diagnostic} 
-                            disabled={diagnostic_auth_loading}
-                            className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-red-600 bg-white hover:bg-red-50 rounded-full border border-red-200 shadow-sm disabled:opacity-50"
-                        >
-                            <KeyIcon className="w-3 h-3" />
-                            {diagnostic_auth_loading ? 'جاري الفحص...' : 'تشخيص مشكلة الدخول (Auth)'}
-                        </button>
-
-                        <button 
-                            onClick={() => handle_force_sync()} 
-                            disabled={force_sync_loading}
-                            className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 rounded-full border border-green-200 shadow-sm disabled:opacity-50"
-                        >
-                            <ArrowPathIcon className={`w-3 h-3 ${force_sync_loading ? 'animate-spin' : ''}`} />
-                            {force_sync_loading ? 'جاري المزامنة...' : 'مزامنة السحابة إلى المحلية (إجباري)'}
-                        </button>
-                    </div>
-
-                    {diagnostic_tasks && (
-                        <div className="mt-2 w-full max-w-sm bg-white p-3 rounded-lg border border-gray-200 shadow-sm text-right" dir="rtl">
-                            <h4 className="text-xs font-bold text-gray-700 mb-2 border-bottom pb-1">نتائج التشخيص (جميع المهام):</h4>
-                            <p className="text-[10px] text-blue-600 mb-2 font-bold">العدد الإجمالي: {diagnostic_tasks.length} مهام</p>
-                            {diagnostic_tasks.length === 0 ? (
-                                <p className="text-[10px] text-gray-500">الجدول فارغ.</p>
-                            ) : (
-                                <ul className="space-y-1">
-                                    {diagnostic_tasks.map((t, i) => (
-                                        <li key={i} className="text-[10px] text-gray-600 border-b border-gray-50 pb-1 last:border-0 bg-gray-50 p-1 rounded mt-1">
-                                            <div className="font-bold text-blue-700">{t.task}</div>
-                                            <div className="grid grid-cols-1 gap-0.5 mt-1">
-                                                {Object.entries(t).map(([key, value]) => (
-                                                    <div key={key} className="flex justify-between border-b border-gray-100 last:border-0">
-                                                        <span className="text-gray-400">{key}:</span>
-                                                        <span className="text-gray-800 break-all">{String(value)}</span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </li>
-                                    ))}
-                                </ul>
-                            )}
-                            <button onClick={() => set_diagnostic_tasks(null)} className="mt-2 text-[10px] text-red-500 underline">إخفاء</button>
-                        </div>
-                    )}
-
-                    {diagnostic_clients && (
-                        <div className="mt-2 w-full max-w-sm bg-white p-3 rounded-lg border border-gray-200 shadow-sm text-right" dir="rtl">
-                            <h4 className="text-xs font-bold text-gray-700 mb-2 border-bottom pb-1">نتائج التشخيص (جميع الموكلين):</h4>
-                            <p className="text-[10px] text-green-600 mb-2 font-bold">العدد الإجمالي: {diagnostic_clients.length} موكلين</p>
-                            {diagnostic_clients.length === 0 ? (
-                                <p className="text-[10px] text-gray-500">الجدول فارغ.</p>
-                            ) : (
-                                <ul className="space-y-1">
-                                    {diagnostic_clients.map((c, i) => (
-                                        <li key={i} className="text-[10px] text-gray-600 border-b border-gray-50 pb-1 last:border-0 bg-gray-50 p-1 rounded mt-1">
-                                            <div className="font-bold text-blue-700">{c.name}</div>
-                                            <div className="grid grid-cols-1 gap-0.5 mt-1">
-                                                {Object.entries(c).map(([key, value]) => (
-                                                    <div key={key} className="flex justify-between border-b border-gray-100 last:border-0">
-                                                        <span className="text-gray-400">{key}:</span>
-                                                        <span className="text-gray-800 break-all">{String(value)}</span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </li>
-                                    ))}
-                                </ul>
-                            )}
-                            <button onClick={() => set_diagnostic_clients(null)} className="mt-2 text-[10px] text-red-500 underline">إخفاء</button>
-                        </div>
-                    )}
-
-                    {diagnostic_profiles && (
-                        <div className="mt-2 w-full max-w-sm bg-white p-3 rounded-lg border border-gray-200 shadow-sm text-right" dir="rtl">
-                            <h4 className="text-xs font-bold text-gray-700 mb-2 border-bottom pb-1">نتائج التشخيص (جميع المستخدمين):</h4>
-                            <p className="text-[10px] text-orange-600 mb-2 font-bold">العدد الإجمالي: {diagnostic_profiles.length} مستخدمين</p>
-                            {diagnostic_profiles.length === 0 ? (
-                                <p className="text-[10px] text-gray-500">الجدول فارغ.</p>
-                            ) : (
-                                <ul className="space-y-1">
-                                    {diagnostic_profiles.map((p, i) => (
-                                        <li key={i} className="text-[10px] text-gray-600 border-b border-gray-50 pb-1 last:border-0 bg-gray-50 p-1 rounded mt-1">
-                                            <div className="font-bold text-blue-700">{p.full_name || p.email || p.id}</div>
-                                            <div className="grid grid-cols-1 gap-0.5 mt-1">
-                                                {Object.entries(p).map(([key, value]) => (
-                                                    <div key={key} className="flex justify-between border-b border-gray-100 last:border-0">
-                                                        <span className="text-gray-400">{key}:</span>
-                                                        <span className="text-gray-800 break-all">{String(value)}</span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </li>
-                                    ))}
-                                </ul>
-                            )}
-                            <button onClick={() => set_diagnostic_profiles(null)} className="mt-2 text-[10px] text-red-500 underline">إخفاء</button>
-                        </div>
-                    )}
-
-                    {diagnostic_auth && (
-                        <div className="mt-2 w-full max-w-sm bg-white p-3 rounded-lg border border-red-200 shadow-md text-right" dir="rtl">
-                            <h4 className="text-xs font-bold text-red-700 mb-2 border-b pb-1 flex items-center gap-1">
-                                <ExclamationCircleIcon className="w-3 h-3" />
-                                نتيجة تشخيص المصادقة:
-                            </h4>
-                            <div className="space-y-2 text-[10px]">
-                                <div className="bg-gray-50 p-2 rounded">
-                                    <p className="font-bold text-gray-700">البيانات المدخلة:</p>
-                                    <p>الجوال: {diagnostic_auth.input}</p>
-                                    <p>البريد المتوقع في Auth: <span className="text-blue-600 font-mono">{diagnostic_auth.normalized_auth_email}</span></p>
-                                </div>
-                                
-                                <div className={`p-2 rounded ${diagnostic_auth.profile_found ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
-                                    <p className="font-bold">حالة جدول Profiles:</p>
-                                    <p>{diagnostic_auth.profile_found ? '✅ موجود في قاعدة البيانات' : '❌ غير موجود في جدول profiles'}</p>
-                                    {diagnostic_auth.profile_data && (
-                                        <p className="mt-1 text-[9px] opacity-80">ID: {diagnostic_auth.profile_data.id}</p>
-                                    )}
-                                </div>
-
-                                <div className="bg-blue-50 p-2 rounded text-blue-800">
-                                    <p className="font-bold">استجابة نظام Auth:</p>
-                                    <p className="italic">"{diagnostic_auth.auth_response || 'لا توجد استجابة خطأ (قد يكون الحساب غير موجود نهائياً)'}"</p>
-                                </div>
-
-                                <div className="bg-amber-50 p-2 rounded border border-amber-200">
-                                    <p className="font-bold text-amber-800">التشخيص النهائي:</p>
-                                    <p className="text-gray-800">{diagnostic_auth.diagnosis || "تعذر تحديد السبب بدقة. يرجى التأكد من أن المستخدم قد أكمل عملية التسجيل بنجاح."}</p>
-                                </div>
-                            </div>
-                            <button onClick={() => set_diagnostic_auth(null)} className="mt-2 text-[10px] text-red-500 underline">إخفاء</button>
-                        </div>
                     )}
                 </div>
                 
