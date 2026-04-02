@@ -87,8 +87,15 @@ export const fetch_data_from_supabase = async (user_id?: string): Promise<Partia
     while (attempt < max_retries) {
         try {
             // Ensure session is fresh before parallel calls to avoid lock stealing
-            // We await this sequentially first.
-            await supabase.auth.getSession();
+            const { data: { session }, error: session_error } = await supabase.auth.getSession();
+            
+            if (session_error) {
+                const msg = String(session_error.message || '').toLowerCase();
+                if (msg.includes('refresh_token_not_found') || msg.includes('invalid refresh token')) {
+                    console.error("Fatal Auth Error: Refresh token invalid or missing.");
+                    throw new Error('AUTH_SESSION_EXPIRED');
+                }
+            }
 
             // Sequentialize these calls to avoid concurrent auth token refresh attempts and network congestion
             // which often leads to "Failed to fetch" errors in unstable environments.

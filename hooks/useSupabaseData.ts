@@ -191,7 +191,7 @@ const migrate_data = (old_data: any): AppData => {
         appointments: (old_data.appointments || []).map(migrate_appointment),
         accounting_entries: (old_data.accounting_entries || old_data.accountingEntries || []).map(migrate_accounting),
         invoices: (old_data.invoices || []).map(migrate_invoice),
-        assistants: old_data.assistants || [...default_assistants],
+        assistants: (old_data.assistants || [...default_assistants]).map((a: any) => typeof a === 'string' ? a : (a.name || 'بدون اسم')),
         documents: (old_data.documents || []).map(migrate_document),
         profiles: (old_data.profiles || []).map(migrate_profile),
         site_finances: (old_data.site_finances || []).map(migrate_site_finance),
@@ -240,7 +240,15 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
     const current_user_permissions: Permissions = React.useMemo(() => {
         if (!user) return default_permissions;
         const current_user_profile = data.profiles.find(p => p.id === user.id);
-        if (current_user_profile?.lawyer_id) return { ...default_permissions, ...current_user_profile.permissions };
+        if (current_user_profile?.lawyer_id) {
+            const perms = current_user_profile.permissions;
+            if (perms && typeof perms === 'object') {
+                // If it's the assistant object from the database, the actual flags are in the 'permissions' field
+                const actual_perms = (perms as any).permissions || perms;
+                return { ...default_permissions, ...actual_perms };
+            }
+            return { ...default_permissions, ...(perms || {}) };
+        }
         return {
             can_view_agenda: true, can_view_clients: true, can_add_client: true, can_edit_client: true, can_delete_client: true,
             can_view_cases: true, can_add_case: true, can_edit_case: true, can_delete_case: true, can_view_sessions: true,
@@ -326,6 +334,18 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
                 return next;
             });
         },
+        on_documents_uploaded: (uploaded_doc_ids) => {
+            set_data(prev => {
+                const next = { ...prev };
+                if (next.documents) {
+                    next.documents = next.documents.map(doc => 
+                        uploaded_doc_ids.includes(doc.id) ? { ...doc, local_state: 'synced' } : doc
+                    );
+                }
+                return next;
+            });
+            set_dirty(true); // Trigger a save to IndexedDB
+        },
         on_sync_status_change: (status, err) => { set_sync_status(status); set_last_sync_error(err); if(status === 'synced' || status === 'error') set_is_data_loading(false); },
         on_log: (log) => {
             set_sync_log(prev => [{
@@ -348,10 +368,85 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
         }
     }, [user?.id, is_online, is_auth_loading, sync_status, manual_sync]);
 
-    const [is_auto_sync_enabled, set_auto_sync_enabled] = React.useState(true);
-    const [is_auto_backup_enabled, set_auto_backup_enabled] = React.useState(false);
-    const [admin_tasks_layout, set_admin_tasks_layout] = React.useState<'horizontal' | 'vertical'>('vertical');
-    const [location_order, set_location_order] = React.useState<string[]>([]);
+    // Auto-sync when coming back online
+    const prev_is_online = React.useRef(is_online);
+    React.useEffect(() => {
+        if (user && is_online && !prev_is_online.current && !is_auth_loading && sync_status !== 'syncing') {
+            console.log("Came back online, triggering auto-sync...");
+            manual_sync();
+        }
+        prev_is_online.current = is_online;
+    }, [is_online, manual_sync, user, is_auth_loading, sync_status]); // Trigger when is_online changes from false to true
+
+
+    const [is_auto_sync_enabled, set_auto_sync_enabled] = React.useState(() => localStorage.getItem('is_auto_sync_enabled') !== 'false');
+    const [is_auto_backup_enabled, set_auto_backup_enabled] = React.useState(() => {
+        const val = localStorage.getItem('is_auto_backup_enabled');
+        return val === null ? true : val === 'true';
+    });
+    const [admin_tasks_layout, set_admin_tasks_layout] = React.useState<'horizontal' | 'vertical'>(() => (localStorage.getItem('admin_tasks_layout') as any) || 'vertical');
+    const [location_order, set_location_order] = React.useState<string[]>(() => {
+        try { return JSON.parse(localStorage.getItem('location_order') || '[]'); } catch (e) { return []; }
+    });
+
+    // Persist settings to localStorage when they change
+    React.useEffect(() => { localStorage.setItem('is_auto_sync_enabled', String(is_auto_sync_enabled)); }, [is_auto_sync_enabled]);
+    React.useEffect(() => { localStorage.setItem('is_auto_backup_enabled', String(is_auto_backup_enabled)); }, [is_auto_backup_enabled]);
+    React.useEffect(() => { localStorage.setItem('admin_tasks_layout', admin_tasks_layout); }, [admin_tasks_layout]);
+    React.useEffect(() => { localStorage.setItem('location_order', JSON.stringify(location_order)); }, [location_order]);
+    
+    // Keep a ref of the data for the auto-backup to use the latest version without triggering re-runs
+    const data_ref = React.useRef(data);
+    React.useEffect(() => { data_ref.current = data; }, [data]);
+
+    // Automatic Backup on Entry/Login
+    const has_auto_backed_up = React.useRef(false);
+    React.useEffect(() => {
+        // Trigger backup when:
+        // 1. Auto-backup is enabled in settings
+        // 2. Data is not currently loading
+        // 3. We haven't already backed up in this specific component mount session
+        // 4. We have a user (meaning we are logged in)
+        if (is_auto_backup_enabled && !is_data_loading && !has_auto_backed_up.current && user) {
+            const today = new Date().toISOString().split('T')[0];
+            const session_backup_key = `auto_backup_done_${today}_${user.id}`;
+            const already_done_this_session = sessionStorage.getItem(session_backup_key);
+
+            if (!already_done_this_session) {
+                console.log("Auto-backup condition met. Waiting 3 seconds to ensure data is stable...");
+                const timer = setTimeout(() => {
+                    try {
+                        console.log("Attempting automatic backup on login/entry...");
+                        const current_data = data_ref.current;
+                        const data_str = JSON.stringify(current_data, null, 2);
+                        const blob = new Blob([data_str], { type: 'application/json' });
+                        const url = URL.createObjectURL(blob);
+                        const link = document.createElement('a');
+                        link.style.display = 'none';
+                        link.href = url;
+                        link.download = `lawyer_auto_backup_${today}.json`;
+                        document.body.appendChild(link);
+                        link.click();
+                        
+                        setTimeout(() => {
+                            if (document.body.contains(link)) document.body.removeChild(link);
+                            URL.revokeObjectURL(url);
+                        }, 100);
+                        
+                        sessionStorage.setItem(session_backup_key, 'true');
+                        localStorage.setItem('last_auto_backup_date', today);
+                        has_auto_backed_up.current = true;
+                        console.log("Automatic backup on login/entry performed successfully.");
+                    } catch (e) {
+                        console.error("Auto backup failed:", e);
+                    }
+                }, 3000);
+                return () => clearTimeout(timer);
+            } else {
+                has_auto_backed_up.current = true;
+            }
+        }
+    }, [is_auto_backup_enabled, is_data_loading, user?.id]);
     
     const set_full_data = React.useCallback((new_data: Partial<AppData> | ((prev: AppData) => Partial<AppData>)) => {
         set_data(prev => {
@@ -557,7 +652,24 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
         },
         all_sessions, 
         unpostponed_sessions, 
-        export_data: () => true, 
+        export_data: () => {
+            try {
+                const data_str = JSON.stringify(data, null, 2);
+                const blob = new Blob([data_str], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `lawyer_backup_${new Date().toISOString().split('T')[0]}.json`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+                return true;
+            } catch (e) {
+                console.error("Export failed:", e);
+                return false;
+            }
+        },
         delete_client: (id: string) => {
             set_deleted_ids(prev => ({ ...prev, clients: [...prev.clients, id] }));
             set_full_data(prev => ({ ...prev, clients: prev.clients.filter(c => c.id !== id) }));
@@ -642,7 +754,8 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
                 for (let i = 0; i < files.length; i++) {
                     const file = files[i];
                     const id = crypto.randomUUID();
-                    const storage_path = `${user?.id}/${case_id}/${id}-${file.name}`;
+                    const safe_filename = encodeURIComponent(file.name);
+                    const storage_path = `${user?.id}/${case_id}/${id}-${safe_filename}`;
                     
                     const new_doc: CaseDocument = {
                         id,

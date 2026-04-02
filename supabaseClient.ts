@@ -21,7 +21,9 @@ export function get_supabase_client(): SupabaseClient | null {
             auth: {
                 persistSession: true,
                 autoRefreshToken: true,
-                detectSessionInUrl: true
+                detectSessionInUrl: true,
+                storageKey: 'lawyer-app-auth-token',
+                flowType: 'pkce'
             }
         });
         return supabase;

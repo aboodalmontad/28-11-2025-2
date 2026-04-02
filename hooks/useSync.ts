@@ -48,7 +48,7 @@ const flatten_data = (data: AppData): FlatData => {
         admin_tasks: data.admin_tasks,
         appointments: data.appointments,
         accounting_entries: data.accounting_entries,
-        assistants: data.assistants.map(name => ({ name })),
+        assistants: data.assistants.map(a => typeof a === 'string' ? { name: a } : a),
         invoices: data.invoices.map(({ items, ...inv }) => inv),
         invoice_items,
         case_documents: data.documents,
@@ -101,7 +101,7 @@ const construct_data = (flat_data: Partial<FlatData>): AppData => {
         admin_tasks: (flat_data.admin_tasks || []) as any,
         appointments: (flat_data.appointments || []) as any,
         accounting_entries: (flat_data.accounting_entries || []) as any,
-        assistants: (flat_data.assistants || []).map(a => a.name),
+        assistants: (flat_data.assistants || []).map(a => typeof a === 'string' ? a : (a.name || 'بدون اسم')),
         invoices: (flat_data.invoices || []).map(inv => ({...inv, items: invoice_item_map.get(inv.id) || []})) as any,
         documents: (flat_data.case_documents || []) as any,
         profiles: (flat_data.profiles || []) as any,
@@ -220,6 +220,13 @@ export const use_sync = ({ user, local_data, deleted_ids, on_data_synced, on_del
     const excluded_doc_ids_ref = React.useRef(excluded_doc_ids);
     // Track sync_status via ref to break dependency loop in useCallback
     const sync_status_ref = React.useRef(sync_status);
+    
+    // Callbacks refs
+    const on_data_synced_ref = React.useRef(on_data_synced);
+    const on_deletions_synced_ref = React.useRef(on_deletions_synced);
+    const on_sync_status_change_ref = React.useRef(on_sync_status_change);
+    const on_documents_uploaded_ref = React.useRef(on_documents_uploaded);
+    const on_log_ref = React.useRef(on_log);
 
     // Update refs on every render
     user_ref.current = user;
@@ -227,11 +234,16 @@ export const use_sync = ({ user, local_data, deleted_ids, on_data_synced, on_del
     deleted_ids_ref.current = deleted_ids;
     excluded_doc_ids_ref.current = excluded_doc_ids;
     sync_status_ref.current = sync_status;
+    on_data_synced_ref.current = on_data_synced;
+    on_deletions_synced_ref.current = on_deletions_synced;
+    on_sync_status_change_ref.current = on_sync_status_change;
+    on_documents_uploaded_ref.current = on_documents_uploaded;
+    on_log_ref.current = on_log;
 
-    const set_status = (status: SyncStatus, error: string | null = null) => { on_sync_status_change(status, error); };
+    const set_status = (status: SyncStatus, error: string | null = null) => { on_sync_status_change_ref.current(status, error); };
 
     const log = (type: SyncLogEntry['type'], message: string, details?: string) => {
-        if (on_log) on_log({ type, message, details });
+        if (on_log_ref.current) on_log_ref.current({ type, message, details });
     };
 
     const manual_sync = React.useCallback(async () => {
@@ -275,7 +287,18 @@ export const use_sync = ({ user, local_data, deleted_ids, on_data_synced, on_del
                     try {
                         const file = await db.get(DOCS_FILES_STORE_NAME, doc.id);
                         if (file) {
-                            const { error: upload_error } = await supabase!.storage.from('documents').upload(doc.storage_path, file, {
+                            let storage_path = doc.storage_path;
+                            // Check if storage_path contains non-ASCII characters or spaces
+                            if (/[^\x00-\x7F]/.test(storage_path) || storage_path.includes(' ')) {
+                                const parts = storage_path.split('/');
+                                const filename = parts.pop() || '';
+                                const safe_filename = encodeURIComponent(filename);
+                                storage_path = [...parts, safe_filename].join('/');
+                                doc.storage_path = storage_path; // Mutate the object so it gets saved with the new path
+                                doc.updated_at = new Date().toISOString(); // Ensure it gets upserted to DB
+                            }
+
+                            const { error: upload_error } = await supabase!.storage.from('documents').upload(storage_path, file, {
                                 upsert: true
                             });
                             
@@ -481,8 +504,8 @@ export const use_sync = ({ user, local_data, deleted_ids, on_data_synced, on_del
             }
 
             const final_merged_data = construct_data(merged_flat_data as FlatData);
-            on_data_synced(final_merged_data);
-            on_deletions_synced(successful_deletions);
+            on_data_synced_ref.current(final_merged_data);
+            on_deletions_synced_ref.current(successful_deletions);
             set_status('synced');
             log('success', 'تمت المزامنة بنجاح.');
         } catch (err: any) {
@@ -495,13 +518,19 @@ export const use_sync = ({ user, local_data, deleted_ids, on_data_synced, on_del
                 error_message = "تعذر الاتصال بالخادم. يرجى التحقق من اتصالك بالإنترنت، أو التأكد من أن مشروع Supabase الخاص بك يعمل (غير متوقف).";
             }
             
+            if (error_message_raw.includes('auth_session_expired')) {
+                error_message = "انتهت صلاحية الجلسة. يرجى تسجيل الخروج ثم الدخول مرة أخرى.";
+                set_status('error', error_message);
+                return;
+            }
+            
             if ((error_message_raw.includes('column') && error_message_raw.includes('does not exist')) || error_message_raw.includes('relation')) {
                 set_status('uninitialized', `هناك عدم تطابق في مخطط قاعدة البيانات: ${error_message}`); return;
             }
             if (err.table) error_message = `[جدول: ${err.table}] ${error_message}`;
             set_status('error', `فشل المزامنة: ${error_message}`);
         }
-    }, [is_online, on_data_synced, on_deletions_synced, is_auth_loading, on_documents_uploaded, on_log]); 
+    }, [is_online, is_auth_loading]); 
 
     const fetch_and_refresh = React.useCallback(async () => {
         if (sync_status_ref.current === 'syncing' || is_auth_loading) return;
@@ -546,12 +575,17 @@ export const use_sync = ({ user, local_data, deleted_ids, on_data_synced, on_del
             }
             
             const final_merged_data = construct_data(merged_flat_data as FlatData);
-            on_data_synced(final_merged_data);
+            on_data_synced_ref.current(final_merged_data);
             set_status('synced');
 
         } catch (err: any) {
             const error_message_raw = String(err.message || '').toLowerCase();
             let error_message = err.message || 'حدث خطأ غير متوقع.';
+            if (error_message_raw.includes('auth_session_expired')) {
+                error_message = "انتهت صلاحية الجلسة. يرجى تسجيل الخروج ثم الدخول مرة أخرى.";
+                set_status('error', error_message);
+                return;
+            }
             if (error_message_raw.includes('failed to fetch') || error_message_raw.includes('abort') || error_message_raw.includes('lock') || error_message_raw.includes('network')) {
                 error_message = "تعذر الاتصال بالخادم. يرجى التحقق من اتصالك بالإنترنت، أو التأكد من أن مشروع Supabase الخاص بك يعمل (غير متوقف).";
             } else {
@@ -559,7 +593,7 @@ export const use_sync = ({ user, local_data, deleted_ids, on_data_synced, on_del
             }
             set_status('error', `فشل التحديث: ${error_message}`);
         }
-    }, [is_online, on_data_synced, is_auth_loading]);
+    }, [is_online, is_auth_loading]);
 
     return { manual_sync, fetch_and_refresh };
 };

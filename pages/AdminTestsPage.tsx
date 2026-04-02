@@ -44,10 +44,21 @@ const AdminTestsPage: React.FC = () => {
     const run_full_data_diagnostics = async () => {
         if (!supabase) return;
         set_error(null);
-        set_message("جاري التشخيص...");
+        set_message("جاري التشخيص الشامل للبيانات...");
         try {
-            // Placeholder for full diagnostic logic
-            set_message("تم التشخيص بنجاح (لم يتم تنفيذ فحص فعلي بعد).");
+            const tables = ['profiles', 'clients', 'cases', 'stages', 'sessions', 'admin_tasks', 'appointments', 'accounting_entries', 'invoices', 'invoice_items', 'case_documents', 'site_finances', 'sync_deletions', 'assistants'];
+            let results = [];
+            
+            for (const table of tables) {
+                const { count, error } = await supabase.from(table).select('*', { count: 'exact', head: true });
+                if (error) {
+                    results.push(`جدول ${table}: خطأ (${error.message})`);
+                } else {
+                    results.push(`جدول ${table}: ${count} سجل`);
+                }
+            }
+            
+            set_message(`نتائج التشخيص:\n${results.join('\n')}`);
         } catch (err: any) {
             set_error("فشل التشخيص: " + err.message);
         }
@@ -235,8 +246,8 @@ const AdminTestsPage: React.FC = () => {
                 className="w-full p-2 mb-4 border rounded"
             />
 
-            {error && <div className="mb-4 p-4 text-sm text-red-800 bg-red-100 rounded-lg">{error}</div>}
-            {message && <div className="mb-4 p-4 text-sm text-green-800 bg-green-100 rounded-lg">{message}</div>}
+            {error && <div className="mb-4 p-4 text-sm text-red-800 bg-red-100 rounded-lg whitespace-pre-wrap">{error}</div>}
+            {message && <div className="mb-4 p-4 text-sm text-green-800 bg-green-100 rounded-lg whitespace-pre-wrap">{message}</div>}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <button onClick={fetch_lawyers} className="py-3 bg-blue-100 hover:bg-blue-200 text-blue-800 font-bold rounded-md transition-colors">

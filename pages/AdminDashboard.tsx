@@ -13,8 +13,6 @@ import { useOnlineStatus } from '../hooks/useOnlineStatus';
 interface AdminDashboardProps {
     on_logout: () => void;
     on_open_config: () => void;
-    sync_log?: any[];
-    on_clear_log?: () => void;
 }
 
 type AdminView = 'analytics' | 'users' | 'finances' | 'settings' | 'tests';
@@ -47,7 +45,7 @@ const NavLink: React.FC<{
 );
 
 
-const AdminDashboard: React.FC<AdminDashboardProps> = ({ on_logout, on_open_config, sync_log = [], on_clear_log = () => {} }) => {
+const AdminDashboard: React.FC<AdminDashboardProps> = ({ on_logout, on_open_config }) => {
     const { profiles, is_data_loading: loading, sync_status, last_sync_error, is_dirty, manual_sync, is_auto_sync_enabled } = useData();
     // Changed default view from 'analytics' to 'users'
     const [view, set_view] = React.useState<AdminView>('users');
@@ -167,8 +165,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ on_logout, on_open_conf
                         on_manual_sync={manual_sync}
                         is_auto_sync_enabled={is_auto_sync_enabled}
                         className="w-full justify-center bg-gray-100"
-                        sync_log={sync_log}
-                        on_clear_log={on_clear_log}
                     />
                 </div>
                 <p className="mb-2 text-center text-xs text-gray-400">الإصدار: 27-12-2025-3</p>
@@ -214,8 +210,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ on_logout, on_open_conf
                             is_online={is_online}
                             on_manual_sync={manual_sync}
                             is_auto_sync_enabled={is_auto_sync_enabled}
-                            sync_log={sync_log}
-                            on_clear_log={on_clear_log}
                         />
                     </div>
                 </header>

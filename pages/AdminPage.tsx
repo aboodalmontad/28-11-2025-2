@@ -89,6 +89,7 @@ const UserRow: React.FC<UserRowProps> = ({ user, lawyer, on_view, on_edit, on_de
             </td>
             <td className="px-6 py-4 text-sm" dir="ltr">{getDisplayPhoneNumber(user.mobile_number)}</td>
             <td className="px-6 py-4 text-sm text-gray-500">{user.created_at ? format_date(user.created_at) : '-'}</td>
+            <td className="px-6 py-4 text-xs font-medium text-gray-600">{formatSubscriptionDateRange(user)}</td>
             <td className="px-6 py-4">
                 <div className="flex flex-col gap-2">
                     {/* Status Badge */}
@@ -174,8 +175,57 @@ const AdminPage: React.FC = () => {
     const [user_to_delete, set_user_to_delete] = React.useState<Profile | null>(null);
     const [viewing_user, set_viewing_user] = React.useState<Profile | null>(null);
     const [generating_otp_for, set_generating_otp_for] = React.useState<string | null>(null);
+    const [all_assistants, set_all_assistants] = React.useState<{ name: string; user_id: string; lawyer_name?: string }[]>([]);
+    const [assistants_loading, set_assistants_loading] = React.useState(false);
     
     const supabase = get_supabase_client();
+
+    const fetch_all_assistants = React.useCallback(async () => {
+        if (!supabase) return;
+        set_assistants_loading(true);
+        try {
+            const { data, error } = await supabase
+                .from('assistants')
+                .select('name, user_id');
+            
+            if (error) throw error;
+            
+            // Map lawyer names
+            const mapped = (data || []).map(a => {
+                const lawyer = users.find(u => u.id === a.user_id);
+                return {
+                    ...a,
+                    lawyer_name: lawyer ? lawyer.full_name : 'غير معروف'
+                };
+            });
+            
+            set_all_assistants(mapped);
+        } catch (err) {
+            console.error("Failed to fetch all assistants:", err);
+        } finally {
+            set_assistants_loading(false);
+        }
+    }, [supabase, users]);
+
+    React.useEffect(() => {
+        fetch_all_assistants();
+    }, [fetch_all_assistants]);
+
+    const handle_delete_assistant_name = async (name: string, user_id: string) => {
+        if (!supabase || !window.confirm(`هل أنت متأكد من حذف المساعد "${name}"؟`)) return;
+        try {
+            const { error } = await supabase
+                .from('assistants')
+                .delete()
+                .eq('name', name)
+                .eq('user_id', user_id);
+            
+            if (error) throw error;
+            fetch_all_assistants();
+        } catch (err: any) {
+            alert("فشل حذف المساعد: " + err.message);
+        }
+    };
 
     const handle_update_user = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
@@ -336,6 +386,7 @@ const AdminPage: React.FC = () => {
                             <th className="px-6 py-3 rounded-tr-lg">المستخدم (المحامي / المساعد)</th>
                             <th className="px-6 py-3">رقم الجوال</th>
                             <th className="px-6 py-3">تاريخ التسجيل</th>
+                            <th className="px-6 py-3">فترة الاشتراك</th>
                             <th className="px-6 py-3">التحقق والكود</th>
                             <th className="px-6 py-3">موافق عليه</th>
                             <th className="px-6 py-3">الحساب نشط</th>
@@ -427,6 +478,53 @@ const AdminPage: React.FC = () => {
                     onEdit={() => set_editing_user(viewing_user)}
                 />
             )}
+
+            {/* Global Assistant Names Management */}
+            <div className="bg-white p-6 rounded-lg shadow mt-8">
+                <h2 className="text-xl font-bold text-gray-800 border-b pb-3 mb-4 flex items-center gap-2">
+                    <UserGroupIcon className="w-6 h-6 text-blue-600" />
+                    إدارة قائمة المساعدين (للقوائم المنسدلة)
+                </h2>
+                <div className="space-y-4">
+                    <p className="text-sm text-gray-500">هذه القائمة تظهر لجميع المحامين في القوائم المنسدلة لتخصيص المهام والجلسات.</p>
+                    <div className="grid grid-cols-1 gap-4">
+                        <div className="border rounded-lg overflow-hidden">
+                            <table className="w-full text-sm text-right">
+                                <thead className="bg-gray-50">
+                                    <tr>
+                                        <th className="px-4 py-2">الاسم</th>
+                                        <th className="px-4 py-2">المحامي</th>
+                                        <th className="px-4 py-2">إجراءات</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {assistants_loading ? (
+                                        <tr><td colSpan={3} className="text-center p-4">جاري التحميل...</td></tr>
+                                    ) : all_assistants.length > 0 ? (
+                                        all_assistants.map((a, idx) => (
+                                            <tr key={`${a.user_id}-${a.name}-${idx}`} className="border-t hover:bg-gray-50">
+                                                <td className="px-4 py-2 font-medium">{a.name}</td>
+                                                <td className="px-4 py-2 text-gray-500">{a.lawyer_name}</td>
+                                                <td className="px-4 py-2">
+                                                    <button 
+                                                        onClick={() => handle_delete_assistant_name(a.name, a.user_id)}
+                                                        className="p-1 text-red-500 hover:bg-red-50 rounded"
+                                                        title="حذف"
+                                                    >
+                                                        <TrashIcon className="w-4 h-4" />
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    ) : (
+                                        <tr><td colSpan={3} className="text-center p-4 text-gray-400">لا يوجد مساعدين مسجلين.</td></tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     );
 };

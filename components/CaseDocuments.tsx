@@ -218,13 +218,13 @@ const ImageViewer: React.FC<{ src: string; name: string }> = ({ src, name }) => 
 };
 
 const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ doc, onClose }) => {
-    const { get_document_file, documents } = useData();
+    const { get_document_file, case_documents } = useData();
     const [file, setFile] = React.useState<File | null>(null);
     const [objectUrl, setObjectUrl] = React.useState<string | null>(null);
     const [error, setError] = React.useState<string | null>(null);
     const [isLoading, setIsLoading] = React.useState(true);
 
-    const currentDoc = documents.find(d => d.id === doc.id) || doc;
+    const currentDoc = case_documents.find(d => d.id === doc.id) || doc;
 
     React.useEffect(() => {
         let url: string | null = null;
@@ -239,7 +239,7 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
                     url = URL.createObjectURL(retrievedFile);
                     setObjectUrl(url);
                 } else {
-                    const latestDocState = documents.find(d => d.id === doc.id)?.local_state;
+                    const latestDocState = case_documents.find(d => d.id === doc.id)?.local_state;
                     if (latestDocState === 'error') {
                         setError('فشل تنزيل الملف. تحقق من الاتصال.');
                     } else {
@@ -525,7 +525,7 @@ const DocumentScannerModal: React.FC<{ onClose: () => void; onCapture: (file: Fi
 
 
 const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
-    const { documents, add_documents, delete_document, get_document_file } = useData();
+    const { case_documents, add_documents, delete_document, get_document_file } = useData();
     const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false);
     const [docToDelete, setDocToDelete] = React.useState<CaseDocument | null>(null);
     const [previewDoc, setPreviewDoc] = React.useState<CaseDocument | null>(null);
@@ -534,8 +534,8 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
     const fileInputRef = React.useRef<HTMLInputElement>(null);
 
     const caseDocuments = React.useMemo(() => 
-        documents.filter(doc => doc.case_id === caseId).sort((a,b) => safe_revive_date(b.added_at).getTime() - safe_revive_date(a.added_at).getTime()), 
-        [documents, caseId]
+        case_documents.filter(doc => doc.case_id === caseId).sort((a,b) => safe_revive_date(b.added_at).getTime() - safe_revive_date(a.added_at).getTime()), 
+        [case_documents, caseId]
     );
 
     const handleFileChange = async (files: FileList | null) => {

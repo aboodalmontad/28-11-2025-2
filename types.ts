@@ -91,7 +91,7 @@ export interface Profile {
   mobile_verified?: boolean;
   subscription_start_date: string | null;
   subscription_end_date: string | null;
-  role: 'user' | 'admin';
+  role: 'user' | 'admin' | 'assistant';
   permissions?: Permissions | null;
   role_id?: string | null;
   lawyer_id?: string | null;
@@ -102,6 +102,7 @@ export interface Profile {
   created_at?: string;
   updated_at?: string;
   admin_tasks_layout?: 'vertical' | 'horizontal';
+  is_auto_sync_enabled?: boolean;
 }
 
 
@@ -260,7 +261,7 @@ export interface AppData {
     accounting_entries: AccountingEntry[];
     invoices: Invoice[];
     assistants: string[];
-    documents: CaseDocument[];
+    case_documents: CaseDocument[];
     profiles: Profile[];
     site_finances: SiteFinancialEntry[];
 }
@@ -276,7 +277,7 @@ export interface DeletedIds {
     invoices: string[];
     invoice_items: string[];
     assistants: string[];
-    documents: string[];
+    case_documents: string[];
     document_paths: string[];
     profiles: string[];
     site_finances: string[];
@@ -291,5 +292,5 @@ export interface SyncDeletion {
 }
 
 export const get_initial_deleted_ids = (): DeletedIds => ({
-    clients: [], cases: [], stages: [], sessions: [], admin_tasks: [], appointments: [], accounting_entries: [], invoices: [], invoice_items: [], assistants: [], documents: [], document_paths: [], profiles: [], site_finances: []
+    clients: [], cases: [], stages: [], sessions: [], admin_tasks: [], appointments: [], accounting_entries: [], invoices: [], invoice_items: [], assistants: [], case_documents: [], document_paths: [], profiles: [], site_finances: []
 });

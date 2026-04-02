@@ -37,7 +37,7 @@ interface ClientsListViewProps {
 
 const ClientCard: React.FC<{ client: Client; props: ClientsListViewProps; expanded: boolean; onToggle: () => void; }> = ({ client, props, expanded, onToggle }) => {
     const [expanded_case_id, set_expanded_case_id] = React.useState<string | null>(null);
-    const [active_tab, set_active_tab] = React.useState<'stages' | 'accounting' | 'documents'>('stages');
+    const [active_tab, set_active_tab] = React.useState<'stages' | 'accounting' | 'case_documents'>('stages');
     const client_long_press_timer = React.useRef<number | null>(null);
     const case_long_press_timer = React.useRef<number | null>(null);
     const stage_long_press_timer = React.useRef<number | null>(null);
@@ -322,7 +322,7 @@ const ClientCard: React.FC<{ client: Client; props: ClientsListViewProps; expand
                                         <div className="flex border-b mb-3">
                                             <button onClick={() => set_active_tab('stages')} className={`px-4 py-2 text-sm font-medium ${active_tab === 'stages' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500'}`}>المراحل والجلسات</button>
                                             <button onClick={() => set_active_tab('accounting')} className={`px-4 py-2 text-sm font-medium ${active_tab === 'accounting' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500'}`}>المحاسبة</button>
-                                            <button onClick={() => set_active_tab('documents')} className={`px-4 py-2 text-sm font-medium ${active_tab === 'documents' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500'}`}>الوثائق</button>
+                                            <button onClick={() => set_active_tab('case_documents')} className={`px-4 py-2 text-sm font-medium ${active_tab === 'case_documents' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500'}`}>الوثائق</button>
                                         </div>
                                         {active_tab === 'stages' && (
                                             <div>
@@ -417,7 +417,7 @@ const ClientCard: React.FC<{ client: Client; props: ClientsListViewProps; expand
                                                 on_fee_agreement_change={(new_fee) => handle_fee_change(caseItem.id, new_fee)}
                                             />
                                         )}
-                                        {active_tab === 'documents' && (
+                                        {active_tab === 'case_documents' && (
                                             <CaseDocuments caseId={caseItem.id} />
                                         )}
                                     </div>

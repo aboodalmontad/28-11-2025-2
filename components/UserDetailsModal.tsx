@@ -35,7 +35,7 @@ const getDisplayPhoneNumber = (mobile: string | null | undefined): string => {
 };
 
 const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ user, onClose, onEdit }) => {
-    const { clients, site_finances, documents, all_sessions } = useData();
+    const { clients, site_finances, case_documents, all_sessions } = useData();
 
     const user_stats = React.useMemo(() => {
         if (!user) return null;
@@ -43,7 +43,7 @@ const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ user, onClose, onEd
         const user_clients = clients.filter(c => c.user_id === user.id);
         const user_cases = user_clients.flatMap(c => c.cases);
         const user_sessions = all_sessions.filter(s => s.user_id === user.id);
-        const user_documents = documents.filter(d => d.user_id === user.id);
+        const user_documents = case_documents.filter(d => d.user_id === user.id);
         const user_financials = site_finances.filter(sf => sf.user_id === user.id && sf.type === 'income');
 
         return {
@@ -54,7 +54,7 @@ const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ user, onClose, onEd
             financial_history: user_financials.sort((a,b) => safe_revive_date(b.payment_date).getTime() - safe_revive_date(a.payment_date).getTime()),
             total_paid: user_financials.reduce((sum, entry) => sum + entry.amount, 0),
         };
-    }, [user, clients, all_sessions, documents, site_finances]);
+    }, [user, clients, all_sessions, case_documents, site_finances]);
 
     if (!user || !user_stats) return null;
 

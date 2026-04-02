@@ -4,6 +4,7 @@ import { TrashIcon, ExclamationTriangleIcon, CloudArrowUpIcon, ArrowPathIcon, Pl
 import { Client, AdminTask, Appointment, AccountingEntry } from '../types';
 import { useData } from '../context/DataContext';
 import { openDB } from 'idb';
+import { DB_NAME, DB_VERSION, DATA_STORE_NAME, DOCS_FILES_STORE_NAME, DELETED_IDS_STORE_NAME } from '../utils/db';
 import AssistantsManager from '../components/AssistantsManager';
 
 interface SettingsPageProps {}
@@ -56,7 +57,23 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
     const handle_add_assistant = (e: React.FormEvent) => { e.preventDefault(); if (new_assistant && !assistants.includes(new_assistant) && new_assistant !== 'بدون تخصيص') { set_assistants(prev => [...prev, new_assistant.trim()]); set_new_assistant(''); } };
     const handle_delete_assistant = (name: string) => { if (name !== 'بدون تخصيص') { set_assistant_to_delete(name); set_is_delete_assistant_modal_open(true); } };
     const handle_confirm_delete_assistant = () => { if (assistant_to_delete) { delete_assistant(assistant_to_delete); show_feedback(`تم حذف المساعد "${assistant_to_delete}" بنجاح.`, 'success'); } set_is_delete_assistant_modal_open(false); set_assistant_to_delete(null); };
-    const handle_inspect_db = async () => { set_db_stats('جاري الفحص...'); try { const db = await openDB('LawyerAppData', 2); let stats = ''; const stores = ['appData', 'caseDocumentMetadata', 'caseDocumentFiles']; for (const s of stores) { if (db.objectStoreNames.contains(s)) { const count = await db.count(s); stats += `- ${s}: ${count} سجل\n`; } } set_db_stats(stats); } catch (e:any) { set_db_stats('فشل: ' + e.message); } };
+    const handle_inspect_db = async () => { 
+        set_db_stats('جاري الفحص...'); 
+        try { 
+            const db = await openDB(DB_NAME, DB_VERSION); 
+            let stats = ''; 
+            const stores = [DATA_STORE_NAME, DELETED_IDS_STORE_NAME, DOCS_FILES_STORE_NAME]; 
+            for (const s of stores) { 
+                if (db.objectStoreNames.contains(s)) { 
+                    const count = await db.count(s); 
+                    stats += `- ${s}: ${count} سجل\n`; 
+                } 
+            } 
+            set_db_stats(stats); 
+        } catch (e:any) { 
+            set_db_stats('فشل: ' + e.message); 
+        } 
+    };
 
     const ToggleSwitch: React.FC<{ enabled: boolean; on_change: (enabled: boolean) => void; label: string }> = ({ enabled, on_change, label }) => (
         <div className="flex items-center">

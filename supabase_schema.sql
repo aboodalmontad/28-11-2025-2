@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     otp_expires_at TIMESTAMPTZ,
     subscription_start_date TIMESTAMPTZ,
     subscription_end_date TIMESTAMPTZ,
-    role TEXT DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+    role TEXT DEFAULT 'user' CHECK (role IN ('user', 'admin', 'assistant')),
     lawyer_id UUID REFERENCES public.profiles(id), -- If this is an assistant, this points to their lawyer
     permissions JSONB, -- Custom permissions for assistants
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -149,8 +149,8 @@ CREATE TABLE IF NOT EXISTS public.invoice_items (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 12. Documents Table
-CREATE TABLE IF NOT EXISTS public.documents (
+-- 12. Case Documents Table
+CREATE TABLE IF NOT EXISTS public.case_documents (
     id TEXT PRIMARY KEY,
     case_id TEXT,
     user_id UUID REFERENCES auth.users NOT NULL,
@@ -230,10 +230,21 @@ ALTER TABLE public.appointments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.accounting_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.invoices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.invoice_items ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.documents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.case_documents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.assistants ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.site_finances ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sync_deletions ENABLE ROW LEVEL SECURITY;
+
+-- Helper function to check if the user is an admin
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM public.profiles 
+        WHERE id = auth.uid() AND role = 'admin'
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Helper function to get the effective owner ID (Lawyer ID)
 CREATE OR REPLACE FUNCTION public.get_effective_owner_id()
@@ -246,18 +257,18 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Generic Policy: Users can see their own data OR data belonging to their lawyer
+-- Generic Policy: Users can see their own data OR data belonging to their lawyer OR all if admin
 -- We apply this to all data tables with explicit INSERT/UPDATE support
 DO $$ 
 DECLARE 
     t TEXT;
-    tables TEXT[] := ARRAY['clients', 'cases', 'stages', 'sessions', 'admin_tasks', 'appointments', 'accounting_entries', 'invoices', 'invoice_items', 'documents', 'assistants', 'sync_deletions'];
+    tables TEXT[] := ARRAY['clients', 'cases', 'stages', 'sessions', 'admin_tasks', 'appointments', 'accounting_entries', 'invoices', 'invoice_items', 'case_documents', 'assistants', 'sync_deletions', 'site_finances'];
 BEGIN
     FOREACH t IN ARRAY tables LOOP
         EXECUTE format('DROP POLICY IF EXISTS "Users can access their office data" ON public.%I', t);
         EXECUTE format('CREATE POLICY "Users can access their office data" ON public.%I 
-                        FOR ALL USING (user_id = public.get_effective_owner_id())
-                        WITH CHECK (user_id = public.get_effective_owner_id())', t);
+                        FOR ALL USING (public.is_admin() OR user_id = public.get_effective_owner_id())
+                        WITH CHECK (public.is_admin() OR user_id = public.get_effective_owner_id())', t);
     END LOOP;
 END $$;
 
@@ -295,7 +306,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 DO $$ 
 DECLARE 
     t TEXT;
-    tables TEXT[] := ARRAY['clients', 'cases', 'stages', 'sessions', 'admin_tasks', 'appointments', 'accounting_entries', 'invoices', 'documents'];
+    tables TEXT[] := ARRAY['clients', 'cases', 'stages', 'sessions', 'admin_tasks', 'appointments', 'accounting_entries', 'invoices', 'case_documents'];
 BEGIN
     FOREACH t IN ARRAY tables LOOP
         EXECUTE format('DROP TRIGGER IF EXISTS %I_deletion_trigger ON public.%I', t, t);
@@ -309,9 +320,28 @@ END $$;
 
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
+DECLARE
+    lawyer_id_val UUID;
 BEGIN
-    INSERT INTO public.profiles (id, full_name, role)
-    VALUES (NEW.id, NEW.raw_user_meta_data->>'full_name', 'user');
+    -- Try to find lawyer_id if lawyer_mobile_number is provided in metadata
+    IF NEW.raw_user_meta_data->>'lawyer_mobile_number' IS NOT NULL THEN
+        SELECT id INTO lawyer_id_val FROM public.profiles 
+        WHERE mobile_number = NEW.raw_user_meta_data->>'lawyer_mobile_number' 
+        LIMIT 1;
+    END IF;
+
+    INSERT INTO public.profiles (id, full_name, mobile_number, role, lawyer_id)
+    VALUES (
+        NEW.id, 
+        NEW.raw_user_meta_data->>'full_name', 
+        NEW.raw_user_meta_data->>'mobile_number',
+        CASE 
+            WHEN NEW.email IN ('nahwiabdo@gmail.com', 'avocat.nahwi@gmail.com') THEN 'admin' 
+            WHEN lawyer_id_val IS NOT NULL THEN 'assistant'
+            ELSE 'user' 
+        END,
+        lawyer_id_val
+    );
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

@@ -164,7 +164,7 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
                 id: user.id,
                 full_name: user.user_metadata?.full_name || "مستخدم جديد",
                 mobile_number: user.user_metadata?.mobile_number || "",
-                role: user.email === 'nahwiabdo@gmail.com' ? 'admin' : 'user',
+                role: (user.email === 'nahwiabdo@gmail.com' || user.email === 'avocat.nahwi@gmail.com') ? 'admin' : 'user',
                 is_approved: true,
                 is_active: true,
                 mobile_verified: true,
@@ -224,6 +224,23 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
             }
         }
     }, [session, data.profiles, profile]);
+
+    // Role Upgrade Watchdog: Ensure admins have the correct role in the database
+    useEffect(() => {
+        if (session && profile && (session.user.email === 'nahwiabdo@gmail.com' || session.user.email === 'avocat.nahwi@gmail.com')) {
+            if (profile.role !== 'admin') {
+                console.log("Upgrading user to admin based on email...");
+                supabase?.from('profiles').update({ role: 'admin' }).eq('id', session.user.id).then(({ error }) => {
+                    if (!error) {
+                        console.log("Admin role updated successfully");
+                        data.fetch_and_refresh();
+                    } else {
+                        console.error("Failed to update admin role:", error);
+                    }
+                });
+            }
+        }
+    }, [session, profile, supabase, data]);
 
     const userName = profile?.full_name || session?.user.user_metadata?.full_name || "مستخدم";
 
