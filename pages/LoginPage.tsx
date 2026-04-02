@@ -451,6 +451,22 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
     
         if (auth_step === 'login') {
             try {
+                if (!is_online) {
+                    // Try offline login with cached credentials
+                    const cached = localStorage.getItem(LAST_USER_CREDENTIALS_CACHE_KEY);
+                    const last_user = localStorage.getItem('lawyerAppLastUser');
+                    
+                    if (cached && last_user) {
+                        const { mobile: cached_mobile, password: cached_password } = JSON.parse(cached);
+                        if (form.mobile === cached_mobile && form.password === cached_password) {
+                            const user = JSON.parse(last_user);
+                            on_login_success(user, true);
+                            return;
+                        }
+                    }
+                    throw new Error("أنت غير متصل بالإنترنت. يرجى التأكد من بيانات الدخول أو الاتصال بالشبكة.");
+                }
+
                 const { data: sign_in_data, error: sign_in_error } = await supabase.auth.signInWithPassword({ email, password: form.password });
                 if (sign_in_error) throw sign_in_error;
                 if (sign_in_data.user) {

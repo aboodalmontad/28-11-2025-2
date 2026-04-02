@@ -16,7 +16,7 @@ const default_assistants = ['أحمد', 'فاطمة', 'سارة', 'بدون تخ
 
 const get_initial_data = (): AppData => ({
     clients: [], admin_tasks: [], appointments: [], accounting_entries: [],
-    invoices: [], assistants: [...default_assistants], documents: [],
+    invoices: [], assistants: [...default_assistants], case_documents: [],
     profiles: [], site_finances: [],
 });
 
@@ -192,7 +192,7 @@ const migrate_data = (old_data: any): AppData => {
         accounting_entries: (old_data.accounting_entries || old_data.accountingEntries || []).map(migrate_accounting),
         invoices: (old_data.invoices || []).map(migrate_invoice),
         assistants: (old_data.assistants || [...default_assistants]).map((a: any) => typeof a === 'string' ? a : (a.name || 'بدون اسم')),
-        documents: (old_data.documents || []).map(migrate_document),
+        case_documents: (old_data.case_documents || old_data.documents || []).map(migrate_document),
         profiles: (old_data.profiles || []).map(migrate_profile),
         site_finances: (old_data.site_finances || []).map(migrate_site_finance),
     };
@@ -337,8 +337,8 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
         on_documents_uploaded: (uploaded_doc_ids) => {
             set_data(prev => {
                 const next = { ...prev };
-                if (next.documents) {
-                    next.documents = next.documents.map(doc => 
+                if (next.case_documents) {
+                    next.case_documents = next.case_documents.map(doc => 
                         uploaded_doc_ids.includes(doc.id) ? { ...doc, local_state: 'synced' } : doc
                     );
                 }
@@ -506,7 +506,7 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
                data.appointments.length === 0 && 
                data.accounting_entries.length === 0 && 
                data.invoices.length === 0 && 
-               data.documents.length === 0;
+               data.case_documents.length === 0;
     }, [data]);
 
     const all_sessions = React.useMemo(() => {
@@ -670,32 +670,109 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
                 return false;
             }
         },
-        delete_client: (id: string) => {
-            set_deleted_ids(prev => ({ ...prev, clients: [...prev.clients, id] }));
-            set_full_data(prev => ({ ...prev, clients: prev.clients.filter(c => c.id !== id) }));
+        delete_client: async (id: string) => {
+            const db = await get_db();
+            
+            set_full_data(prev => {
+                const client = prev.clients.find(c => c.id === id);
+                if (!client) return prev;
+
+                const case_ids: string[] = [];
+                const stage_ids: string[] = [];
+                const session_ids: string[] = [];
+                
+                client.cases.forEach(cs => {
+                    case_ids.push(cs.id);
+                    cs.stages.forEach(st => {
+                        stage_ids.push(st.id);
+                        st.sessions.forEach(s => session_ids.push(s.id));
+                    });
+                });
+
+                const docs_to_delete = prev.case_documents.filter(d => case_ids.includes(d.case_id));
+                const doc_ids = docs_to_delete.map(d => d.id);
+                const doc_paths = docs_to_delete.map(d => d.storage_path).filter(Boolean);
+
+                // Clean up IndexedDB files
+                doc_ids.forEach(doc_id => {
+                    db.delete(DOCS_FILES_STORE_NAME, doc_id).catch(err => console.error(`Failed to delete file ${doc_id} from IndexedDB:`, err));
+                });
+
+                set_deleted_ids(prev_ids => ({ 
+                    ...prev_ids, 
+                    clients: [...prev_ids.clients, id],
+                    cases: [...prev_ids.cases, ...case_ids],
+                    stages: [...prev_ids.stages, ...stage_ids],
+                    sessions: [...prev_ids.sessions, ...session_ids],
+                    case_documents: [...prev_ids.case_documents, ...doc_ids],
+                    document_paths: [...prev_ids.document_paths, ...doc_paths]
+                }));
+
+                return { 
+                    ...prev, 
+                    clients: prev.clients.filter(c => c.id !== id),
+                    case_documents: prev.case_documents.filter(d => !case_ids.includes(d.case_id))
+                };
+            });
         },
-        delete_case: (client_id: string, case_id: string) => {
-            set_deleted_ids(prev => ({ ...prev, cases: [...prev.cases, case_id] }));
-            set_full_data(prev => ({
-                ...prev,
-                clients: prev.clients.map(c => c.id === client_id ? {
-                    ...c,
-                    cases: c.cases.filter(cs => cs.id !== case_id)
-                } : c)
-            }));
+        delete_case: async (client_id: string, case_id: string) => {
+            const db = await get_db();
+            
+            set_full_data(prev => {
+                // Find documents to delete
+                const docs_to_delete = prev.case_documents.filter(d => d.case_id === case_id);
+                const doc_ids = docs_to_delete.map(d => d.id);
+                const doc_paths = docs_to_delete.map(d => d.storage_path).filter(Boolean);
+                
+                // Clean up IndexedDB files for these documents
+                doc_ids.forEach(id => {
+                    db.delete(DOCS_FILES_STORE_NAME, id).catch(err => console.error(`Failed to delete file ${id} from IndexedDB:`, err));
+                });
+
+                set_deleted_ids(prev_ids => ({ 
+                    ...prev_ids, 
+                    cases: [...prev_ids.cases, case_id],
+                    case_documents: [...prev_ids.case_documents, ...doc_ids],
+                    document_paths: [...prev_ids.document_paths, ...doc_paths]
+                }));
+
+                return {
+                    ...prev,
+                    clients: prev.clients.map(c => c.id === client_id ? {
+                        ...c,
+                        cases: c.cases.filter(cs => cs.id !== case_id)
+                    } : c),
+                    case_documents: prev.case_documents.filter(d => d.case_id !== case_id)
+                };
+            });
         },
         delete_stage: (client_id: string, case_id: string, stage_id: string) => {
-            set_deleted_ids(prev => ({ ...prev, stages: [...prev.stages, stage_id] }));
-            set_full_data(prev => ({
-                ...prev,
-                clients: prev.clients.map(c => c.id === client_id ? {
-                    ...c,
-                    cases: c.cases.map(cs => cs.id === case_id ? {
-                        ...cs,
-                        stages: cs.stages.filter(st => st.id !== stage_id)
-                    } : cs)
-                } : c)
-            }));
+            set_full_data(prev => {
+                const client = prev.clients.find(c => c.id === client_id);
+                const case_item = client?.cases.find(cs => cs.id === case_id);
+                const stage = case_item?.stages.find(st => st.id === stage_id);
+                
+                if (!stage) return prev;
+
+                const session_ids = stage.sessions.map(s => s.id);
+
+                set_deleted_ids(prev_ids => ({ 
+                    ...prev_ids, 
+                    stages: [...prev_ids.stages, stage_id],
+                    sessions: [...prev_ids.sessions, ...session_ids]
+                }));
+
+                return {
+                    ...prev,
+                    clients: prev.clients.map(c => c.id === client_id ? {
+                        ...c,
+                        cases: c.cases.map(cs => cs.id === case_id ? {
+                            ...cs,
+                            stages: cs.stages.filter(st => st.id !== stage_id)
+                        } : cs)
+                    } : c)
+                };
+            });
         },
         delete_session: (client_id: string, case_id: string, stage_id: string, session_id: string) => {
             set_deleted_ids(prev => ({ ...prev, sessions: [...prev.sessions, session_id] }));
@@ -733,19 +810,23 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
             set_deleted_ids(prev => ({ ...prev, assistants: [...prev.assistants, name] }));
             set_full_data(prev => ({ ...prev, assistants: prev.assistants.filter(a => a !== name) }));
         },
-        delete_document: (doc: CaseDocument | string) => {
+        delete_document: async (doc: CaseDocument | string) => {
             const id = typeof doc === 'string' ? doc : doc.id;
             
+            // Clean up IndexedDB file
+            const db = await get_db();
+            await db.delete(DOCS_FILES_STORE_NAME, id).catch(err => console.error(`Failed to delete file ${id} from IndexedDB:`, err));
+            
             set_full_data(prev => {
-                const document = prev.documents.find(d => d.id === id);
+                const document = prev.case_documents.find(d => d.id === id);
                 if (document) {
                     set_deleted_ids(p => ({ 
                         ...p, 
-                        documents: [...p.documents, id],
+                        case_documents: [...p.case_documents, id],
                         document_paths: [...p.document_paths, document.storage_path]
                     }));
                 }
-                return { ...prev, documents: prev.documents.filter(d => d.id !== id) };
+                return { ...prev, case_documents: prev.case_documents.filter(d => d.id !== id) };
             });
         },
         add_documents: async (case_id: string, files: FileList | CaseDocument[]) => {
@@ -754,8 +835,11 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
                 for (let i = 0; i < files.length; i++) {
                     const file = files[i];
                     const id = crypto.randomUUID();
-                    const safe_filename = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-                    const storage_path = `${user?.id}/${case_id}/${id}-${safe_filename}`;
+                    // Aggressive sanitization: replace everything that is NOT a-z, A-Z, 0-9, dot, dash, or underscore
+                    // Also replace non-ASCII characters to be safe
+                    const safe_case_id = case_id.replace(/[^\x00-\x7F]/g, '_').replace(/[^a-zA-Z0-9._-]/g, '_') || 'unnamed_case';
+                    const safe_filename = file.name.replace(/[^\x00-\x7F]/g, '_').replace(/[^a-zA-Z0-9._-]/g, '_') || 'unnamed_file';
+                    const storage_path = `${user?.id}/${safe_case_id}/${id}-${safe_filename}`;
                     
                     const new_doc: CaseDocument = {
                         id,
@@ -776,9 +860,9 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
                     
                     new_docs.push(new_doc);
                 }
-                set_full_data(prev => ({ ...prev, documents: [...prev.documents, ...new_docs] }));
+                set_full_data(prev => ({ ...prev, case_documents: [...prev.case_documents, ...new_docs] }));
             } else {
-                set_full_data(prev => ({ ...prev, documents: [...prev.documents, ...files] }));
+                set_full_data(prev => ({ ...prev, case_documents: [...prev.case_documents, ...files] }));
             }
         },
         get_document_file: async (id: string) => {

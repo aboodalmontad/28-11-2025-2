@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import * as React from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { Session as AuthSession, User } from '@supabase/supabase-js';
 
 import ClientsPage from './pages/ClientsPage';
@@ -127,6 +128,40 @@ const BottomNav: React.FC<BottomNavProps> = ({ currentPage, onNavigate, permissi
             })}
         </nav>
     );
+};
+
+const OfflineBanner: React.FC<{ isOnline: boolean; syncStatus: SyncStatus; onSync: () => void }> = ({ isOnline, syncStatus, onSync }) => {
+    const [showBackOnline, setShowBackOnline] = useState(false);
+    const prevOnline = useRef(isOnline);
+
+    useEffect(() => {
+        if (isOnline && !prevOnline.current) {
+            setShowBackOnline(true);
+            const timer = setTimeout(() => setShowBackOnline(false), 5000);
+            return () => clearTimeout(timer);
+        }
+        prevOnline.current = isOnline;
+    }, [isOnline]);
+
+    if (!isOnline) {
+        return (
+            <div className="bg-amber-600 text-white text-center py-1.5 px-4 text-xs font-bold no-print shadow-inner flex items-center justify-center gap-2">
+                <ExclamationTriangleIcon className="w-4 h-4" />
+                <span>أنت تعمل الآن في وضع عدم الاتصال. التغييرات محفوظة محلياً.</span>
+            </div>
+        );
+    }
+
+    if (showBackOnline) {
+        return (
+            <div className="bg-green-600 text-white text-center py-1.5 px-4 text-xs font-bold no-print shadow-inner flex items-center justify-center gap-2">
+                <ArrowPathIcon className={`w-4 h-4 ${syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
+                <span>تم استعادة الاتصال. جاري مزامنة بياناتك مع السحابة...</span>
+            </div>
+        );
+    }
+
+    return null;
 };
 
 const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
@@ -313,13 +348,16 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
     if (profile && profile.role === 'admin') {
         return (
             <DataProvider value={data}>
-                <AdminDashboard 
-                    on_logout={handleLogout} 
-                    on_open_config={() => setShowConfigModal(true)} 
-                    sync_log={syncLog}
-                    on_clear_log={clearSyncLog}
-                />
-                <NotificationCenter appointmentAlerts={data.triggered_alerts} realtimeAlerts={data.realtime_alerts} userApprovalAlerts={data.user_approval_alerts} dismissAppointmentAlert={data.dismiss_alert} dismissRealtimeAlert={data.dismiss_realtime_alert} dismissUserApprovalAlert={data.dismiss_user_approval_alert} />
+                <div className="flex flex-col h-screen bg-gray-50">
+                    <OfflineBanner isOnline={isOnline} syncStatus={data.sync_status} onSync={data.manual_sync} />
+                    <AdminDashboard 
+                        on_logout={handleLogout} 
+                        on_open_config={() => setShowConfigModal(true)} 
+                        sync_log={syncLog}
+                        on_clear_log={clearSyncLog}
+                    />
+                    <NotificationCenter appointmentAlerts={data.triggered_alerts} realtimeAlerts={data.realtime_alerts} userApprovalAlerts={data.user_approval_alerts} dismissAppointmentAlert={data.dismiss_alert} dismissRealtimeAlert={data.dismiss_realtime_alert} dismissUserApprovalAlert={data.dismiss_user_approval_alert} />
+                </div>
             </DataProvider>
         );
     }
@@ -330,6 +368,7 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
     return (
         <DataProvider value={data}>
             <div className="flex flex-col h-screen print:h-auto bg-gray-50 print:bg-white">
+                <OfflineBanner isOnline={isOnline} syncStatus={data.sync_status} onSync={data.manual_sync} />
                 <Navbar 
                     currentPage={currentPage} 
                     onNavigate={setCurrentPage} 

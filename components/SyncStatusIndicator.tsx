@@ -9,6 +9,8 @@ interface SyncStatusIndicatorProps {
     is_online: boolean;
     on_manual_sync: () => void;
     is_auto_sync_enabled: boolean;
+    sync_log?: SyncLogEntry[];
+    on_clear_log?: () => void;
     className?: string;
 }
 
@@ -19,15 +21,17 @@ const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({
     is_online, 
     on_manual_sync, 
     is_auto_sync_enabled, 
+    sync_log = [],
+    on_clear_log = () => {},
     className = ""
 }) => {
     let displayStatus;
     if (!is_online) {
         displayStatus = {
-            icon: <NoSymbolIcon className="w-5 h-5 text-gray-500" />,
-            text: 'غير متصل',
-            className: 'text-gray-500',
-            title: 'أنت غير متصل بالإنترنت. التغييرات محفوظة محلياً.'
+            icon: <NoSymbolIcon className="w-5 h-5 text-amber-600" />,
+            text: 'وضع عدم الاتصال',
+            className: 'text-amber-600',
+            title: 'أنت في وضع عدم الاتصال. سيتم حفظ كافة التغييرات محلياً ومزامنتها تلقائياً عند استعادة الاتصال.'
         };
     } else if (!is_auto_sync_enabled && is_dirty) {
         displayStatus = {
