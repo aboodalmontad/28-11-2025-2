@@ -754,7 +754,7 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
                 for (let i = 0; i < files.length; i++) {
                     const file = files[i];
                     const id = crypto.randomUUID();
-                    const safe_filename = encodeURIComponent(file.name);
+                    const safe_filename = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
                     const storage_path = `${user?.id}/${case_id}/${id}-${safe_filename}`;
                     
                     const new_doc: CaseDocument = {

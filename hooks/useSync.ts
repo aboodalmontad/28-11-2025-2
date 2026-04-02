@@ -292,7 +292,8 @@ export const use_sync = ({ user, local_data, deleted_ids, on_data_synced, on_del
                             if (/[^\x00-\x7F]/.test(storage_path) || storage_path.includes(' ')) {
                                 const parts = storage_path.split('/');
                                 const filename = parts.pop() || '';
-                                const safe_filename = encodeURIComponent(filename);
+                                // Replace non-alphanumeric characters (except dots, dashes, underscores) with underscores
+                                const safe_filename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
                                 storage_path = [...parts, safe_filename].join('/');
                                 doc.storage_path = storage_path; // Mutate the object so it gets saved with the new path
                                 doc.updated_at = new Date().toISOString(); // Ensure it gets upserted to DB
