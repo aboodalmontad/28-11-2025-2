@@ -679,11 +679,6 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
                             <div>
                                 <label className="block text-sm font-medium text-gray-700">رقم الجوال</label>
                                 <input name="mobile" type="tel" value={form.mobile || ''} onChange={handle_input_change} required className="mt-1 block w-full px-3 py-2 border rounded-md" />
-                                {normalize_mobile_to_e164(form.mobile) && (
-                                    <p className="mt-1 text-xs text-blue-600">
-                                        البريد الإلكتروني للمصادقة: sy{normalize_mobile_to_e164(form.mobile)!.substring(1)}@email.com
-                                    </p>
-                                )}
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700">كلمة المرور</label>
