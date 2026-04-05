@@ -4,7 +4,6 @@ import { TrashIcon, ExclamationTriangleIcon, CloudArrowUpIcon, ArrowPathIcon, Pl
 import { Client, AdminTask, Appointment, AccountingEntry } from '../types';
 import { useData } from '../context/DataContext';
 import { openDB } from 'idb';
-import { DB_NAME, DB_VERSION, DATA_STORE_NAME, DOCS_FILES_STORE_NAME, DELETED_IDS_STORE_NAME } from '../utils/db';
 import AssistantsManager from '../components/AssistantsManager';
 
 interface SettingsPageProps {}
@@ -57,22 +56,30 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
     const handle_add_assistant = (e: React.FormEvent) => { e.preventDefault(); if (new_assistant && !assistants.includes(new_assistant) && new_assistant !== 'بدون تخصيص') { set_assistants(prev => [...prev, new_assistant.trim()]); set_new_assistant(''); } };
     const handle_delete_assistant = (name: string) => { if (name !== 'بدون تخصيص') { set_assistant_to_delete(name); set_is_delete_assistant_modal_open(true); } };
     const handle_confirm_delete_assistant = () => { if (assistant_to_delete) { delete_assistant(assistant_to_delete); show_feedback(`تم حذف المساعد "${assistant_to_delete}" بنجاح.`, 'success'); } set_is_delete_assistant_modal_open(false); set_assistant_to_delete(null); };
-    const handle_inspect_db = async () => { 
-        set_db_stats('جاري الفحص...'); 
-        try { 
-            const db = await openDB(DB_NAME, DB_VERSION); 
-            let stats = ''; 
-            const stores = [DATA_STORE_NAME, DELETED_IDS_STORE_NAME, DOCS_FILES_STORE_NAME]; 
-            for (const s of stores) { 
-                if (db.objectStoreNames.contains(s)) { 
-                    const count = await db.count(s); 
-                    stats += `- ${s}: ${count} سجل\n`; 
-                } 
-            } 
-            set_db_stats(stats); 
-        } catch (e:any) { 
-            set_db_stats('فشل: ' + e.message); 
-        } 
+    const handle_inspect_db = async () => { set_db_stats('جاري الفحص...'); try { const db = await openDB('LawyerAppData', 2); let stats = ''; const stores = ['appData', 'caseDocumentMetadata', 'caseDocumentFiles']; for (const s of stores) { if (db.objectStoreNames.contains(s)) { const count = await db.count(s); stats += `- ${s}: ${count} سجل\n`; } } set_db_stats(stats); } catch (e:any) { set_db_stats('فشل: ' + e.message); } };
+
+    const handle_hard_refresh = async () => {
+        set_feedback({ message: 'جاري مسح الذاكرة المؤقتة وتحديث التطبيق...', type: 'success' });
+        try {
+            if ('serviceWorker' in navigator) {
+                const registrations = await navigator.serviceWorker.getRegistrations();
+                for (let registration of registrations) {
+                    await registration.unregister();
+                }
+            }
+            if ('caches' in window) {
+                const cacheNames = await caches.keys();
+                for (let name of cacheNames) {
+                    await caches.delete(name);
+                }
+            }
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
+        } catch (error) {
+            console.error('Error clearing cache:', error);
+            window.location.reload();
+        }
     };
 
     const ToggleSwitch: React.FC<{ enabled: boolean; on_change: (enabled: boolean) => void; label: string }> = ({ enabled, on_change, label }) => (
@@ -108,7 +115,38 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
             {/* ... (Other sections: Layout, DB Inspect, Export/Import, Assistants List, Clear Data) ... */}
             <div className="bg-white p-6 rounded-lg shadow space-y-4"><h2 className="text-xl font-bold text-gray-800 border-b pb-3">تخطيط المهام</h2><div className="pt-2 flex gap-4"><button onClick={() => set_admin_tasks_layout('horizontal')} className={`px-4 py-2 rounded ${admin_tasks_layout === 'horizontal' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>أفقي</button><button onClick={() => set_admin_tasks_layout('vertical')} className={`px-4 py-2 rounded ${admin_tasks_layout === 'vertical' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>عمودي</button></div></div>
             <div className="bg-white p-6 rounded-lg shadow space-y-4"><h2 className="text-xl font-bold text-gray-800 border-b pb-3">فحص البيانات</h2><button onClick={handle_inspect_db} className="px-4 py-2 bg-gray-600 text-white rounded">فحص</button>{db_stats && <pre className="mt-4 bg-gray-100 p-4 rounded text-xs">{db_stats}</pre>}</div>
-            <div className="bg-white p-6 rounded-lg shadow space-y-4"><h2 className="text-xl font-bold text-gray-800 border-b pb-3">نقل البيانات</h2><div className="flex gap-4"><button onClick={handle_export_data} className="px-4 py-2 bg-gray-600 text-white rounded">تصدير</button><label className="px-4 py-2 bg-gray-600 text-white rounded cursor-pointer">استيراد<input type="file" className="hidden" onChange={handle_import_data}/></label></div></div>
+            <div className="bg-white p-6 rounded-lg shadow space-y-4">
+                <h2 className="text-xl font-bold text-gray-800 border-b pb-3 flex items-center gap-2">
+                    <ArrowPathIcon className="w-6 h-6 text-blue-600" />
+                    تحديث النظام
+                </h2>
+                <p className="text-gray-600 text-sm">إذا لم تظهر التعديلات الجديدة أو واجهت مشكلة في العرض، يمكنك تحديث التطبيق ومسح الذاكرة المؤقتة (الكاش) لجلب أحدث التغييرات.</p>
+                <div className="pt-2">
+                    <button onClick={handle_hard_refresh} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors">
+                        <ArrowPathIcon className="w-5 h-5" />
+                        <span>تحديث التطبيق ومسح الكاش</span>
+                    </button>
+                </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-lg shadow space-y-4">
+                <h2 className="text-xl font-bold text-gray-800 border-b pb-3 flex items-center gap-2">
+                    <CloudArrowUpIcon className="w-6 h-6 text-blue-600" />
+                    النسخ الاحتياطي ونقل البيانات
+                </h2>
+                <p className="text-gray-600 text-sm">يمكنك تنزيل نسخة احتياطية كاملة من بياناتك (الموكلين، القضايا، الجلسات، المحاسبة) للاحتفاظ بها أو استعادتها لاحقاً.</p>
+                <div className="flex flex-col sm:flex-row gap-4 pt-2">
+                    <button onClick={handle_export_data} className="flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors">
+                        <ArrowDownTrayIcon className="w-5 h-5" />
+                        <span>تنزيل نسخة احتياطية عن البيانات</span>
+                    </button>
+                    <label className="flex items-center justify-center gap-2 px-6 py-3 bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold rounded-lg cursor-pointer transition-colors border border-gray-300">
+                        <ArrowUpTrayIcon className="w-5 h-5" />
+                        <span>استعادة من نسخة احتياطية</span>
+                        <input type="file" className="hidden" onChange={handle_import_data} accept=".json" />
+                    </label>
+                </div>
+            </div>
             <div className="bg-white p-6 rounded-lg shadow space-y-6"><h2 className="text-xl font-bold text-gray-800 border-b pb-3">قائمة المساعدين (للقوائم المنسدلة)</h2><div className="space-y-4"><form onSubmit={handle_add_assistant} className="flex gap-2"><input type="text" value={new_assistant} onChange={e => set_new_assistant(e.target.value)} className="flex-grow p-2 border rounded" placeholder="اسم" /><button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded">إضافة</button></form><ul className="space-y-2">{assistants.map(a => <li key={a} className="flex justify-between p-2 bg-gray-50 border rounded">{a}{a !== 'بدون تخصيص' && <button onClick={() => handle_delete_assistant(a)}><TrashIcon className="w-4 h-4 text-red-500"/></button>}</li>)}</ul></div></div>
             <div className="bg-white p-6 rounded-lg shadow space-y-4"><h2 className="text-xl font-bold text-gray-800 border-b pb-3">خطر</h2><button onClick={() => set_is_confirm_modal_open(true)} className="px-4 py-2 bg-red-600 text-white rounded">مسح كافة البيانات</button></div>
 

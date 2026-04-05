@@ -4,12 +4,14 @@ import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, Cart
 import { UserGroupIcon, ChartBarIcon, ClockIcon } from '../components/icons';
 import { safe_revive_date, to_input_date_string } from '../utils/dateUtils';
 
-const StatCard: React.FC<{ title: string; value: string | number; icon: React.ReactNode }> = ({ title, value, icon }) => (
-    <div className="bg-white p-6 rounded-lg shadow-md flex items-center space-x-4 space-x-reverse">
-        <div className="bg-blue-100 text-blue-600 rounded-full p-3">{icon}</div>
-        <div>
-            <p className="text-sm text-gray-500">{title}</p>
-            <p className="text-2xl font-bold text-gray-800">{value}</p>
+const StatCard: React.FC<{ title: string; value: string | number; icon: React.ReactNode; color: string }> = ({ title, value, icon, color }) => (
+    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-6 transition-all hover:shadow-md hover:-translate-y-1">
+        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 ${color}`}>
+            {icon}
+        </div>
+        <div className="flex flex-col">
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">{title}</p>
+            <p className="text-3xl font-black text-slate-900 tracking-tight">{value}</p>
         </div>
     </div>
 );
@@ -17,12 +19,15 @@ const StatCard: React.FC<{ title: string; value: string | number; icon: React.Re
 const CustomTooltip = ({ active, payload, label, formatter }: any) => {
     if (active && payload && payload.length) {
         return (
-            <div className="bg-white p-3 border shadow-lg rounded-md text-sm">
-                <p className="font-bold mb-1">{label}</p>
+            <div className="bg-slate-900 text-white p-4 shadow-2xl rounded-xl text-xs border border-slate-700 backdrop-blur-md bg-opacity-90">
+                <p className="font-black mb-2 border-b border-slate-700 pb-2">{label}</p>
                 {payload.map((pld: any, index: number) => (
-                    <p key={index} style={{ color: pld.color }}>
-                        {`${pld.name}: ${formatter ? formatter(pld.value) : pld.value}`}
-                    </p>
+                    <div key={index} className="flex items-center justify-between gap-4 mt-1">
+                        <span className="font-medium opacity-70">{pld.name}:</span>
+                        <span className="font-black" style={{ color: pld.color }}>
+                            {formatter ? formatter(pld.value) : pld.value}
+                        </span>
+                    </div>
                 ))}
             </div>
         );
@@ -93,56 +98,83 @@ const AdminAnalyticsPage: React.FC = () => {
     if (error) return <div className="p-4 text-red-700 bg-red-100 rounded-md">{error}</div>;
     if (!stats) return <div className="text-center p-8">لا توجد بيانات كافية لعرض التحليلات.</div>;
 
-    const PIE_COLORS = ['#10B981', '#F59E0B', '#6B7280'];
+    const PIE_COLORS = ['#3B82F6', '#10B981', '#F59E0B'];
     
     return (
-        <div className="space-y-8">
-            <h1 className="text-3xl font-bold text-gray-800">لوحة التحكم والتحليلات</h1>
+        <div className="space-y-10">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h1 className="text-3xl font-black text-slate-900 tracking-tight">التحليلات والإحصائيات</h1>
+                    <p className="text-slate-500 mt-1">نظرة شاملة على أداء النظام ونمو المستخدمين.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                    <div className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl border border-slate-200 font-bold text-sm">
+                        آخر تحديث: {new Date().toLocaleTimeString('ar-SA')}
+                    </div>
+                </div>
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <StatCard title="إجمالي المستخدمين" value={stats.totalUsers} icon={<UserGroupIcon className="w-6 h-6" />} />
-                <StatCard title="الاشتراكات النشطة" value={stats.activeSubscriptions} icon={<ChartBarIcon className="w-6 h-6" />} />
-                <StatCard title="الطلبات المعلقة" value={stats.pendingApprovals} icon={<ClockIcon className="w-6 h-6" />} />
+                <StatCard title="إجمالي المستخدمين" value={stats.totalUsers} icon={<UserGroupIcon className="w-7 h-7" />} color="bg-blue-100 text-blue-600" />
+                <StatCard title="الاشتراكات النشطة" value={stats.activeSubscriptions} icon={<ChartBarIcon className="w-7 h-7" />} color="bg-green-100 text-green-600" />
+                <StatCard title="الطلبات المعلقة" value={stats.pendingApprovals} icon={<ClockIcon className="w-7 h-7" />} color="bg-amber-100 text-amber-600" />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div className="bg-white p-6 rounded-lg shadow-md">
-                    <h3 className="font-bold mb-4 text-center text-gray-700">نمو المستخدمين (آخر 30 يوم)</h3>
-                    <ResponsiveContainer width="100%" height={300}>
+                <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+                    <h3 className="font-black mb-8 text-slate-800 flex items-center gap-2">
+                        <div className="w-2 h-6 bg-blue-600 rounded-full"></div>
+                        نمو المستخدمين (آخر 30 يوم)
+                    </h3>
+                    <ResponsiveContainer width="100%" height={350}>
                         <LineChart data={stats.userSignupsData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-                            <YAxis allowDecimals={false} />
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                            <XAxis dataKey="date" tick={{ fontSize: 10, fontWeight: 700, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                            <YAxis allowDecimals={false} tick={{ fontSize: 10, fontWeight: 700, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                             <Tooltip content={<CustomTooltip />} />
-                            <Legend />
-                            <Line type="monotone" dataKey="مستخدمين جدد" stroke="#3B82F6" strokeWidth={2} />
+                            <Legend verticalAlign="top" align="right" iconType="circle" wrapperStyle={{ paddingBottom: '20px', fontSize: '12px', fontWeight: 700 }} />
+                            <Line type="monotone" dataKey="مستخدمين جدد" stroke="#3B82F6" strokeWidth={4} dot={{ r: 6, fill: '#3B82F6', strokeWidth: 2, stroke: '#fff' }} activeDot={{ r: 8, strokeWidth: 0 }} />
                         </LineChart>
                     </ResponsiveContainer>
                 </div>
-                 <div className="bg-white p-6 rounded-lg shadow-md">
-                    <h3 className="font-bold mb-4 text-center text-gray-700">توزيع حالات القضايا</h3>
-                    <ResponsiveContainer width="100%" height={300}>
+                 <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+                    <h3 className="font-black mb-8 text-slate-800 flex items-center gap-2">
+                        <div className="w-2 h-6 bg-green-500 rounded-full"></div>
+                        توزيع حالات القضايا
+                    </h3>
+                    <ResponsiveContainer width="100%" height={350}>
                          <PieChart>
-                            <Pie data={stats.caseStatusData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label>
+                            <Pie 
+                                data={stats.caseStatusData} 
+                                dataKey="value" 
+                                nameKey="name" 
+                                cx="50%" cy="50%" 
+                                innerRadius={80}
+                                outerRadius={120} 
+                                paddingAngle={5}
+                                stroke="none"
+                            >
                                 {stats.caseStatusData.map((_entry: any, index: number) => <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />)}
                             </Pie>
                             <Tooltip content={<CustomTooltip />} />
-                            <Legend />
+                            <Legend verticalAlign="bottom" align="center" iconType="circle" wrapperStyle={{ paddingTop: '20px', fontSize: '12px', fontWeight: 700 }} />
                         </PieChart>
                     </ResponsiveContainer>
                 </div>
             </div>
 
-             <div className="bg-white p-6 rounded-lg shadow-md">
-                <h3 className="font-bold mb-4 text-center text-gray-700">أكثر المستخدمين نشاطاً (حسب عدد الإدخالات)</h3>
-                 <ResponsiveContainer width="100%" height={400}>
+             <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+                <h3 className="font-black mb-8 text-slate-800 flex items-center gap-2">
+                    <div className="w-2 h-6 bg-purple-600 rounded-full"></div>
+                    أكثر المستخدمين نشاطاً (حسب عدد الإدخالات)
+                </h3>
+                 <ResponsiveContainer width="100%" height={450}>
                     <BarChart data={stats.activityByUser} layout="vertical" margin={{ top: 5, right: 30, left: 80, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis type="number" />
-                        <YAxis dataKey="name" type="category" width={80} tick={{ fontSize: 12 }} />
+                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                        <XAxis type="number" hide />
+                        <YAxis dataKey="name" type="category" width={100} tick={{ fontSize: 11, fontWeight: 700, fill: '#64748b' }} axisLine={false} tickLine={false} />
                         <Tooltip content={<CustomTooltip />} />
-                        <Legend />
-                        <Bar dataKey="عدد الإدخالات" fill="#8884d8" />
+                        <Bar dataKey="عدد الإدخالات" fill="#6366f1" radius={[0, 10, 10, 0]} barSize={24} />
                     </BarChart>
                 </ResponsiveContainer>
             </div>

@@ -34,12 +34,13 @@ interface UserRowProps {
     on_delete: (user: Profile) => void;
     on_toggle_approval: (user: Profile) => void;
     on_toggle_active: (user: Profile) => void;
+    on_toggle_verification: (user: Profile) => void;
     on_generate_otp: (user: Profile) => void;
     generating_otp_for: string | null;
     current_admin_id: string | undefined;
 }
 
-const UserRow: React.FC<UserRowProps> = ({ user, lawyer, on_view, on_edit, on_delete, on_toggle_approval, on_toggle_active, on_generate_otp, generating_otp_for, current_admin_id }) => {
+const UserRow: React.FC<UserRowProps> = ({ user, lawyer, on_view, on_edit, on_delete, on_toggle_approval, on_toggle_active, on_toggle_verification, on_generate_otp, generating_otp_for, current_admin_id }) => {
     const [copied_otp_id, set_copied_otp_id] = React.useState<string | null>(null);
     
     const copy_to_clipboard = (text: string, id: string) => {
@@ -59,6 +60,19 @@ const UserRow: React.FC<UserRowProps> = ({ user, lawyer, on_view, on_edit, on_de
         window.open(url, '_blank');
     };
 
+    const send_activation_confirmation = () => {
+        if (!user.mobile_number) return;
+        const cleanMobile = user.mobile_number.replace(/\D/g, '');
+        const waNumber = cleanMobile.startsWith('0') ? '963' + cleanMobile.substring(1) : cleanMobile;
+        
+        const startDate = user.subscription_start_date ? format_date(user.subscription_start_date) : '-';
+        const endDate = user.subscription_end_date ? format_date(user.subscription_end_date) : '-';
+        
+        const messageText = `مرحباً الأستاذ ${user.full_name}،\nتم تفعيل حسابك في تطبيق "مكتب المحامي" بنجاح.\nتاريخ التفعيل: ${format_date(new Date())}\nمدة الاشتراك الممنوحة: من ${startDate} إلى ${endDate}.\nيمكنك الآن تسجيل الدخول باستخدام رقم هاتفك وكلمة المرور الخاصة بك.`;
+        const url = `https://wa.me/${waNumber}?text=${encodeURIComponent(messageText)}`;
+        window.open(url, '_blank');
+    };
+
     const is_assistant = !!lawyer;
     
     // Check parent status: Active, Approved, and Subscription Valid
@@ -66,103 +80,141 @@ const UserRow: React.FC<UserRowProps> = ({ user, lawyer, on_view, on_edit, on_de
     const is_parent_active = lawyer ? (lawyer.is_active && lawyer.is_approved && is_parent_subscription_valid) : true;
 
     return (
-        <tr className={`border-b ${!user.is_approved ? 'bg-yellow-50' : is_assistant ? 'bg-gray-50' : 'bg-white'} hover:bg-gray-100 transition-colors`}>
+        <tr className={`group border-b border-slate-100 transition-colors ${!user.is_approved ? 'bg-amber-50/30' : is_assistant ? 'bg-slate-50/50' : 'bg-white'} hover:bg-slate-50`}>
             <td className="px-6 py-4">
-                <div className={`flex items-center ${is_assistant ? 'ms-8 border-r-2 border-gray-300 pr-3' : ''}`}>
-                    {is_assistant && <div className="w-2 h-2 bg-gray-300 rounded-full absolute -ms-4"></div>}
-                    <div className="flex flex-col">
-                        <button onClick={() => on_view(user)} className="text-blue-600 hover:underline font-medium text-right flex items-center gap-2">
-                            {is_assistant ? <UserIcon className="w-4 h-4 text-gray-500"/> : (user.role === 'admin' ? <UserGroupIcon className="w-5 h-5 text-purple-600"/> : <UserIcon className="w-5 h-5 text-blue-600"/>)}
+                <div className={`flex items-center gap-3 ${is_assistant ? 'mr-8' : ''}`}>
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
+                        user.role === 'admin' ? 'bg-purple-100 text-purple-600' : 
+                        is_assistant ? 'bg-slate-200 text-slate-500' : 'bg-blue-100 text-blue-600'
+                    }`}>
+                        {user.role === 'admin' ? <UserGroupIcon className="w-5 h-5"/> : <UserIcon className="w-5 h-5"/>}
+                    </div>
+                    <div className="flex flex-col min-w-0">
+                        <button 
+                            onClick={() => on_view(user)} 
+                            className="text-slate-900 hover:text-blue-600 font-bold text-right truncate transition-colors"
+                        >
                             {user.full_name}
                         </button>
-                        {user.role === 'admin' && <span className="text-xs font-semibold text-purple-600 mt-1 me-6">(مدير)</span>}
-                        
-                        {/* Dependency Status Indicator */}
-                        {is_assistant && !is_parent_active && (
-                            <span className="text-xs text-red-500 mt-1 me-6 flex items-center gap-1" title="صلاحية هذا الحساب معطلة لأن حساب المحامي الرئيسي غير نشط أو منتهي الصلاحية">
-                                <ExclamationTriangleIcon className="w-3 h-3"/>
-                                حساب المحامي غير نشط
-                            </span>
-                        )}
+                        <div className="flex items-center gap-2 mt-0.5">
+                            {user.role === 'admin' && <span className="text-[10px] font-black text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded uppercase tracking-wider">مدير النظام</span>}
+                            {is_assistant && <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">مساعد</span>}
+                            {is_assistant && !is_parent_active && (
+                                <span className="text-[10px] text-red-500 font-bold flex items-center gap-1">
+                                    <ExclamationTriangleIcon className="w-3 h-3"/>
+                                    المحامي غير نشط
+                                </span>
+                            )}
+                        </div>
                     </div>
                 </div>
             </td>
-            <td className="px-6 py-4 text-sm" dir="ltr">{getDisplayPhoneNumber(user.mobile_number)}</td>
-            <td className="px-6 py-4 text-sm text-gray-500">{user.created_at ? format_date(user.created_at) : '-'}</td>
-            <td className="px-6 py-4 text-xs font-medium text-gray-600">{formatSubscriptionDateRange(user)}</td>
             <td className="px-6 py-4">
-                <div className="flex flex-col gap-2">
-                    {/* Status Badge */}
+                <div className="flex items-center gap-2 text-slate-600 font-mono text-sm" dir="ltr">
+                    <PhoneIcon className="w-3.5 h-3.5 text-slate-400" />
+                    {getDisplayPhoneNumber(user.mobile_number)}
+                </div>
+            </td>
+            <td className="px-6 py-4">
+                <span className="text-xs text-slate-500 font-medium">
+                    {user.created_at ? format_date(user.created_at) : '-'}
+                </span>
+            </td>
+            <td className="px-6 py-4">
+                <div className="flex flex-col gap-2 max-w-[180px]">
                     <div className="flex items-center gap-2">
                         {user.mobile_verified ? (
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-green-100 text-green-800 border border-green-200">
-                                مؤكد
-                            </span>
+                            <button 
+                                onClick={() => on_toggle_verification(user)}
+                                className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-green-100 text-green-700 border border-green-200 hover:bg-green-200 transition-colors"
+                                title="إلغاء التحقق"
+                            >
+                                <CheckCircleIcon className="w-3 h-3 ml-1" />
+                                تم التحقق
+                            </button>
                         ) : (
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-800 border border-red-200">
-                                غير مؤكد
-                            </span>
+                            <button 
+                                onClick={() => on_toggle_verification(user)}
+                                className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200 hover:bg-slate-200 transition-colors"
+                                title="تأكيد التحقق يدوياً"
+                            >
+                                بانتظار التحقق
+                            </button>
                         )}
-                        {/* Manual Generate Button for Admin */}
                         {user.role !== 'admin' && (
                             <button 
                                 onClick={() => on_generate_otp(user)}
                                 disabled={generating_otp_for === user.id}
-                                className="text-blue-600 hover:text-blue-800 disabled:opacity-50 p-1 bg-blue-50 rounded-full hover:bg-blue-100 transition-colors"
-                                title="توليد كود جديد (تحقق أو استعادة)"
+                                className="text-blue-600 hover:bg-blue-50 p-1 rounded-lg transition-colors disabled:opacity-30"
+                                title="توليد كود جديد"
                             >
-                                {generating_otp_for === user.id ? <ArrowPathIcon className="w-3.5 h-3.5 animate-spin"/> : <ArrowPathIcon className="w-3.5 h-3.5" />}
+                                {generating_otp_for === user.id ? <ArrowPathIcon className="w-4 h-4 animate-spin"/> : <ArrowPathIcon className="w-4 h-4" />}
                             </button>
                         )}
                     </div>
 
-                    {/* Active Code Display (Essential for password resets) */}
-                    {user.otp_code ? (
-                        <div className="flex flex-col gap-1">
-                            <span className="text-[9px] text-blue-600 font-bold uppercase">كود نشط (تحقق/استعادة):</span>
-                            <div className="flex items-center gap-1">
-                                <div 
-                                    className="flex-grow flex items-center justify-between gap-2 text-xs font-bold border border-blue-300 bg-blue-50 rounded-md px-2 py-1.5 cursor-pointer hover:bg-blue-100 transition-all"
-                                    title="نسخ الكود"
-                                    onClick={() => copy_to_clipboard(user.otp_code!, user.id)}
-                                >
-                                    <span className="font-mono text-sm tracking-widest">{user.otp_code}</span>
-                                    <ClipboardDocumentIcon className="w-3.5 h-3.5 text-blue-500" />
-                                </div>
-                                <button 
-                                    onClick={() => send_otp_to_user(user.otp_code!, user.mobile_number)}
-                                    className="p-1.5 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors shadow-sm"
-                                    title="إرسال الكود للمستخدم عبر واتساب"
-                                >
-                                    <ShareIcon className="w-4 h-4" />
-                                </button>
+                    {user.otp_code && (
+                        <div className="flex items-center gap-1.5 animate-in fade-in zoom-in-95 duration-300">
+                            <div 
+                                className="flex-grow flex items-center justify-between gap-2 text-xs font-black bg-slate-900 text-white rounded-lg px-3 py-2 cursor-pointer hover:bg-slate-800 transition-all shadow-sm"
+                                onClick={() => copy_to_clipboard(user.otp_code!, user.id)}
+                            >
+                                <span className="font-mono tracking-[0.2em]">{user.otp_code}</span>
+                                <ClipboardDocumentIcon className="w-3.5 h-3.5 text-slate-400" />
                             </div>
-                            {copied_otp_id === user.id && <span className="text-[9px] text-green-600 text-center font-bold">تم النسخ!</span>}
+                            <button 
+                                onClick={() => send_otp_to_user(user.otp_code!, user.mobile_number)}
+                                className="p-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors shadow-sm"
+                                title="إرسال عبر واتساب"
+                            >
+                                <ShareIcon className="w-4 h-4" />
+                            </button>
                         </div>
-                    ) : (
-                        <span className="text-[10px] text-gray-400 font-mono">- - - - - -</span>
+                    )}
+                    {copied_otp_id === user.id && <span className="text-[10px] text-green-600 font-bold text-center">تم النسخ بنجاح!</span>}
+                </div>
+            </td>
+            <td className="px-6 py-4">
+                <div className="flex items-center gap-2">
+                    <button 
+                        onClick={() => on_toggle_approval(user)} 
+                        disabled={user.role === 'admin'} 
+                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none disabled:opacity-30 ${user.is_approved ? 'bg-blue-600' : 'bg-slate-200'}`}
+                        title={user.is_approved ? "إلغاء الموافقة" : "موافقة وتفعيل"}
+                    >
+                        <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${user.is_approved ? '-translate-x-5' : 'translate-x-0'}`} />
+                    </button>
+                    {user.is_approved && (
+                        <button 
+                            onClick={send_activation_confirmation}
+                            className="p-1.5 bg-green-100 text-green-600 rounded-lg hover:bg-green-200 transition-colors"
+                            title="إرسال تأكيد التفعيل عبر واتساب"
+                        >
+                            <ShareIcon className="w-4 h-4" />
+                        </button>
                     )}
                 </div>
             </td>
             <td className="px-6 py-4">
-                <button onClick={() => on_toggle_approval(user)} disabled={user.role === 'admin'} className="disabled:opacity-50 disabled:cursor-not-allowed transition-transform hover:scale-110" title={user.is_approved ? 'تعطيل' : 'تفعيل'}>
-                    {user.is_approved ? <CheckCircleIcon className="w-6 h-6 text-green-500" /> : <NoSymbolIcon className="w-6 h-6 text-gray-400" />}
+                 <button 
+                    onClick={() => on_toggle_active(user)} 
+                    disabled={user.role === 'admin'} 
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none disabled:opacity-30 ${user.is_active ? 'bg-green-500' : 'bg-red-500'}`}
+                >
+                    <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${user.is_active ? '-translate-x-5' : 'translate-x-0'}`} />
                 </button>
             </td>
             <td className="px-6 py-4">
-                 <button onClick={() => on_toggle_active(user)} disabled={user.role === 'admin'} className="disabled:opacity-50 disabled:cursor-not-allowed transition-transform hover:scale-110" title={user.is_active ? 'تجميد الحساب' : 'تنشيط الحساب'}>
-                    {user.is_active ? <CheckCircleIcon className="w-6 h-6 text-green-500" /> : <NoSymbolIcon className="w-6 h-6 text-red-500" />}
-                </button>
-            </td>
-            <td className="px-6 py-4">
-                {user.role !== 'admin' && user.id !== current_admin_id ? (
-                    <div className="flex items-center gap-2">
-                        <button onClick={() => on_edit(user)} className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors" title="تعديل"><PencilIcon className="w-4 h-4" /></button>
-                        <button onClick={() => on_delete(user)} className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors" title="حذف"><TrashIcon className="w-4 h-4" /></button>
-                    </div>
-                ) : (
-                    <span className="text-xs text-gray-400 select-none">محمي</span>
-                )}
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {user.role !== 'admin' && user.id !== current_admin_id ? (
+                        <>
+                            <button onClick={() => on_edit(user)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all" title="تعديل"><PencilIcon className="w-4 h-4" /></button>
+                            <button onClick={() => on_delete(user)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all" title="حذف"><TrashIcon className="w-4 h-4" /></button>
+                        </>
+                    ) : (
+                        <span className="text-[10px] font-bold text-slate-300 px-2">محمي</span>
+                    )}
+                </div>
             </td>
         </tr>
     );
@@ -175,57 +227,10 @@ const AdminPage: React.FC = () => {
     const [user_to_delete, set_user_to_delete] = React.useState<Profile | null>(null);
     const [viewing_user, set_viewing_user] = React.useState<Profile | null>(null);
     const [generating_otp_for, set_generating_otp_for] = React.useState<string | null>(null);
-    const [all_assistants, set_all_assistants] = React.useState<{ name: string; user_id: string; lawyer_name?: string }[]>([]);
-    const [assistants_loading, set_assistants_loading] = React.useState(false);
+    const [search_query, set_search_query] = React.useState('');
+    const [filter_status, set_filter_status] = React.useState<'all' | 'pending' | 'active' | 'inactive'>('all');
     
     const supabase = get_supabase_client();
-
-    const fetch_all_assistants = React.useCallback(async () => {
-        if (!supabase) return;
-        set_assistants_loading(true);
-        try {
-            const { data, error } = await supabase
-                .from('assistants')
-                .select('name, user_id');
-            
-            if (error) throw error;
-            
-            // Map lawyer names
-            const mapped = (data || []).map(a => {
-                const lawyer = users.find(u => u.id === a.user_id);
-                return {
-                    ...a,
-                    lawyer_name: lawyer ? lawyer.full_name : 'غير معروف'
-                };
-            });
-            
-            set_all_assistants(mapped);
-        } catch (err) {
-            console.error("Failed to fetch all assistants:", err);
-        } finally {
-            set_assistants_loading(false);
-        }
-    }, [supabase, users]);
-
-    React.useEffect(() => {
-        fetch_all_assistants();
-    }, [fetch_all_assistants]);
-
-    const handle_delete_assistant_name = async (name: string, user_id: string) => {
-        if (!supabase || !window.confirm(`هل أنت متأكد من حذف المساعد "${name}"؟`)) return;
-        try {
-            const { error } = await supabase
-                .from('assistants')
-                .delete()
-                .eq('name', name)
-                .eq('user_id', user_id);
-            
-            if (error) throw error;
-            fetch_all_assistants();
-        } catch (err: any) {
-            alert("فشل حذف المساعد: " + err.message);
-        }
-    };
 
     const handle_update_user = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
@@ -312,6 +317,21 @@ const AdminPage: React.FC = () => {
          }
     }
 
+    const toggle_user_verification = async (user: Profile) => {
+        if (!supabase || user.role === 'admin') return;
+        const updatedUser = { ...user, mobile_verified: !user.mobile_verified, updated_at: new Date().toISOString() };
+        setUsers(prev => prev.map(u => u.id === user.id ? updatedUser : u));
+        
+        try {
+           const { error } = await supabase.from('profiles').update({ mobile_verified: updatedUser.mobile_verified }).eq('id', user.id);
+           if (error) throw error;
+           fetch_and_refresh();
+        } catch(err: any) {
+            console.error("Failed to toggle verification status:", err);
+            fetch_and_refresh();
+        }
+    }
+
     const handle_generate_and_send_otp = async (user: Profile) => {
         if (!supabase) return;
         set_generating_otp_for(user.id);
@@ -334,15 +354,29 @@ const AdminPage: React.FC = () => {
             set_generating_otp_for(null);
         }
     };
-    
+
+    const filtered_users = React.useMemo(() => {
+        return users.filter(u => {
+            const matches_search = u.full_name.toLowerCase().includes(search_query.toLowerCase()) || 
+                                 (u.mobile_number || '').includes(search_query);
+            
+            const matches_status = filter_status === 'all' || 
+                                 (filter_status === 'pending' && !u.is_approved) ||
+                                 (filter_status === 'active' && u.is_active && u.is_approved) ||
+                                 (filter_status === 'inactive' && !u.is_active);
+            
+            return matches_search && matches_status;
+        });
+    }, [users, search_query, filter_status]);
+
     // Organize users into hierarchy: Lawyers (and admins) at top, their assistants nested
     const grouped_users = React.useMemo(() => {
         // 1. Find all users who are NOT assistants (Lawyers/Admins)
-        const lawyers = users.filter(u => !u.lawyer_id); 
+        const lawyers = filtered_users.filter(u => !u.lawyer_id); 
         
         // 2. Create a map of lawyer_id -> [assistants]
         const assistantMap = new Map<string, Profile[]>();
-        users.filter(u => u.lawyer_id).forEach(assistant => {
+        filtered_users.filter(u => u.lawyer_id).forEach(assistant => {
             const lawyerId = assistant.lawyer_id!;
             if (!assistantMap.has(lawyerId)) {
                 assistantMap.set(lawyerId, []);
@@ -364,7 +398,7 @@ const AdminPage: React.FC = () => {
             lawyer,
             assistants: assistantMap.get(lawyer.id) || []
         }));
-    }, [users]);
+    }, [filtered_users]);
 
 
     if (loading) {
@@ -376,61 +410,107 @@ const AdminPage: React.FC = () => {
     }
 
     return (
-        <div className="space-y-6">
-            <h1 className="text-3xl font-bold text-gray-800">إدارة المستخدمين</h1>
+        <div className="space-y-8">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h1 className="text-3xl font-black text-slate-900 tracking-tight">إدارة المستخدمين</h1>
+                    <p className="text-slate-500 mt-1">إدارة حسابات المحامين والمساعدين والتحقق من هويتهم.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                    <div className="px-4 py-2 bg-blue-50 text-blue-700 rounded-xl border border-blue-100 font-bold text-sm">
+                        إجمالي المستخدمين: {users.length}
+                    </div>
+                </div>
+            </div>
+
+            {/* Search and Filters */}
+            <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4">
+                <div className="flex-grow relative">
+                    <input 
+                        type="text" 
+                        placeholder="البحث بالاسم أو رقم الجوال..." 
+                        value={search_query}
+                        onChange={e => set_search_query(e.target.value)}
+                        className="w-full pr-10 pl-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                    />
+                    <UserIcon className="w-5 h-5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
+                </div>
+                <div className="flex items-center gap-2 min-w-[200px]">
+                    <select 
+                        value={filter_status}
+                        onChange={e => set_filter_status(e.target.value as any)}
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm font-bold"
+                    >
+                        <option value="all">جميع الحالات</option>
+                        <option value="pending">بانتظار الموافقة</option>
+                        <option value="active">نشط</option>
+                        <option value="inactive">غير نشط</option>
+                    </select>
+                </div>
+            </div>
             
-            <div className="bg-white p-6 rounded-lg shadow overflow-x-auto">
-                <table className="w-full text-sm text-right text-gray-600 border-collapse">
-                    <thead className="text-xs text-gray-700 uppercase bg-gray-100">
-                        <tr>
-                            <th className="px-6 py-3 rounded-tr-lg">المستخدم (المحامي / المساعد)</th>
-                            <th className="px-6 py-3">رقم الجوال</th>
-                            <th className="px-6 py-3">تاريخ التسجيل</th>
-                            <th className="px-6 py-3">فترة الاشتراك</th>
-                            <th className="px-6 py-3">التحقق والكود</th>
-                            <th className="px-6 py-3">موافق عليه</th>
-                            <th className="px-6 py-3">الحساب نشط</th>
-                            <th className="px-6 py-3 rounded-tl-lg">إجراءات</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {grouped_users.map(({ lawyer, assistants }) => (
-                            <React.Fragment key={lawyer.id}>
-                                {/* Lawyer Row */}
-                                <UserRow 
-                                    user={lawyer}
-                                    on_view={() => set_viewing_user(lawyer)}
-                                    on_edit={() => set_editing_user(lawyer)}
-                                    on_delete={() => set_user_to_delete(lawyer)}
-                                    on_toggle_approval={() => toggle_user_approval(lawyer)}
-                                    on_toggle_active={() => toggle_user_active_status(lawyer)}
-                                    on_generate_otp={() => handle_generate_and_send_otp(lawyer)}
-                                    generating_otp_for={generating_otp_for}
-                                    current_admin_id={user_id}
-                                />
-                                {/* Assistants Rows */}
-                                {assistants.length > 0 && assistants.map(assistant => (
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-right text-slate-600 border-collapse">
+                        <thead>
+                            <tr className="bg-slate-50 border-b border-slate-200">
+                                <th className="px-6 py-4 font-bold text-slate-700">المستخدم</th>
+                                <th className="px-6 py-4 font-bold text-slate-700">رقم الجوال</th>
+                                <th className="px-6 py-4 font-bold text-slate-700">تاريخ التسجيل</th>
+                                <th className="px-6 py-4 font-bold text-slate-700">التحقق والكود</th>
+                                <th className="px-6 py-4 font-bold text-slate-700">الموافقة</th>
+                                <th className="px-6 py-4 font-bold text-slate-700">الحالة</th>
+                                <th className="px-6 py-4 font-bold text-slate-700">إجراءات</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                            {grouped_users.map(({ lawyer, assistants }) => (
+                                <React.Fragment key={lawyer.id}>
+                                    {/* Lawyer Row */}
                                     <UserRow 
-                                        key={assistant.id}
-                                        user={assistant}
-                                        lawyer={lawyer} // Pass the parent lawyer to check dependency
-                                        on_view={() => set_viewing_user(assistant)}
-                                        on_edit={() => set_editing_user(assistant)}
-                                        on_delete={() => set_user_to_delete(assistant)}
-                                        on_toggle_approval={() => toggle_user_approval(assistant)}
-                                        on_toggle_active={() => toggle_user_active_status(assistant)}
-                                        on_generate_otp={() => handle_generate_and_send_otp(assistant)}
+                                        user={lawyer}
+                                        on_view={() => set_viewing_user(lawyer)}
+                                        on_edit={() => set_editing_user(lawyer)}
+                                        on_delete={() => set_user_to_delete(lawyer)}
+                                        on_toggle_approval={() => toggle_user_approval(lawyer)}
+                                        on_toggle_active={() => toggle_user_active_status(lawyer)}
+                                        on_toggle_verification={() => toggle_user_verification(lawyer)}
+                                        on_generate_otp={() => handle_generate_and_send_otp(lawyer)}
                                         generating_otp_for={generating_otp_for}
                                         current_admin_id={user_id}
                                     />
-                                ))}
-                            </React.Fragment>
-                        ))}
-                        {grouped_users.length === 0 && (
-                             <tr><td colSpan={7} className="text-center p-8 text-gray-500">لا يوجد مستخدمين مسجلين.</td></tr>
-                        )}
-                    </tbody>
-                </table>
+                                    {/* Assistants Rows */}
+                                    {assistants.length > 0 && assistants.map(assistant => (
+                                        <UserRow 
+                                            key={assistant.id}
+                                            user={assistant}
+                                            lawyer={lawyer} 
+                                            on_view={() => set_viewing_user(assistant)}
+                                            on_edit={() => set_editing_user(assistant)}
+                                            on_delete={() => set_user_to_delete(assistant)}
+                                            on_toggle_approval={() => toggle_user_approval(assistant)}
+                                            on_toggle_active={() => toggle_user_active_status(assistant)}
+                                            on_toggle_verification={() => toggle_user_verification(assistant)}
+                                            on_generate_otp={() => handle_generate_and_send_otp(assistant)}
+                                            generating_otp_for={generating_otp_for}
+                                            current_admin_id={user_id}
+                                        />
+                                    ))}
+                                </React.Fragment>
+                            ))}
+                            {grouped_users.length === 0 && (
+                                 <tr>
+                                    <td colSpan={7} className="text-center py-20">
+                                        <div className="flex flex-col items-center gap-2">
+                                            <UserGroupIcon className="w-12 h-12 text-slate-200" />
+                                            <p className="text-slate-400 font-medium">لا يوجد مستخدمين يطابقون البحث.</p>
+                                        </div>
+                                    </td>
+                                 </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
             {editing_user && (
@@ -476,55 +556,9 @@ const AdminPage: React.FC = () => {
                     user={viewing_user} 
                     onClose={() => set_viewing_user(null)}
                     onEdit={() => set_editing_user(viewing_user)}
+                    onToggleVerification={toggle_user_verification}
                 />
             )}
-
-            {/* Global Assistant Names Management */}
-            <div className="bg-white p-6 rounded-lg shadow mt-8">
-                <h2 className="text-xl font-bold text-gray-800 border-b pb-3 mb-4 flex items-center gap-2">
-                    <UserGroupIcon className="w-6 h-6 text-blue-600" />
-                    إدارة قائمة المساعدين (للقوائم المنسدلة)
-                </h2>
-                <div className="space-y-4">
-                    <p className="text-sm text-gray-500">هذه القائمة تظهر لجميع المحامين في القوائم المنسدلة لتخصيص المهام والجلسات.</p>
-                    <div className="grid grid-cols-1 gap-4">
-                        <div className="border rounded-lg overflow-hidden">
-                            <table className="w-full text-sm text-right">
-                                <thead className="bg-gray-50">
-                                    <tr>
-                                        <th className="px-4 py-2">الاسم</th>
-                                        <th className="px-4 py-2">المحامي</th>
-                                        <th className="px-4 py-2">إجراءات</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {assistants_loading ? (
-                                        <tr><td colSpan={3} className="text-center p-4">جاري التحميل...</td></tr>
-                                    ) : all_assistants.length > 0 ? (
-                                        all_assistants.map((a, idx) => (
-                                            <tr key={`${a.user_id}-${a.name}-${idx}`} className="border-t hover:bg-gray-50">
-                                                <td className="px-4 py-2 font-medium">{a.name}</td>
-                                                <td className="px-4 py-2 text-gray-500">{a.lawyer_name}</td>
-                                                <td className="px-4 py-2">
-                                                    <button 
-                                                        onClick={() => handle_delete_assistant_name(a.name, a.user_id)}
-                                                        className="p-1 text-red-500 hover:bg-red-50 rounded"
-                                                        title="حذف"
-                                                    >
-                                                        <TrashIcon className="w-4 h-4" />
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        ))
-                                    ) : (
-                                        <tr><td colSpan={3} className="text-center p-4 text-gray-400">لا يوجد مساعدين مسجلين.</td></tr>
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
         </div>
     );
 };

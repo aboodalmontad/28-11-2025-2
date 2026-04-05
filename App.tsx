@@ -1,5 +1,4 @@
-import * as React from 'react';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import type { Session as AuthSession, User } from '@supabase/supabase-js';
 
 import ClientsPage from './pages/ClientsPage';
@@ -130,40 +129,6 @@ const BottomNav: React.FC<BottomNavProps> = ({ currentPage, onNavigate, permissi
     );
 };
 
-const OfflineBanner: React.FC<{ isOnline: boolean; syncStatus: SyncStatus; onSync: () => void }> = ({ isOnline, syncStatus, onSync }) => {
-    const [showBackOnline, setShowBackOnline] = useState(false);
-    const prevOnline = useRef(isOnline);
-
-    useEffect(() => {
-        if (isOnline && !prevOnline.current) {
-            setShowBackOnline(true);
-            const timer = setTimeout(() => setShowBackOnline(false), 5000);
-            return () => clearTimeout(timer);
-        }
-        prevOnline.current = isOnline;
-    }, [isOnline]);
-
-    if (!isOnline) {
-        return (
-            <div className="bg-amber-600 text-white text-center py-1.5 px-4 text-xs font-bold no-print shadow-inner flex items-center justify-center gap-2">
-                <ExclamationTriangleIcon className="w-4 h-4" />
-                <span>أنت تعمل الآن في وضع عدم الاتصال. التغييرات محفوظة محلياً.</span>
-            </div>
-        );
-    }
-
-    if (showBackOnline) {
-        return (
-            <div className="bg-green-600 text-white text-center py-1.5 px-4 text-xs font-bold no-print shadow-inner flex items-center justify-center gap-2">
-                <ArrowPathIcon className={`w-4 h-4 ${syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
-                <span>تم استعادة الاتصال. جاري مزامنة بياناتك مع السحابة...</span>
-            </div>
-        );
-    }
-
-    return null;
-};
-
 const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
     const [session, setSession] = useState<AuthSession | null>(() => {
         try {
@@ -195,14 +160,15 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
             const { user } = session;
             console.log("Attempting to create missing profile for:", user.id);
             
+            const is_admin = (user.email === 'nahwiabdo@gmail.com' || user.email === 'avocat.nahwi@gmail.com' || user.email === 'sy963958932922@email.com');
             const newProfile = {
                 id: user.id,
                 full_name: user.user_metadata?.full_name || "مستخدم جديد",
                 mobile_number: user.user_metadata?.mobile_number || "",
-                role: (user.email === 'nahwiabdo@gmail.com' || user.email === 'avocat.nahwi@gmail.com') ? 'admin' : 'user',
-                is_approved: true,
+                role: is_admin ? 'admin' : (user.user_metadata?.role || 'user'),
+                is_approved: is_admin,
                 is_active: true,
-                mobile_verified: true,
+                mobile_verified: is_admin,
                 subscription_start_date: new Date().toISOString(),
                 subscription_end_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
             };
@@ -250,6 +216,29 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
     // Effective Display Name Logic
     const profile = session ? data.profiles.find(p => p.id === session.user.id) : null;
     
+    // Admin Role Sync Watchdog: Ensure designated emails always have admin role in DB
+    useEffect(() => {
+        const syncAdminRole = async () => {
+            if (!session?.user || !supabase || !profile) return;
+            const adminEmails = ['nahwiabdo@gmail.com', 'avocat.nahwi@gmail.com', 'sy963958932922@email.com'];
+            if (adminEmails.includes(session.user.email || '') && profile.role !== 'admin') {
+                console.log("Upgrading user to admin role based on email...");
+                const { error } = await supabase
+                    .from('profiles')
+                    .update({ role: 'admin' })
+                    .eq('id', session.user.id);
+                
+                if (!error) {
+                    console.log("Admin role upgraded successfully");
+                    await data.fetch_and_refresh();
+                } else {
+                    console.error("Failed to upgrade admin role:", error);
+                }
+            }
+        };
+        syncAdminRole();
+    }, [session?.user?.id, profile?.role]);
+
     useEffect(() => {
         if (session) {
             console.log("Current Session User ID:", session.user.id);
@@ -259,23 +248,6 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
             }
         }
     }, [session, data.profiles, profile]);
-
-    // Role Upgrade Watchdog: Ensure admins have the correct role in the database
-    useEffect(() => {
-        if (session && profile && (session.user.email === 'nahwiabdo@gmail.com' || session.user.email === 'avocat.nahwi@gmail.com')) {
-            if (profile.role !== 'admin') {
-                console.log("Upgrading user to admin based on email...");
-                supabase?.from('profiles').update({ role: 'admin' }).eq('id', session.user.id).then(({ error }) => {
-                    if (!error) {
-                        console.log("Admin role updated successfully");
-                        data.fetch_and_refresh();
-                    } else {
-                        console.error("Failed to update admin role:", error);
-                    }
-                });
-            }
-        }
-    }, [session, profile, supabase, data]);
 
     const userName = profile?.full_name || session?.user.user_metadata?.full_name || "مستخدم";
 
@@ -289,10 +261,19 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
     if (isAuthLoading && !session) return <div className="fixed inset-0 bg-white flex items-center justify-center"><ArrowPathIcon className="w-10 h-10 animate-spin text-blue-600"/></div>;
     if (showConfigModal) return <ConfigurationModal onRetry={() => { setShowConfigModal(false); data.manual_sync(); }} />;
     if (data.sync_status === 'unconfigured' || data.sync_status === 'uninitialized') return <ConfigurationModal onRetry={data.manual_sync} />;
-    if (!session) return <LoginPage on_force_setup={() => setShowConfigModal(true)} on_login_success={(u) => setSession({user: u} as any)} sync_log={syncLog} on_clear_log={clearSyncLog} is_local_empty={data.is_local_empty} />;
+    
+    const is_admin_email = session?.user?.email && ['nahwiabdo@gmail.com', 'avocat.nahwi@gmail.com', 'sy963958932922@email.com'].includes(session.user.email);
+    const has_metadata_mobile = session?.user?.user_metadata?.mobile_number;
+
+    if (!session) return <LoginPage key="auth-login" on_force_setup={() => setShowConfigModal(true)} on_login_success={(u) => setSession({user: u} as any)} sync_log={syncLog} on_clear_log={clearSyncLog} is_local_empty={data.is_local_empty} />;
 
     if ((data.is_data_loading || data.sync_status === 'syncing' || data.sync_status === 'loading' || isCreatingProfile) && !profile) {
-        return <div className="fixed inset-0 bg-white flex flex-col items-center justify-center"><ArrowPathIcon className="w-10 h-10 animate-spin text-blue-600 mb-4"/><p className="text-gray-600">جاري إعداد حسابك...</p></div>;
+        // If we have a session and it's not a known admin, and we have mobile metadata, show OTP screen instead of loading
+        if (session && !is_admin_email && has_metadata_mobile) {
+            // Continue to OTP check below
+        } else {
+            return <div className="fixed inset-0 bg-white flex flex-col items-center justify-center"><ArrowPathIcon className="w-10 h-10 animate-spin text-blue-600 mb-4"/><p className="text-gray-600">جاري إعداد حسابك...</p></div>;
+        }
     }
 
     if (!profile && !data.is_data_loading && data.sync_status !== 'syncing' && data.sync_status !== 'loading' && isOnline) {
@@ -345,30 +326,64 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
         );
     }
 
+    if (session && !profile) {
+        if (data.is_data_loading) {
+            return (
+                <div className="flex flex-col items-center justify-center h-screen bg-slate-50">
+                    <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+                    <p className="text-slate-600 font-bold">جاري تحميل الملف الشخصي...</p>
+                </div>
+            );
+        }
+        // If data finished loading but profile is still missing, we might need to create it or logout
+        return (
+            <div className="flex flex-col items-center justify-center h-screen bg-slate-50 p-6 text-center">
+                <ExclamationTriangleIcon className="w-16 h-16 text-amber-500 mb-4" />
+                <h2 className="text-2xl font-bold text-slate-900 mb-2">لم يتم العثور على ملفك الشخصي</h2>
+                <p className="text-slate-600 mb-6">يبدو أن هناك مشكلة في مزامنة بيانات حسابك. يرجى المحاولة مرة أخرى أو تسجيل الخروج.</p>
+                <div className="flex gap-4">
+                    <button onClick={() => data.fetch_and_refresh()} className="px-6 py-2 bg-blue-600 text-white rounded-lg font-bold">إعادة المحاولة</button>
+                    <button onClick={handleLogout} className="px-6 py-2 bg-slate-200 text-slate-700 rounded-lg font-bold">تسجيل الخروج</button>
+                </div>
+            </div>
+        );
+    }
+
     if (profile && profile.role === 'admin') {
         return (
             <DataProvider value={data}>
-                <div className="flex flex-col h-screen bg-gray-50">
-                    <OfflineBanner isOnline={isOnline} syncStatus={data.sync_status} onSync={data.manual_sync} />
-                    <AdminDashboard 
-                        on_logout={handleLogout} 
-                        on_open_config={() => setShowConfigModal(true)} 
-                        sync_log={syncLog}
-                        on_clear_log={clearSyncLog}
-                    />
-                    <NotificationCenter appointmentAlerts={data.triggered_alerts} realtimeAlerts={data.realtime_alerts} userApprovalAlerts={data.user_approval_alerts} dismissAppointmentAlert={data.dismiss_alert} dismissRealtimeAlert={data.dismiss_realtime_alert} dismissUserApprovalAlert={data.dismiss_user_approval_alert} />
-                </div>
+                <AdminDashboard 
+                    on_logout={handleLogout} 
+                    on_open_config={() => setShowConfigModal(true)} 
+                />
+                <NotificationCenter appointmentAlerts={data.triggered_alerts} realtimeAlerts={data.realtime_alerts} userApprovalAlerts={data.user_approval_alerts} dismissAppointmentAlert={data.dismiss_alert} dismissRealtimeAlert={data.dismiss_realtime_alert} dismissUserApprovalAlert={data.dismiss_user_approval_alert} />
             </DataProvider>
         );
     }
 
-    if (profile && (!profile.is_approved || !profile.is_active)) return <PendingApprovalPage onLogout={handleLogout} />;
+    if (session && !is_admin_email && ((profile && !profile.mobile_verified && profile.role !== 'admin') || (!profile && has_metadata_mobile))) {
+        return (
+            <LoginPage 
+                key="auth-otp"
+                on_force_setup={() => setShowConfigModal(true)} 
+                on_login_success={(u) => setSession({user: u} as any)} 
+                initial_mode="otp"
+                current_user={session?.user}
+                current_mobile={profile?.mobile_number || session.user.user_metadata?.mobile_number}
+                on_logout={handleLogout}
+                sync_log={syncLog} 
+                on_clear_log={clearSyncLog} 
+                is_local_empty={data.is_local_empty} 
+            />
+        );
+    }
+
+    if (profile && profile.role !== 'admin' && (!profile.is_approved || !profile.is_active)) return <PendingApprovalPage onLogout={handleLogout} />;
     if (profile && profile.subscription_end_date && safe_revive_date(profile.subscription_end_date) < new Date()) return <SubscriptionExpiredPage onLogout={handleLogout} />;
 
     return (
         <DataProvider value={data}>
             <div className="flex flex-col h-screen print:h-auto bg-gray-50 print:bg-white">
-                <OfflineBanner isOnline={isOnline} syncStatus={data.sync_status} onSync={data.manual_sync} />
                 <Navbar 
                     currentPage={currentPage} 
                     onNavigate={setCurrentPage} 

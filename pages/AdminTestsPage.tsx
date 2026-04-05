@@ -14,7 +14,6 @@ const AdminTestsPage: React.FC = () => {
     const [diagnostic_loading, set_diagnostic_loading] = React.useState(false);
     const [diagnostic_clients_loading, set_diagnostic_clients_loading] = React.useState(false);
     const [diagnostic_profiles_loading, set_diagnostic_profiles_loading] = React.useState(false);
-    const [force_sync_loading, set_force_sync_loading] = React.useState(false);
     const [mobile, set_mobile] = React.useState('');
 
     const fetch_lawyers = async () => {
@@ -28,25 +27,12 @@ const AdminTestsPage: React.FC = () => {
         }
     };
 
-    const run_full_data_cleanup = async () => {
-        if (!supabase) return;
-        set_error(null);
-        set_message("جاري التنظيف...");
-        try {
-            const db = await get_db();
-            await db.clear(DATA_STORE_NAME);
-            set_message("تم تنظيف البيانات المحلية بنجاح. يرجى إعادة تحميل الصفحة.");
-        } catch (err: any) {
-            set_error("فشل التنظيف: " + err.message);
-        }
-    };
-
     const run_full_data_diagnostics = async () => {
         if (!supabase) return;
         set_error(null);
         set_message("جاري التشخيص الشامل للبيانات...");
         try {
-            const tables = ['profiles', 'clients', 'cases', 'stages', 'sessions', 'admin_tasks', 'appointments', 'accounting_entries', 'invoices', 'invoice_items', 'case_documents', 'site_finances', 'sync_deletions', 'assistants'];
+            const tables = ['profiles', 'clients', 'cases', 'stages', 'sessions', 'admin_tasks', 'appointments', 'accounting_entries', 'invoices', 'invoice_items', 'case_documents'];
             let results = [];
             
             for (const table of tables) {
@@ -144,96 +130,6 @@ const AdminTestsPage: React.FC = () => {
         }
     };
 
-    const sync_user_cloud_data_to_local = async (user_id: string) => {
-        if (!supabase) return;
-        try {
-            // Fetch data from Supabase
-            const remote_data = await fetch_data_from_supabase(user_id);
-            // Transform to local format
-            const local_data = transform_remote_to_local(remote_data);
-            // Save to IndexedDB
-            const db = await get_db();
-            const storage_key = get_app_data_key(user_id);
-            await db.put(DATA_STORE_NAME, local_data, storage_key);
-            console.log(`Initial cloud-to-local sync complete for key: ${storage_key}`);
-        } catch (err) {
-            console.error("Failed to sync user cloud data to local:", err);
-            throw err;
-        }
-    };
-
-    const handle_force_sync = async () => {
-        if (!supabase) return;
-        set_force_sync_loading(true);
-        set_error(null);
-        set_message(null);
-        try {
-            console.log("Starting forced cloud-to-local sync...");
-            
-            // 1. Find user ID by mobile first to ensure we only fetch THEIR data
-            const normalized_mobile = normalize_mobile_for_db(mobile);
-            const raw_mobile = mobile;
-            
-            let profile = null;
-            let p_error = null;
-            
-            // Try normalized first
-            if (normalized_mobile) {
-                const res = await supabase
-                    .from('profiles')
-                    .select('id')
-                    .eq('mobile_number', normalized_mobile)
-                    .maybeSingle();
-                profile = res.data;
-                p_error = res.error;
-            }
-            
-            // If not found, try raw
-            if (!profile && !p_error) {
-                const res = await supabase
-                    .from('profiles')
-                    .select('id')
-                    .eq('mobile_number', raw_mobile)
-                    .maybeSingle();
-                profile = res.data;
-                p_error = res.error;
-            }
-            
-            // If still not found, try E164
-            if (!profile && !p_error) {
-                const e164_mobile = normalize_mobile_to_e164(raw_mobile);
-                if (e164_mobile) {
-                    const res = await supabase
-                        .from('profiles')
-                        .select('id')
-                        .eq('mobile_number', e164_mobile)
-                        .maybeSingle();
-                    profile = res.data;
-                    p_error = res.error;
-                }
-            }
-            
-            if (p_error) throw new Error("فشل العثور على الملف الشخصي: " + p_error.message);
-            if (!profile) throw new Error("لم يتم العثور على ملف شخصي لهذا الرقم. يرجى التأكد من الرقم أو إنشاء حساب جديد.");
-
-            const user_id = profile.id;
-            
-            // Force delete local cache first to ensure a fresh pull
-            const db = await get_db();
-            const storage_key = get_app_data_key(user_id);
-            await db.delete(DATA_STORE_NAME, storage_key);
-            
-            await sync_user_cloud_data_to_local(user_id);
-            
-            set_message("تم جلب كافة البيانات من السحابة وحفظها محلياً بنجاح.");
-        } catch (err: any) {
-            console.error("Forced sync failed:", err);
-            set_error("فشل جلب البيانات: " + err.message);
-        } finally {
-            set_force_sync_loading(false);
-        }
-    };
-
     return (
         <div className="p-6 bg-white rounded-lg shadow">
             <h2 className="text-2xl font-bold mb-6">اختبارات الإدارة</h2>
@@ -253,9 +149,6 @@ const AdminTestsPage: React.FC = () => {
                 <button onClick={fetch_lawyers} className="py-3 bg-blue-100 hover:bg-blue-200 text-blue-800 font-bold rounded-md transition-colors">
                     عرض قائمة المحامين المسجلين
                 </button>
-                <button onClick={run_full_data_cleanup} className="py-3 bg-red-100 hover:bg-red-200 text-red-800 font-bold rounded-md transition-colors">
-                    تنظيف شامل للبيانات (حل مشكلة المزامنة)
-                </button>
                 <button onClick={run_full_data_diagnostics} className="py-3 bg-yellow-100 hover:bg-yellow-200 text-yellow-800 font-bold rounded-md transition-colors">
                     تشخيص البيانات الشامل
                 </button>
@@ -270,9 +163,6 @@ const AdminTestsPage: React.FC = () => {
                 </button>
                 <button onClick={run_auth_diagnostic} className="py-3 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-md transition-colors">
                     تشخيص مشكلة الدخول
-                </button>
-                <button onClick={handle_force_sync} className="py-3 bg-purple-100 hover:bg-purple-200 text-purple-800 font-bold rounded-md transition-colors">
-                    {force_sync_loading ? 'جاري المزامنة...' : 'مزامنة السحابة إلى المحلية (إجباري)'}
                 </button>
             </div>
         </div>

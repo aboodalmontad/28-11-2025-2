@@ -218,13 +218,13 @@ const ImageViewer: React.FC<{ src: string; name: string }> = ({ src, name }) => 
 };
 
 const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ doc, onClose }) => {
-    const { get_document_file, case_documents } = useData();
+    const { get_document_file, documents } = useData();
     const [file, setFile] = React.useState<File | null>(null);
     const [objectUrl, setObjectUrl] = React.useState<string | null>(null);
     const [error, setError] = React.useState<string | null>(null);
     const [isLoading, setIsLoading] = React.useState(true);
 
-    const currentDoc = case_documents.find(d => d.id === doc.id) || doc;
+    const currentDoc = documents.find(d => d.id === doc.id) || doc;
 
     React.useEffect(() => {
         let url: string | null = null;
@@ -239,7 +239,7 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
                     url = URL.createObjectURL(retrievedFile);
                     setObjectUrl(url);
                 } else {
-                    const latestDocState = case_documents.find(d => d.id === doc.id)?.local_state;
+                    const latestDocState = documents.find(d => d.id === doc.id)?.local_state;
                     if (latestDocState === 'error') {
                         setError('فشل تنزيل الملف. تحقق من الاتصال.');
                     } else {
@@ -311,12 +311,19 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
         
         if (file.type === 'application/pdf') {
             return (
-                <div className="w-full h-full bg-white rounded overflow-hidden">
-                    <iframe 
-                        src={`${objectUrl}#toolbar=0`} 
-                        className="w-full h-full border-none"
-                        title={doc.name}
-                    />
+                <div className="flex flex-col items-center justify-center h-full text-white p-8 text-center">
+                    <DocumentTextIcon className="w-20 h-20 text-red-500 mb-6" />
+                    <h3 className="font-bold text-xl mb-2">مستند PDF</h3>
+                    <p className="text-gray-400 mb-8 max-w-md">
+                        لفتح هذا المستند، يرجى الضغط على الزر أدناه لفتحه في متصفح الجهاز.
+                    </p>
+                    <button 
+                        onClick={handleOpenExternal} 
+                        className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-lg"
+                    >
+                        <ArrowTopRightOnSquareIcon className="w-5 h-5" />
+                        <span>فتح PDF في المتصفح</span>
+                    </button>
                 </div>
             );
         }
@@ -518,7 +525,7 @@ const DocumentScannerModal: React.FC<{ onClose: () => void; onCapture: (file: Fi
 
 
 const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
-    const { case_documents, add_documents, delete_document, get_document_file } = useData();
+    const { documents, add_documents, delete_document, get_document_file } = useData();
     const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false);
     const [docToDelete, setDocToDelete] = React.useState<CaseDocument | null>(null);
     const [previewDoc, setPreviewDoc] = React.useState<CaseDocument | null>(null);
@@ -527,8 +534,8 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
     const fileInputRef = React.useRef<HTMLInputElement>(null);
 
     const caseDocuments = React.useMemo(() => 
-        case_documents.filter(doc => doc.case_id === caseId).sort((a,b) => safe_revive_date(b.added_at).getTime() - safe_revive_date(a.added_at).getTime()), 
-        [case_documents, caseId]
+        documents.filter(doc => doc.case_id === caseId).sort((a,b) => safe_revive_date(b.added_at).getTime() - safe_revive_date(a.added_at).getTime()), 
+        [documents, caseId]
     );
 
     const handleFileChange = async (files: FileList | null) => {
@@ -592,29 +599,41 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
     };
     
     const handlePreview = async (doc: CaseDocument) => {
+        const isPdf = doc.type === 'application/pdf';
+        // Add check for legacy Word documents (.doc) or specific mime type
         const isLegacyWord = doc.name.toLowerCase().endsWith('.doc') || doc.type === 'application/msword';
 
-        if (isLegacyWord) {
+        if (isPdf || isLegacyWord) {
             try {
                 const file = await get_document_file(doc.id);
                 if (file) {
                     const objectUrl = URL.createObjectURL(file);
                     
-                    // For legacy Word files, we use a hidden anchor with the 'download' attribute.
-                    // This preserves the filename and extension, allowing the OS to properly recognize
-                    // the file type and offer the correct "Open with" application (e.g., Word).
-                    const a = document.createElement('a');
-                    a.style.display = 'none';
-                    a.href = objectUrl;
-                    a.download = doc.name;
-                    document.body.appendChild(a);
-                    a.click();
-                    
-                    setTimeout(() => {
-                        document.body.removeChild(a);
-                        // Revoke URL after a delay to ensure download starts
-                        setTimeout(() => URL.revokeObjectURL(objectUrl), 10000); 
-                    }, 100);
+                    if (isPdf) {
+                        const newWindow = window.open(objectUrl, '_blank');
+                        if (!newWindow || newWindow.closed || typeof newWindow.closed == 'undefined') {
+                            alert('تم منع فتح النافذة المنبثقة. يرجى السماح بالنوافذ المنبثقة لعرض ملفات PDF.');
+                        }
+                    } else {
+                        // For legacy Word files, we use a hidden anchor with the 'download' attribute.
+                        // This preserves the filename and extension, allowing the OS to properly recognize
+                        // the file type and offer the correct "Open with" application (e.g., Word).
+                        // It does trigger a browser download/save action, but this is the standard way
+                        // to hand off a Blob to an external application from a web page.
+                        const a = document.createElement('a');
+                        a.style.display = 'none';
+                        a.href = objectUrl;
+                        a.download = doc.name;
+                        document.body.appendChild(a);
+                        a.click();
+                        
+                        setTimeout(() => {
+                            document.body.removeChild(a);
+                            // Revoke URL after a delay to ensure download starts
+                            setTimeout(() => URL.revokeObjectURL(objectUrl), 10000); 
+                        }, 100);
+                        return; // Exit here
+                    }
                 } else {
                     alert('تعذر فتح الملف حالياً. تأكد من اكتمال التنزيل.');
                 }
@@ -622,7 +641,7 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
                 console.error("Error opening file directly:", e);
                 alert('حدث خطأ أثناء محاولة فتح الملف.');
             }
-            return;
+            return; // CRITICAL: Return here so setPreviewDoc (modal) is never called for these types
         }
         setPreviewDoc(doc);
     };

@@ -8,6 +8,7 @@ interface UserDetailsModalProps {
     user: Profile | null;
     onClose: () => void;
     onEdit: (user: Profile) => void;
+    onToggleVerification: (user: Profile) => void;
 }
 
 const StatCard: React.FC<{ title: string; value: string | number; icon: React.ReactNode; }> = ({ title, value, icon }) => (
@@ -34,8 +35,8 @@ const getDisplayPhoneNumber = (mobile: string | null | undefined): string => {
     return mobile;
 };
 
-const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ user, onClose, onEdit }) => {
-    const { clients, site_finances, case_documents, all_sessions } = useData();
+const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ user, onClose, onEdit, onToggleVerification }) => {
+    const { clients, site_finances, documents, all_sessions } = useData();
 
     const user_stats = React.useMemo(() => {
         if (!user) return null;
@@ -43,7 +44,7 @@ const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ user, onClose, onEd
         const user_clients = clients.filter(c => c.user_id === user.id);
         const user_cases = user_clients.flatMap(c => c.cases);
         const user_sessions = all_sessions.filter(s => s.user_id === user.id);
-        const user_documents = case_documents.filter(d => d.user_id === user.id);
+        const user_documents = documents.filter(d => d.user_id === user.id);
         const user_financials = site_finances.filter(sf => sf.user_id === user.id && sf.type === 'income');
 
         return {
@@ -54,7 +55,7 @@ const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ user, onClose, onEd
             financial_history: user_financials.sort((a,b) => safe_revive_date(b.payment_date).getTime() - safe_revive_date(a.payment_date).getTime()),
             total_paid: user_financials.reduce((sum, entry) => sum + entry.amount, 0),
         };
-    }, [user, clients, all_sessions, case_documents, site_finances]);
+    }, [user, clients, all_sessions, documents, site_finances]);
 
     if (!user || !user_stats) return null;
 
@@ -97,6 +98,24 @@ const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ user, onClose, onEd
                             <div className="flex items-center gap-2 text-sm text-gray-600">
                                 <PhoneIcon className="w-4 h-4" />
                                 <span>{getDisplayPhoneNumber(user.mobile_number)}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                {user.mobile_verified ? (
+                                    <button 
+                                        onClick={() => onToggleVerification(user)}
+                                        className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-green-100 text-green-700 border border-green-200 hover:bg-green-200 transition-colors"
+                                    >
+                                        <CheckCircleIcon className="w-3 h-3 ml-1" />
+                                        تم التحقق
+                                    </button>
+                                ) : (
+                                    <button 
+                                        onClick={() => onToggleVerification(user)}
+                                        className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200 hover:bg-slate-200 transition-colors"
+                                    >
+                                        بانتظار التحقق
+                                    </button>
+                                )}
                             </div>
                         </div>
                     </div>

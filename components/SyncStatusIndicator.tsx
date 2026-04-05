@@ -1,6 +1,7 @@
 import * as React from 'react';
-import { ArrowPathIcon, NoSymbolIcon, CheckCircleIcon, ExclamationCircleIcon } from './icons';
+import { ArrowPathIcon, NoSymbolIcon, CheckCircleIcon, ExclamationCircleIcon, ListBulletIcon } from './icons';
 import { SyncStatus, SyncLogEntry } from '../hooks/useSync';
+import SyncLogModal from './SyncLogModal';
 
 interface SyncStatusIndicatorProps {
     status: SyncStatus;
@@ -9,9 +10,9 @@ interface SyncStatusIndicatorProps {
     is_online: boolean;
     on_manual_sync: () => void;
     is_auto_sync_enabled: boolean;
+    className?: string;
     sync_log?: SyncLogEntry[];
     on_clear_log?: () => void;
-    className?: string;
 }
 
 const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({ 
@@ -21,17 +22,19 @@ const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({
     is_online, 
     on_manual_sync, 
     is_auto_sync_enabled, 
+    className = "",
     sync_log = [],
-    on_clear_log = () => {},
-    className = ""
+    on_clear_log = () => {}
 }) => {
+    const [isLogOpen, setIsLogOpen] = React.useState(false);
+    
     let displayStatus;
     if (!is_online) {
         displayStatus = {
-            icon: <NoSymbolIcon className="w-5 h-5 text-amber-600" />,
-            text: 'وضع عدم الاتصال',
-            className: 'text-amber-600',
-            title: 'أنت في وضع عدم الاتصال. سيتم حفظ كافة التغييرات محلياً ومزامنتها تلقائياً عند استعادة الاتصال.'
+            icon: <NoSymbolIcon className="w-5 h-5 text-gray-500" />,
+            text: 'غير متصل',
+            className: 'text-gray-500',
+            title: 'أنت غير متصل بالإنترنت. التغييرات محفوظة محلياً.'
         };
     } else if (!is_auto_sync_enabled && is_dirty) {
         displayStatus = {
@@ -97,6 +100,23 @@ const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({
                 {displayStatus.icon}
                 <span className={`${displayStatus.className} hidden sm:inline`}>{displayStatus.text}</span>
             </button>
+
+            {sync_log.length > 0 && (
+                <button
+                    onClick={() => setIsLogOpen(true)}
+                    className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
+                    title="عرض سجل المزامنة"
+                >
+                    <ListBulletIcon className="w-5 h-5" />
+                </button>
+            )}
+
+            <SyncLogModal 
+                isOpen={isLogOpen} 
+                onClose={() => setIsLogOpen(false)} 
+                logs={sync_log} 
+                onClear={on_clear_log} 
+            />
         </div>
     );
 };

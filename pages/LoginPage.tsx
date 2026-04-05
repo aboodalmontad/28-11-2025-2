@@ -4,7 +4,7 @@ import { get_supabase_client } from '../supabaseClient';
 import { check_supabase_schema, fetch_data_from_supabase, transform_remote_to_local } from '../hooks/useOnlineData';
 import { get_db, DATA_STORE_NAME } from '../utils/db';
 import { get_app_data_key } from '../hooks/useSupabaseData';
-import { ExclamationCircleIcon, EyeIcon, EyeSlashIcon, ClipboardDocumentIcon, ClipboardDocumentCheckIcon, ArrowTopRightOnSquareIcon, CheckCircleIcon, UserGroupIcon, KeyIcon, ArrowPathIcon } from '../components/icons';
+import { ExclamationCircleIcon, EyeIcon, EyeSlashIcon, ClipboardDocumentIcon, ClipboardDocumentCheckIcon, ArrowTopRightOnSquareIcon, CheckCircleIcon, UserGroupIcon, KeyIcon, ArrowPathIcon, ShareIcon, ClockIcon } from '../components/icons';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { normalize_mobile_for_db, normalize_mobile_to_e164 } from '../utils/mobileUtils';
 import type { User } from '@supabase/supabase-js';
@@ -56,6 +56,7 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
     const [auth_failed, set_auth_failed] = React.useState(false); 
     const [show_password, set_show_password] = React.useState(false);
     const [otp_code, set_otp_code] = React.useState('');
+    const [waiting_approval, set_waiting_approval] = React.useState(false);
     const [new_password, set_new_password] = React.useState('');
     const [is_assistant_signup, set_is_assistant_signup] = React.useState(false);
     const [db_status, set_db_status] = React.useState<'checking' | 'connected' | 'failed'>('checking');
@@ -78,12 +79,15 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
         if (current_mobile) {
             set_form(prev => ({ ...prev, mobile: current_mobile }));
         }
+        if (initial_mode) {
+            set_auth_step(initial_mode);
+        }
         console.log("Checking DB status...");
         check_supabase_schema().then(res => {
             console.log("DB status result:", res);
             set_db_status(res.success ? 'connected' : 'failed');
         });
-    }, [current_mobile]);
+    }, [current_mobile, initial_mode]);
 
     const supabase = get_supabase_client();
 
@@ -409,9 +413,33 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
             const { data: is_verified, error: rpc_error } = await supabase.rpc('verify_mobile_otp', { target_mobile: normalized_mobile, code_to_check: otp_code.trim() });
             if (rpc_error) throw rpc_error;
             if (is_verified) {
-                if (on_verification_success) on_verification_success();
-                else {
-                    set_message("تم التحقق بنجاح. جاري تسجيل الدخول...");
+                // Automatically approve and activate the user with a 1-month free trial
+                const now = new Date();
+                const oneMonthLater = new Date();
+                oneMonthLater.setDate(now.getDate() + 30);
+
+                const { error: updateError } = await supabase
+                    .from('profiles')
+                    .update({
+                        is_approved: true,
+                        is_active: true,
+                        subscription_start_date: now.toISOString(),
+                        subscription_end_date: oneMonthLater.toISOString(),
+                        updated_at: now.toISOString()
+                    })
+                    .eq('mobile_number', normalized_mobile);
+
+                if (updateError) {
+                    console.error("Failed to auto-activate profile:", updateError);
+                    // Even if update fails, we might want to show the waiting message as fallback
+                    // but since the user specifically asked for immediate activation, we'll try to proceed
+                }
+
+                set_message("تم تفعيل حسابك بنجاح ومنحك فترة تجريبية لمدة شهر مجاناً. جاري تسجيل الدخول...");
+                
+                if (on_verification_success) {
+                    on_verification_success();
+                } else {
                     if (form.password) {
                         const phone = normalize_mobile_to_e164(form.mobile);
                         const email = `sy${phone!.substring(1)}@email.com`;
@@ -419,7 +447,10 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
                         if(sign_in_data.user) {
                             on_login_success(sign_in_data.user);
                         }
-                    } else { set_auth_step('login'); set_otp_code(''); }
+                    } else { 
+                        set_auth_step('login'); 
+                        set_otp_code(''); 
+                    }
                 }
             } else { throw new Error("رمز التحقق غير صحيح."); }
         } catch (err: any) {
@@ -437,6 +468,7 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
         set_error(null);
         set_message(null);
         set_auth_failed(false);
+        set_waiting_approval(false);
     
         const phone = normalize_mobile_to_e164(form.mobile);
         if (!phone) {
@@ -451,22 +483,6 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
     
         if (auth_step === 'login') {
             try {
-                if (!is_online) {
-                    // Try offline login with cached credentials
-                    const cached = localStorage.getItem(LAST_USER_CREDENTIALS_CACHE_KEY);
-                    const last_user = localStorage.getItem('lawyerAppLastUser');
-                    
-                    if (cached && last_user) {
-                        const { mobile: cached_mobile, password: cached_password } = JSON.parse(cached);
-                        if (form.mobile === cached_mobile && form.password === cached_password) {
-                            const user = JSON.parse(last_user);
-                            on_login_success(user, true);
-                            return;
-                        }
-                    }
-                    throw new Error("أنت غير متصل بالإنترنت. يرجى التأكد من بيانات الدخول أو الاتصال بالشبكة.");
-                }
-
                 const { data: sign_in_data, error: sign_in_error } = await supabase.auth.signInWithPassword({ email, password: form.password });
                 if (sign_in_error) throw sign_in_error;
                 if (sign_in_data.user) {
@@ -480,7 +496,7 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
                             id: sign_in_data.user.id,
                             full_name: sign_in_data.user.user_metadata?.full_name || "مستخدم",
                             mobile_number: normalized_mobile,
-                            role: (email === 'nahwiabdo@gmail.com' || email === 'avocat.nahwi@gmail.com') ? 'admin' : 'user',
+                            role: (email === 'nahwiabdo@gmail.com' || email === 'avocat.nahwi@gmail.com' || email === 'sy963958932922@email.com') ? 'admin' : 'user',
                             is_approved: true,
                             is_active: true,
                             mobile_verified: true,
@@ -505,6 +521,7 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
                          return;
                     }
                     localStorage.setItem(LAST_USER_CREDENTIALS_CACHE_KEY, JSON.stringify({ mobile: form.mobile, password: form.password }));
+                    localStorage.setItem('lawyerAppLastUserData', JSON.stringify(sign_in_data.user));
                     
                     // استدعاء نجاح تسجيل الدخول لتغيير واجهة التطبيق
                     on_login_success(sign_in_data.user);
@@ -513,6 +530,30 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
                  let error_message = err.message || "فشل تسجيل الدخول.";
                  if (error_message.toLowerCase().includes('failed to fetch')) {
                      error_message = "تعذر الاتصال بالخادم. يرجى التحقق من اتصالك بالإنترنت، أو التأكد من أن مشروع Supabase الخاص بك يعمل (غير متوقف).";
+                     
+                     // Offline login fallback
+                     if (!is_online) {
+                         const cached_creds_str = localStorage.getItem(LAST_USER_CREDENTIALS_CACHE_KEY);
+                         const cached_user_str = localStorage.getItem('lawyerAppLastUserData');
+                         
+                         if (cached_creds_str && cached_user_str) {
+                             try {
+                                 const cached_creds = JSON.parse(cached_creds_str);
+                                 if (cached_creds.mobile === form.mobile && cached_creds.password === form.password) {
+                                     const cached_user = JSON.parse(cached_user_str);
+                                     console.log("Offline login successful using cached credentials.");
+                                     on_login_success(cached_user);
+                                     return; // Exit early on successful offline login
+                                 } else {
+                                     error_message = "بيانات الدخول غير صحيحة (وضع عدم الاتصال).";
+                                 }
+                             } catch (e) {
+                                 console.error("Error parsing cached credentials:", e);
+                             }
+                         } else {
+                             error_message = "لا توجد بيانات تسجيل دخول محفوظة. يجب الاتصال بالإنترنت لتسجيل الدخول لأول مرة.";
+                         }
+                     }
                  }
                  set_error(error_message);
             } finally { set_loading(false); }
@@ -552,8 +593,8 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
                             id: standard_data.user.id,
                             full_name: form.full_name,
                             mobile_number: form.mobile,
-                            role: is_assistant_signup ? 'assistant' : ((email === 'nahwiabdo@gmail.com' || email === 'avocat.nahwi@gmail.com') ? 'admin' : 'user'),
-                            is_approved: !is_assistant_signup,
+                            role: is_assistant_signup ? 'assistant' : ((email === 'nahwiabdo@gmail.com' || email === 'avocat.nahwi@gmail.com' || email === 'sy963958932922@email.com') ? 'admin' : 'user'),
+                            is_approved: false, // All new users must be approved by admin
                             is_active: true,
                             mobile_verified: false,
                             lawyer_id: null,
@@ -562,7 +603,7 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
                         }]);
                         
                         try { await supabase.rpc('generate_mobile_otp', { target_user_id: standard_data.user.id }); } catch (e) {}
-                        set_message(is_assistant_signup ? "تم إرسال طلب الانضمام. يرجى التواصل مع المحامي لتفعيل حسابك." : "تم إنشاء الحساب بنجاح.");
+                        set_message("تم إنشاء الحساب بنجاح. يرجى طلب كود التفعيل من المدير عبر واتساب.");
                         set_auth_step('otp');
                     }
                 } else if (data.user) {
@@ -571,17 +612,18 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
                         id: data.user.id,
                         full_name: form.full_name,
                         mobile_number: form.mobile,
-                        role: is_assistant_signup ? 'assistant' : ((email === 'nahwiabdo@gmail.com' || email === 'avocat.nahwi@gmail.com') ? 'admin' : 'user'),
-                        is_approved: !is_assistant_signup,
+                        role: is_assistant_signup ? 'assistant' : ((email === 'nahwiabdo@gmail.com' || email === 'avocat.nahwi@gmail.com' || email === 'sy963958932922@email.com') ? 'admin' : 'user'),
+                        is_approved: false, // All new users must be approved by admin
                         is_active: true,
-                        mobile_verified: true, // Admin created users are verified
+                        mobile_verified: false, // Set to false so they go through activation
                         lawyer_id: null,
                         subscription_start_date: new Date().toISOString(),
                         subscription_end_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
                     }]);
 
-                    set_message("تم إنشاء الحساب وتفعيله بنجاح. يمكنك الآن تسجيل الدخول.");
-                    set_auth_step('login');
+                    try { await supabase.rpc('generate_mobile_otp', { target_user_id: data.user.id }); } catch (e) {}
+                    set_message("تم إنشاء الحساب بنجاح. يرجى طلب كود التفعيل من المدير عبر واتساب.");
+                    set_auth_step('otp');
                 }
             } catch (err: any) {
                 let error_message = err.message || "حدث خطأ أثناء إنشاء الحساب.";
@@ -591,6 +633,45 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
                 set_error(error_message);
             } finally { set_loading(false); }
         }
+    };
+
+    const handle_retry = () => {
+        set_error(null);
+        set_message(null);
+        set_loading(false);
+        // Re-trigger the check_supabase_schema to see if we're back online
+        set_db_status('checking');
+        check_supabase_schema().then(res => {
+            set_db_status(res.success ? 'connected' : 'failed');
+        });
+    };
+
+    const ErrorDisplay = ({ error }: { error: React.ReactNode }) => {
+        const is_fetch_error = typeof error === 'string' && (
+            error.includes('تعذر الاتصال بالخادم') || 
+            error.toLowerCase().includes('failed to fetch') ||
+            error.toLowerCase().includes('network error')
+        );
+        
+        return (
+            <div className="mb-4 p-4 text-sm text-red-800 bg-red-100 rounded-lg flex flex-col gap-3 border border-red-200 shadow-sm animate-in fade-in slide-in-from-top-2">
+                <div className="flex items-start gap-3">
+                    <ExclamationCircleIcon className="w-5 h-5 flex-shrink-0 mt-0.5 text-red-600" />
+                    <div className="font-medium leading-relaxed">{error}</div>
+                </div>
+                {is_fetch_error && (
+                    <div className="flex items-center justify-end gap-2">
+                        <button 
+                            onClick={handle_retry}
+                            className="px-4 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-all flex items-center gap-2 shadow-sm active:scale-95"
+                        >
+                            <ArrowPathIcon className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                            إعادة المحاولة الآن
+                        </button>
+                    </div>
+                )}
+            </div>
+        );
     };
 
     return (
@@ -607,22 +688,81 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
 
                 <div className="bg-white p-8 rounded-lg shadow-md">
                     <h2 className="text-2xl font-bold text-center text-gray-700 mb-6">
-                        {auth_step === 'login' ? 'تسجيل الدخول' : (auth_step === 'signup' ? 'إنشاء حساب جديد' : (auth_step === 'forgot-password' ? 'استعادة كلمة المرور' : 'تأكيد رقم الجوال'))}
+                        {auth_step === 'login' ? 'تسجيل الدخول' : (auth_step === 'signup' ? 'إنشاء حساب جديد' : (auth_step === 'forgot-password' ? 'استعادة كلمة المرور' : 'تفعيل الحساب'))}
                     </h2>
 
 
-                    {error && <div className="mb-4 p-4 text-sm text-red-800 bg-red-100 rounded-lg flex items-start gap-3"><ExclamationCircleIcon className="w-5 h-5 flex-shrink-0 mt-0.5" /><div>{error}</div></div>}
+                    {error && <ErrorDisplay error={error} />}
                     {message && <div className="mb-4 p-4 text-sm text-green-800 bg-green-100 rounded-lg flex items-center gap-2"><CheckCircleIcon className="w-5 h-5"/>{message}</div>}
                     {info && <div className="mb-4 p-4 text-sm text-blue-800 bg-blue-100 rounded-lg">{info}</div>}
 
                     {auth_step === 'otp' ? (
                         <div className="space-y-6">
-                            <form onSubmit={handle_otp_submit} className="space-y-4">
-                                <input type="text" value={otp_code || ''} onChange={(e) => set_otp_code(e.target.value.replace(/\D/g, '').slice(0, 6))} className="mt-2 block w-full text-center text-2xl tracking-widest px-3 py-3 border border-gray-300 rounded-md" placeholder="------" required />
-                                <button type="submit" disabled={loading} className="w-full bg-green-600 text-white p-2 rounded">تأكيد الكود</button>
-                            </form>
+                            {!waiting_approval ? (
+                                <>
+                                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <ExclamationCircleIcon className="w-5 h-5" />
+                                            <p className="font-bold">تنبيه هام:</p>
+                                        </div>
+                                        <p className="mb-2">يجب عليك إدخال كود التفعيل الذي يزودك به المدير لتتمكن من استخدام التطبيق.</p>
+                                        <ol className="list-decimal list-inside space-y-1 font-medium">
+                                            <li>اضغط على الزر الأخضر أدناه لطلب الكود من المدير.</li>
+                                            <li>سيتم فتح واتساب لإرسال رسالة للمدير.</li>
+                                            <li>بعد استلام الكود، أدخله في المربعات أدناه.</li>
+                                        </ol>
+                                    </div>
+
+                                    <button 
+                                        type="button"
+                                        onClick={() => {
+                                            const manager_wa_number = "963958932922";
+                                            const message_text = `طلب كود تفعيل:\nالمحامي: ${form.full_name || 'مستخدم جديد'}\nرقم الهاتف: ${form.mobile}\nلقد سجلت في الموقع وأريد كود التفعيل الخاص بي.`;
+                                            const url = `https://wa.me/${manager_wa_number}?text=${encodeURIComponent(message_text)}`;
+                                            window.open(url, '_blank');
+                                        }}
+                                        className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white p-3 rounded-lg font-bold transition-all shadow-md hover:shadow-lg active:scale-95"
+                                    >
+                                        <ShareIcon className="w-5 h-5" />
+                                        طلب كود التفعيل من المدير (واتساب)
+                                    </button>
+
+                                    <div className="relative py-4">
+                                        <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200"></div></div>
+                                        <div className="relative flex justify-center text-xs uppercase"><span className="bg-white px-2 text-gray-500 font-bold">أدخل الكود المستلم</span></div>
+                                    </div>
+
+                                    <form onSubmit={handle_otp_submit} className="space-y-4">
+                                        <input 
+                                            type="text" 
+                                            value={otp_code || ''} 
+                                            onChange={(e) => set_otp_code(e.target.value.replace(/\D/g, '').slice(0, 6))} 
+                                            className="mt-2 block w-full text-center text-3xl font-black tracking-[0.5em] px-3 py-4 border-2 border-blue-100 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-slate-50" 
+                                            placeholder="000000" 
+                                            required 
+                                            autoFocus
+                                        />
+                                        <button 
+                                            type="submit" 
+                                            disabled={loading || otp_code.length < 4} 
+                                            className="w-full bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-xl font-bold transition-all shadow-lg shadow-blue-200 disabled:opacity-50 disabled:shadow-none"
+                                        >
+                                            {loading ? <ArrowPathIcon className="w-6 h-6 animate-spin mx-auto"/> : 'تفعيل الحساب الآن'}
+                                        </button>
+                                    </form>
+                                </>
+                            ) : (
+                                <div className="text-center space-y-4 py-6">
+                                    <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto">
+                                        <ClockIcon className="w-10 h-10" />
+                                    </div>
+                                    <h3 className="text-xl font-bold text-gray-800">بانتظار تفعيل الحساب</h3>
+                                    <p className="text-gray-600">تم التحقق من رقم جوالك. يرجى الانتظار حتى يقوم المدير بمراجعة وتفعيل حسابك بشكل نهائي.</p>
+                                    <p className="text-sm text-gray-500">ستتمكن من تسجيل الدخول فور تفعيل الحساب.</p>
+                                </div>
+                            )}
                             <div className="text-center">
-                                {on_logout ? <button onClick={on_logout} className="text-sm text-gray-600">تسجيل الخروج</button> : <button onClick={() => set_auth_step('login')} className="text-sm text-blue-600">العودة</button>}
+                                {on_logout ? <button onClick={on_logout} className="text-sm text-gray-600 hover:underline">تسجيل الخروج</button> : <button onClick={() => {set_auth_step('login'); set_waiting_approval(false);}} className="text-sm text-blue-600 hover:underline">العودة</button>}
                             </div>
                         </div>
                     ) : auth_step === 'forgot-password' ? (

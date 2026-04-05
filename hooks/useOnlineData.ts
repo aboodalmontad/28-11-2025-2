@@ -70,88 +70,132 @@ export const fetch_data_from_supabase = async (user_id?: string): Promise<Partia
     const supabase = get_supabase_client();
     if (!supabase) throw new Error('Supabase client not available.');
 
+    // 1. Check if the current user is an admin first
+    let is_admin_user = false;
+    if (user_id) {
+        const { data: profile } = await supabase.from('profiles').select('role').eq('id', user_id).maybeSingle();
+        is_admin_user = profile?.role === 'admin';
+        
+        // Robust check: if not admin in profile, check email (in case role sync hasn't happened yet)
+        if (!is_admin_user) {
+            const { data: { user } } = await supabase.auth.getUser();
+            const adminEmails = ['nahwiabdo@gmail.com', 'avocat.nahwi@gmail.com', 'sy963958932922@email.com'];
+            if (user && adminEmails.includes(user.email || '')) {
+                is_admin_user = true;
+            }
+        }
+    }
+
     const query = (table: string) => {
         let q = supabase.from(table).select('*');
-        if (user_id && table !== 'profiles' && table !== 'assistants') {
+        // If not admin, filter by user_id. If admin, fetch everything.
+        if (!is_admin_user && user_id && table !== 'profiles' && table !== 'assistants') {
             q = q.eq('user_id', user_id);
         }
-        if (user_id && table === 'assistants') {
+        // Assistants table also needs filtering for regular users
+        if (!is_admin_user && user_id && table === 'assistants') {
             q = q.eq('user_id', user_id);
         }
         return q;
     };
 
-    const max_retries = 3;
+    const fetch_table = async (table: string) => {
+        let table_attempt = 0;
+        const table_max_retries = 3;
+        while (table_attempt < table_max_retries) {
+            try {
+                const res = await query(table);
+                if (res.error) throw res.error;
+                return res.data || [];
+            } catch (err: any) {
+                table_attempt++;
+                const message = String(err.message || '').toLowerCase();
+                const is_network_error = message.includes('failed to fetch') || message.includes('abort') || message.includes('lock') || message.includes('network');
+                
+                if (is_network_error && table_attempt < table_max_retries) {
+                    console.warn(`Fetch table ${table} attempt ${table_attempt} failed: ${message}. Retrying...`);
+                    await new Promise(resolve => setTimeout(resolve, 300 * table_attempt + Math.random() * 300));
+                    continue;
+                }
+                throw err;
+            }
+        }
+        throw new Error(`Failed to fetch table ${table} after ${table_max_retries} attempts.`);
+    };
+
+    const max_retries = 2;
     let attempt = 0;
 
     while (attempt < max_retries) {
         try {
             // Ensure session is fresh before parallel calls to avoid lock stealing
-            const { data: { session }, error: session_error } = await supabase.auth.getSession();
-            
-            if (session_error) {
-                const msg = String(session_error.message || '').toLowerCase();
-                if (msg.includes('refresh_token_not_found') || msg.includes('invalid refresh token')) {
-                    console.error("Fatal Auth Error: Refresh token invalid or missing.");
-                    throw new Error('AUTH_SESSION_EXPIRED');
-                }
-            }
+            await supabase.auth.getSession();
 
             // Sequentialize these calls to avoid concurrent auth token refresh attempts and network congestion
-            // which often leads to "Failed to fetch" errors in unstable environments.
-            const clients_res = await query('clients');
-            if (clients_res.error) throw clients_res.error;
+            const clients = await fetch_table('clients');
+            await new Promise(resolve => setTimeout(resolve, 50));
+            const admin_tasks = await fetch_table('admin_tasks');
+            await new Promise(resolve => setTimeout(resolve, 50));
+            const appointments = await fetch_table('appointments');
+            await new Promise(resolve => setTimeout(resolve, 50));
+            const accounting_entries = await fetch_table('accounting_entries');
+            await new Promise(resolve => setTimeout(resolve, 50));
+            const assistants = await fetch_table('assistants');
+            await new Promise(resolve => setTimeout(resolve, 50));
+            const invoices = await fetch_table('invoices');
+            await new Promise(resolve => setTimeout(resolve, 50));
+            const cases = await fetch_table('cases');
+            await new Promise(resolve => setTimeout(resolve, 50));
+            const stages = await fetch_table('stages');
+            await new Promise(resolve => setTimeout(resolve, 50));
+            const sessions = await fetch_table('sessions');
+            await new Promise(resolve => setTimeout(resolve, 50));
+            const invoice_items = await fetch_table('invoice_items');
+            await new Promise(resolve => setTimeout(resolve, 50));
+            const case_documents = await fetch_table('case_documents');
+            await new Promise(resolve => setTimeout(resolve, 50));
 
-            const admin_tasks_res = await query('admin_tasks');
-            if (admin_tasks_res.error) throw admin_tasks_res.error;
+            // Profiles logic: If admin, fetch all. If regular user, fetch only theirs.
+            let profiles;
+            if (is_admin_user) {
+                profiles = await fetch_table('profiles');
+            } else if (user_id) {
+                let p_attempt = 0;
+                while (p_attempt < 3) {
+                    try {
+                        const res = await supabase.from('profiles').select('*').eq('id', user_id);
+                        if (res.error) throw res.error;
+                        profiles = res.data || [];
+                        break;
+                    } catch (err: any) {
+                        p_attempt++;
+                        if (p_attempt < 3) {
+                            await new Promise(resolve => setTimeout(resolve, 300 * p_attempt));
+                            continue;
+                        }
+                        throw err;
+                    }
+                }
+            } else {
+                profiles = await fetch_table('profiles');
+            }
 
-            const appointments_res = await query('appointments');
-            if (appointments_res.error) throw appointments_res.error;
-
-            const accounting_entries_res = await query('accounting_entries');
-            if (accounting_entries_res.error) throw accounting_entries_res.error;
-
-            const assistants_res = await query('assistants');
-            if (assistants_res.error) throw assistants_res.error;
-
-            const invoices_res = await query('invoices');
-            if (invoices_res.error) throw invoices_res.error;
-
-            const cases_res = await query('cases');
-            if (cases_res.error) throw cases_res.error;
-
-            const stages_res = await query('stages');
-            if (stages_res.error) throw stages_res.error;
-
-            const sessions_res = await query('sessions');
-            if (sessions_res.error) throw sessions_res.error;
-
-            const invoice_items_res = await query('invoice_items');
-            if (invoice_items_res.error) throw invoice_items_res.error;
-
-            const case_documents_res = await query('case_documents');
-            if (case_documents_res.error) throw case_documents_res.error;
-
-            const profiles_res = await (user_id ? supabase.from('profiles').select('*').eq('id', user_id) : supabase.from('profiles').select('*'));
-            if (profiles_res.error) throw profiles_res.error;
-
-            const site_finances_res = await query('site_finances');
-            if (site_finances_res.error) throw site_finances_res.error;
+            const site_finances = await fetch_table('site_finances');
 
             return {
-                clients: clients_res.data || [],
-                cases: cases_res.data || [],
-                stages: stages_res.data || [],
-                sessions: sessions_res.data || [],
-                admin_tasks: admin_tasks_res.data || [],
-                appointments: appointments_res.data || [],
-                accounting_entries: accounting_entries_res.data || [],
-                assistants: assistants_res.data || [],
-                invoices: invoices_res.data || [],
-                invoice_items: invoice_items_res.data || [],
-                case_documents: case_documents_res.data || [],
-                profiles: profiles_res.data || [],
-                site_finances: site_finances_res.data || [],
+                clients,
+                cases,
+                stages,
+                sessions,
+                admin_tasks,
+                appointments,
+                accounting_entries,
+                assistants,
+                invoices,
+                invoice_items,
+                case_documents,
+                profiles: profiles || [],
+                site_finances,
             };
         } catch (err: any) {
             attempt++;
@@ -159,9 +203,8 @@ export const fetch_data_from_supabase = async (user_id?: string): Promise<Partia
             const is_abort = message.includes('abort') || message.includes('lock') || message.includes('failed to fetch') || message.includes('network');
             
             if (is_abort && attempt < max_retries) {
-                console.warn(`Fetch attempt ${attempt} failed: ${message}. Retrying...`);
-                // Wait a bit before retrying, with some randomness
-                await new Promise(resolve => setTimeout(resolve, 500 * attempt + Math.random() * 500));
+                console.warn(`Global fetch attempt ${attempt} failed: ${message}. Retrying...`);
+                await new Promise(resolve => setTimeout(resolve, 1000 * attempt + Math.random() * 500));
                 continue;
             }
             console.error("CRITICAL: fetch_data_from_supabase failed after retries:", err);

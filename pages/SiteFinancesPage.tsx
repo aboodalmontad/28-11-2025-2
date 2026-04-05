@@ -2,26 +2,34 @@ import * as React from 'react';
 import { get_supabase_client } from '../supabaseClient';
 import { SiteFinancialEntry, Profile } from '../types';
 import { format_date, to_input_date_string, safe_revive_date } from '../utils/dateUtils';
-import { PlusIcon, PencilIcon, TrashIcon, ExclamationTriangleIcon } from '../components/icons';
+import { PlusIcon, PencilIcon, TrashIcon, ExclamationTriangleIcon, ChartBarIcon, CheckCircleIcon, ClockIcon } from '../components/icons';
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useData } from '../context/DataContext';
 
-const StatCard: React.FC<{ title: string; value: string; className?: string }> = ({ title, value, className = '' }) => (
-    <div className={`p-6 rounded-lg shadow ${className}`}>
-        <h3 className="text-lg font-semibold">{title}</h3>
-        <p className="text-3xl font-bold">{value}</p>
+const StatCard: React.FC<{ title: string; value: string; icon: React.ReactNode; color: string }> = ({ title, value, icon, color }) => (
+    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-6 transition-all hover:shadow-md hover:-translate-y-1">
+        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 ${color}`}>
+            {icon}
+        </div>
+        <div className="flex flex-col">
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">{title}</p>
+            <p className="text-2xl font-black text-slate-900 tracking-tight">{value}</p>
+        </div>
     </div>
 );
 
 const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
         return (
-            <div className="bg-white p-2 border shadow-lg rounded-md text-sm">
-                <p className="font-bold mb-1">{label}</p>
+            <div className="bg-slate-900 text-white p-4 shadow-2xl rounded-xl text-xs border border-slate-700 backdrop-blur-md bg-opacity-90">
+                <p className="font-black mb-2 border-b border-slate-700 pb-2">{label}</p>
                 {payload.map((pld: any, index: number) => (
-                    <p key={index} style={{ color: pld.color }}>
-                        {`${pld.name}: ${pld.value.toLocaleString()} ل.س`}
-                    </p>
+                    <div key={index} className="flex items-center justify-between gap-4 mt-1">
+                        <span className="font-medium opacity-70">{pld.name}:</span>
+                        <span className="font-black" style={{ color: pld.color }}>
+                            {pld.value.toLocaleString()} ل.س
+                        </span>
+                    </div>
                 ))}
             </div>
         );
@@ -30,7 +38,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 };
 
 const SiteFinancesPage: React.FC = () => {
-    const { site_finances: entries, set_site_finances, profiles: users, is_data_loading: loading } = useData();
+    const { site_finances: entries, set_site_finances, profiles: users, set_profiles, is_data_loading: loading } = useData();
     const [error, set_error] = React.useState<string | null>(null);
     const [modal, set_modal] = React.useState<{ is_open: boolean; data?: SiteFinancialEntry }>({ is_open: false });
     const [entry_to_delete, set_entry_to_delete] = React.useState<SiteFinancialEntry | null>(null);
@@ -45,18 +53,38 @@ const SiteFinancesPage: React.FC = () => {
         if (!supabase) return;
 
         const { new_subscription_start, new_subscription_end, ...financialData } = form_data;
-        const finalFinancialData = { ...financialData, user_id: financialData.user_id === 'none' ? null : financialData.user_id, updated_at: new Date().toISOString() };
+        const finalFinancialData = { 
+            ...financialData, 
+            user_id: financialData.user_id === 'none' ? null : financialData.user_id, 
+            updated_at: new Date().toISOString() 
+        };
 
-        if (modal.data) {
-             set_site_finances(prev => prev.map(e => e.id === modal.data!.id ? { ...e, ...finalFinancialData } : e));
-        } else {
-            const newEntry = { ...finalFinancialData, id: -Date.now() }; // Temporary negative ID
-            set_site_finances(prev => [...prev, newEntry]);
-        }
-        
-        // This part remains to update profiles which is a separate concern from financial entries
-        if (is_subscription_renewal && form_data.user_id && form_data.new_subscription_start && form_data.new_subscription_end) {
-            try {
+        try {
+            if (modal.data) {
+                // Update existing entry
+                const { error: updateError } = await supabase
+                    .from('site_finances')
+                    .update(finalFinancialData)
+                    .eq('id', modal.data.id);
+                
+                if (updateError) throw updateError;
+
+                set_site_finances(prev => prev.map(e => e.id === modal.data!.id ? { ...e, ...finalFinancialData } : e));
+            } else {
+                // Insert new entry
+                const { data: insertedData, error: insertError } = await supabase
+                    .from('site_finances')
+                    .insert([finalFinancialData])
+                    .select();
+                
+                if (insertError) throw insertError;
+                if (insertedData && insertedData[0]) {
+                    set_site_finances(prev => [...prev, insertedData[0]]);
+                }
+            }
+
+            // Handle subscription renewal if applicable
+            if (is_subscription_renewal && form_data.user_id && form_data.new_subscription_start && form_data.new_subscription_end) {
                 const { error: profileError } = await supabase
                     .from('profiles')
                     .update({
@@ -67,24 +95,45 @@ const SiteFinancesPage: React.FC = () => {
 
                 if (profileError) throw profileError;
 
-            } catch (err: any) {
-                let errorMessage = "فشل تحديث الاشتراك.";
-                if (String(err.message).toLowerCase().includes('failed to fetch')) {
-                    errorMessage += " يرجى التحقق من اتصالك بالإنترنت.";
-                } else {
-                    errorMessage += ` السبب: ${err.message}`;
-                }
-                set_error(errorMessage);
+                // Update local profiles state immediately
+                set_profiles(prev => prev.map(u => u.id === form_data.user_id ? {
+                    ...u,
+                    subscription_start_date: form_data.new_subscription_start,
+                    subscription_end_date: form_data.new_subscription_end,
+                    updated_at: new Date().toISOString()
+                } : u));
             }
+
+            handle_close_modal();
+        } catch (err: any) {
+            console.error("Financial operation failed:", err);
+            let errorMessage = "فشل تنفيذ العملية المالية.";
+            if (String(err.message).toLowerCase().includes('failed to fetch')) {
+                errorMessage += " تعذر الاتصال بالخادم، يرجى التحقق من الإنترنت.";
+            } else {
+                errorMessage += ` السبب: ${err.message}`;
+            }
+            set_error(errorMessage);
         }
-        
-        handle_close_modal();
     };
 
     const handle_confirm_delete = async () => {
         if (!supabase || !entry_to_delete) return;
-        set_site_finances(prev => prev.filter(e => e.id !== entry_to_delete.id));
-        set_entry_to_delete(null);
+        
+        try {
+            const { error: deleteError } = await supabase
+                .from('site_finances')
+                .delete()
+                .eq('id', entry_to_delete.id);
+            
+            if (deleteError) throw deleteError;
+
+            set_site_finances(prev => prev.filter(e => e.id !== entry_to_delete.id));
+            set_entry_to_delete(null);
+        } catch (err: any) {
+            console.error("Delete financial entry failed:", err);
+            set_error("فشل حذف القيد المالي: " + err.message);
+        }
     };
 
     const financial_summary = React.useMemo(() => {
@@ -148,94 +197,167 @@ const SiteFinancesPage: React.FC = () => {
     if (loading) return <div className="text-center p-8">جاري تحميل البيانات المالية...</div>;
     if (error) return <div className="p-4 text-red-700 bg-red-100 rounded-md">{error}</div>;
 
-    const PIE_COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#AF19FF'];
+    const PIE_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'];
 
     return (
-        <div className="space-y-6">
-            <div className="flex justify-between items-center">
-                <h1 className="text-3xl font-bold text-gray-800">المحاسبة المالية للموقع</h1>
-                <button onClick={() => handle_open_modal()} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700"><PlusIcon className="w-5 h-5" /><span>إضافة قيد مالي</span></button>
+        <div className="space-y-10">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h1 className="text-3xl font-black text-slate-900 tracking-tight">المحاسبة المالية</h1>
+                    <p className="text-slate-500 mt-1">إدارة الإيرادات والمصروفات والاشتراكات.</p>
+                </div>
+                <button 
+                    onClick={() => handle_open_modal()} 
+                    className="flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-200"
+                >
+                    <PlusIcon className="w-5 h-5" />
+                    <span>إضافة قيد مالي</span>
+                </button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <StatCard title="إجمالي الإيرادات" value={`${financial_summary.totalIncome.toLocaleString()} ل.س`} className="bg-green-100 text-green-800" />
-                <StatCard title="إجمالي المصروفات" value={`${financial_summary.totalExpenses.toLocaleString()} ل.س`} className="bg-red-100 text-red-800" />
-                <StatCard title="صافي الربح" value={`${financial_summary.balance.toLocaleString()} ل.س`} className="bg-blue-100 text-blue-800" />
-                <StatCard title="إيرادات الاشتراكات" value={`${financial_summary.subscriptionIncome.toLocaleString()} ل.س`} className="bg-purple-100 text-purple-800" />
+                <StatCard title="إجمالي الإيرادات" value={`${financial_summary.totalIncome.toLocaleString()} ل.س`} icon={<ChartBarIcon className="w-7 h-7" />} color="bg-green-100 text-green-600" />
+                <StatCard title="إجمالي المصروفات" value={`${financial_summary.totalExpenses.toLocaleString()} ل.س`} icon={<ChartBarIcon className="w-7 h-7" />} color="bg-red-100 text-red-600" />
+                <StatCard title="صافي الربح" value={`${financial_summary.balance.toLocaleString()} ل.س`} icon={<ChartBarIcon className="w-7 h-7" />} color="bg-blue-100 text-blue-600" />
+                <StatCard title="إيرادات الاشتراكات" value={`${financial_summary.subscriptionIncome.toLocaleString()} ل.س`} icon={<ChartBarIcon className="w-7 h-7" />} color="bg-purple-100 text-purple-600" />
             </div>
 
-            <div className="bg-white p-6 rounded-lg shadow">
-                 <div className="border-b border-gray-200"><nav className="-mb-px flex space-x-8"><button onClick={() => set_active_tab('entries')} className={`${active_tab === 'entries' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}>القيود المالية</button><button onClick={() => set_active_tab('reports')} className={`${active_tab === 'reports' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}>التقارير</button></nav></div>
-                <div className="pt-6">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="flex border-b border-slate-100 bg-slate-50/50 p-1">
+                    <button 
+                        onClick={() => set_active_tab('entries')} 
+                        className={`flex-1 py-3 px-4 text-sm font-bold rounded-xl transition-all ${active_tab === 'entries' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                        القيود المالية
+                    </button>
+                    <button 
+                        onClick={() => set_active_tab('reports')} 
+                        className={`flex-1 py-3 px-4 text-sm font-bold rounded-xl transition-all ${active_tab === 'reports' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                        التقارير والرسوم البيانية
+                    </button>
+                </div>
+
+                <div className="p-0">
                     {active_tab === 'entries' && (
                         <div className="overflow-x-auto">
-                            <table className="w-full text-sm text-right text-gray-600">
-                                <thead className="text-xs text-gray-700 uppercase bg-gray-100">
-                                    <tr>
-                                        <th className="px-6 py-3">التاريخ</th>
-                                        <th className="px-6 py-3">البيان</th>
-                                        <th className="px-6 py-3">الفئة</th>
-                                        <th className="px-6 py-3">المستخدم</th>
-                                        <th className="px-6 py-3">المبلغ</th>
-                                        <th className="px-6 py-3">إجراءات</th>
+                            <table className="w-full text-right">
+                                <thead>
+                                    <tr className="bg-slate-50/50 border-b border-slate-100">
+                                        <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">التاريخ</th>
+                                        <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">البيان</th>
+                                        <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">الفئة</th>
+                                        <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">المستخدم</th>
+                                        <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest text-center bg-green-50/30">الوارد (+)</th>
+                                        <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest text-center bg-red-50/30">الصادر (-)</th>
+                                        <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">إجراءات</th>
                                     </tr>
                                 </thead>
-                                <tbody>
+                                <tbody className="divide-y divide-slate-50">
                                     {entries.map(entry => (
-                                        <tr key={entry.id} className="bg-white border-b hover:bg-gray-50">
-                                            <td className="px-6 py-4">{format_date(entry.payment_date)}</td>
-                                            <td className="px-6 py-4">{entry.description}</td>
-                                            <td className="px-6 py-4">{entry.category || '-'}</td>
-                                            <td className="px-6 py-4">{users.find(u => u.id === entry.user_id)?.full_name || 'N/A'}</td>
-                                            <td className={`px-6 py-4 font-semibold ${entry.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>{entry.amount.toLocaleString()} ل.س</td>
-                                            <td className="px-6 py-4 flex items-center gap-2">
-                                                <button onClick={() => handle_open_modal(entry)} className="p-2 text-gray-500 hover:text-blue-600"><PencilIcon className="w-4 h-4" /></button>
-                                                <button onClick={() => set_entry_to_delete(entry)} className="p-2 text-gray-500 hover:text-red-600"><TrashIcon className="w-4 h-4" /></button>
+                                        <tr key={entry.id} className="hover:bg-slate-50 transition-colors group">
+                                            <td className="px-6 py-4 text-sm font-medium text-slate-500">{format_date(entry.payment_date)}</td>
+                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{entry.description}</td>
+                                            <td className="px-6 py-4">
+                                                <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-md text-[10px] font-bold">
+                                                    {entry.category || 'عام'}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4 text-sm text-slate-600">
+                                                {users.find(u => u.id === entry.user_id)?.full_name || '-'}
+                                            </td>
+                                            <td className="px-6 py-4 font-black text-sm text-green-600 text-center bg-green-50/10">
+                                                {entry.type === 'income' ? entry.amount.toLocaleString() : '-'}
+                                            </td>
+                                            <td className="px-6 py-4 font-black text-sm text-red-600 text-center bg-red-50/10">
+                                                {entry.type === 'expense' ? entry.amount.toLocaleString() : '-'}
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <button onClick={() => handle_open_modal(entry)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"><PencilIcon className="w-4 h-4" /></button>
+                                                    <button onClick={() => set_entry_to_delete(entry)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"><TrashIcon className="w-4 h-4" /></button>
+                                                </div>
                                             </td>
                                         </tr>
                                     ))}
                                 </tbody>
+                                <tfoot>
+                                    <tr className="bg-slate-900 text-white font-black">
+                                        <td colSpan={4} className="px-6 py-4 text-left">الرصيد النهائي (صافي الربح)</td>
+                                        <td colSpan={2} className="px-6 py-4 text-center text-xl tracking-tight">
+                                            {financial_summary.balance.toLocaleString()} ل.س
+                                        </td>
+                                        <td></td>
+                                    </tr>
+                                </tfoot>
                             </table>
                         </div>
                     )}
                     {active_tab === 'reports' && (
-                        <div className="space-y-12">
-                             <div>
-                                <h3 className="font-bold mb-4 text-center text-gray-700">الإيرادات والمصروفات الشهرية</h3>
-                                <ResponsiveContainer width="100%" height={300}>
+                        <div className="p-8 space-y-12">
+                             <div className="bg-slate-50 p-8 rounded-2xl border border-slate-100">
+                                <h3 className="font-black mb-8 text-slate-800 flex items-center gap-2">
+                                    <div className="w-2 h-6 bg-blue-600 rounded-full"></div>
+                                    الإيرادات والمصروفات الشهرية
+                                </h3>
+                                <ResponsiveContainer width="100%" height={350}>
                                     <BarChart data={reports_data.monthly} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                                        <CartesianGrid strokeDasharray="3 3" />
-                                        <XAxis dataKey="month" />
-                                        <YAxis />
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                                        <XAxis dataKey="month" tick={{ fontSize: 10, fontWeight: 700, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                                        <YAxis tick={{ fontSize: 10, fontWeight: 700, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                                         <Tooltip content={<CustomTooltip />} />
-                                        <Legend />
-                                        <Bar dataKey="income" name="الإيرادات" fill="#10B981" />
-                                        <Bar dataKey="expense" name="المصروفات" fill="#EF4444" />
+                                        <Legend verticalAlign="top" align="right" iconType="circle" wrapperStyle={{ paddingBottom: '20px', fontSize: '12px', fontWeight: 700 }} />
+                                        <Bar dataKey="income" name="الإيرادات" fill="#10B981" radius={[4, 4, 0, 0]} barSize={32} />
+                                        <Bar dataKey="expense" name="المصروفات" fill="#EF4444" radius={[4, 4, 0, 0]} barSize={32} />
                                     </BarChart>
                                 </ResponsiveContainer>
                             </div>
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                                <div className="bg-white p-6 rounded-lg">
-                                    <h3 className="font-bold mb-4 text-center text-gray-700">توزيع الإيرادات</h3>
+                                <div className="bg-white p-8 rounded-2xl border border-slate-100 shadow-sm">
+                                    <h3 className="font-black mb-8 text-slate-800 flex items-center gap-2">
+                                        <div className="w-2 h-6 bg-green-500 rounded-full"></div>
+                                        توزيع الإيرادات
+                                    </h3>
                                     <ResponsiveContainer width="100%" height={300}>
                                         <PieChart>
-                                            <Pie data={reports_data.income} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label>
+                                            <Pie 
+                                                data={reports_data.income} 
+                                                dataKey="value" 
+                                                nameKey="name" 
+                                                cx="50%" cy="50%" 
+                                                innerRadius={60}
+                                                outerRadius={100} 
+                                                paddingAngle={5}
+                                                stroke="none"
+                                            >
                                                 {reports_data.income.map((_entry, index) => <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />)}
                                             </Pie>
                                             <Tooltip content={<CustomTooltip />} />
-                                            <Legend />
+                                            <Legend verticalAlign="bottom" align="center" iconType="circle" wrapperStyle={{ paddingTop: '20px', fontSize: '12px', fontWeight: 700 }} />
                                         </PieChart>
                                     </ResponsiveContainer>
                                 </div>
-                                <div className="bg-white p-6 rounded-lg">
-                                    <h3 className="font-bold mb-4 text-center text-gray-700">توزيع المصروفات</h3>
+                                <div className="bg-white p-8 rounded-2xl border border-slate-100 shadow-sm">
+                                    <h3 className="font-black mb-8 text-slate-800 flex items-center gap-2">
+                                        <div className="w-2 h-6 bg-red-500 rounded-full"></div>
+                                        توزيع المصروفات
+                                    </h3>
                                     <ResponsiveContainer width="100%" height={300}>
                                         <PieChart>
-                                            <Pie data={reports_data.expense} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label>
+                                            <Pie 
+                                                data={reports_data.expense} 
+                                                dataKey="value" 
+                                                nameKey="name" 
+                                                cx="50%" cy="50%" 
+                                                innerRadius={60}
+                                                outerRadius={100} 
+                                                paddingAngle={5}
+                                                stroke="none"
+                                            >
                                                 {reports_data.expense.map((_entry, index) => <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />)}
                                             </Pie>
                                             <Tooltip content={<CustomTooltip />} />
-                                            <Legend />
+                                            <Legend verticalAlign="bottom" align="center" iconType="circle" wrapperStyle={{ paddingTop: '20px', fontSize: '12px', fontWeight: 700 }} />
                                         </PieChart>
                                     </ResponsiveContainer>
                                 </div>
@@ -247,16 +369,18 @@ const SiteFinancesPage: React.FC = () => {
 
             {modal.is_open && <FinancialEntryModal isOpen={modal.is_open} onClose={handle_close_modal} onSubmit={handle_submit} initialData={modal.data} users={users} />}
             {entry_to_delete && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => set_entry_to_delete(null)}>
-                    <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => set_entry_to_delete(null)}>
+                    <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-md animate-in fade-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
                         <div className="text-center">
-                            <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-red-100 mb-4"><ExclamationTriangleIcon className="h-8 w-8 text-red-600" /></div>
-                            <h3 className="text-2xl font-bold text-gray-900">تأكيد حذف القيد</h3>
-                            <p className="text-gray-600 my-4">هل أنت متأكد من حذف هذا القيد المالي؟ لا يمكن التراجع عن هذا الإجراء.</p>
+                            <div className="mx-auto flex items-center justify-center h-20 w-20 rounded-full bg-red-50 mb-6">
+                                <ExclamationTriangleIcon className="h-10 w-10 text-red-600" />
+                            </div>
+                            <h3 className="text-2xl font-black text-slate-900">تأكيد حذف القيد</h3>
+                            <p className="text-slate-500 mt-3">هل أنت متأكد من حذف هذا القيد المالي؟ لا يمكن التراجع عن هذا الإجراء.</p>
                         </div>
-                        <div className="mt-6 flex justify-center gap-4">
-                            <button type="button" className="px-6 py-2 bg-gray-200 rounded-lg" onClick={() => set_entry_to_delete(null)}>إلغاء</button>
-                            <button type="button" className="px-6 py-2 bg-red-600 text-white rounded-lg" onClick={handle_confirm_delete}>نعم، قم بالحذف</button>
+                        <div className="mt-8 flex flex-col sm:flex-row justify-center gap-3">
+                            <button type="button" className="flex-1 px-6 py-3 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-all" onClick={() => set_entry_to_delete(null)}>إلغاء</button>
+                            <button type="button" className="flex-1 px-6 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition-all shadow-lg shadow-red-200" onClick={handle_confirm_delete}>نعم، قم بالحذف</button>
                         </div>
                     </div>
                 </div>
@@ -293,7 +417,16 @@ const FinancialEntryModal: React.FC<ModalProps> = ({ isOpen, onClose, onSubmit, 
             set_is_subscription_renewal(finalValue as boolean);
             if (finalValue) {
                 const user = users.find(u => u.id === form_data.user_id);
-                set_form_data((prev: any) => ({ ...prev, description: `تجديد اشتراك لـ ${user?.full_name || 'مستخدم'}` }));
+                const current_end = user?.subscription_end_date ? safe_revive_date(user.subscription_end_date) : new Date();
+                const new_start = to_input_date_string(current_end);
+                const new_end = to_input_date_string(new Date(current_end.getTime() + 365 * 24 * 60 * 60 * 1000));
+                
+                set_form_data((prev: any) => ({ 
+                    ...prev, 
+                    description: `تجديد اشتراك لـ ${user?.full_name || 'مستخدم'}`,
+                    new_subscription_start: new_start,
+                    new_subscription_end: new_end
+                }));
             }
         } else {
             set_form_data((prev: any) => ({ ...prev, [name]: finalValue }));
@@ -305,7 +438,16 @@ const FinancialEntryModal: React.FC<ModalProps> = ({ isOpen, onClose, onSubmit, 
         set_form_data((prev: any) => ({ ...prev, user_id: userId }));
         if (is_subscription_renewal) {
             const user = users.find(u => u.id === userId);
-            set_form_data((prev: any) => ({ ...prev, description: `تجديد اشتراك لـ ${user?.full_name || 'مستخدم'}` }));
+            const current_end = user?.subscription_end_date ? safe_revive_date(user.subscription_end_date) : new Date();
+            const new_start = to_input_date_string(current_end);
+            const new_end = to_input_date_string(new Date(current_end.getTime() + 365 * 24 * 60 * 60 * 1000));
+
+            set_form_data((prev: any) => ({ 
+                ...prev, 
+                description: `تجديد اشتراك لـ ${user?.full_name || 'مستخدم'}`,
+                new_subscription_start: new_start,
+                new_subscription_end: new_end
+            }));
         }
     };
 
@@ -317,34 +459,51 @@ const FinancialEntryModal: React.FC<ModalProps> = ({ isOpen, onClose, onSubmit, 
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50 p-4 overflow-y-auto" onClick={onClose}>
-            <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
-                <h2 className="text-xl font-bold mb-4">{initialData ? 'تعديل قيد مالي' : 'إضافة قيد مالي جديد'}</h2>
-                <form onSubmit={handle_form_submit} className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div><label className="block text-sm font-medium">النوع</label><select name="type" value={form_data.type || 'income'} onChange={handle_change} className="w-full p-2 border rounded"><option value="income">إيراد</option><option value="expense">مصروف</option></select></div>
-                        <div><label className="block text-sm font-medium">تاريخ الدفع</label><input type="date" name="payment_date" value={form_data.payment_date || ''} onChange={handle_change} className="w-full p-2 border rounded" required /></div>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-start justify-center z-50 p-4 overflow-y-auto" onClick={onClose}>
+            <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-lg my-8 animate-in slide-in-from-bottom-8 duration-300" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between mb-8">
+                    <h2 className="text-2xl font-black text-slate-900">{initialData ? 'تعديل قيد مالي' : 'إضافة قيد مالي جديد'}</h2>
+                    <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400">
+                        <PlusIcon className="w-6 h-6 rotate-45" />
+                    </button>
+                </div>
+                <form onSubmit={handle_form_submit} className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                            <label className="block text-xs font-black text-slate-400 uppercase tracking-widest">النوع</label>
+                            <select name="type" value={form_data.type || 'income'} onChange={handle_change} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold">
+                                <option value="income">إيراد (+)</option>
+                                <option value="expense">مصروف (-)</option>
+                            </select>
+                        </div>
+                        <div className="space-y-2">
+                            <label className="block text-xs font-black text-slate-400 uppercase tracking-widest">تاريخ الدفع</label>
+                            <input type="date" name="payment_date" value={form_data.payment_date || ''} onChange={handle_change} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold" required />
+                        </div>
                     </div>
-                    <div><label className="block text-sm font-medium">المبلغ</label><input type="number" name="amount" value={form_data.amount || 0} onChange={handle_change} className="w-full p-2 border rounded" required /></div>
-                    <div>
-                        <label className="block text-sm font-medium">البيان</label>
-                        <textarea name="description" value={form_data.description || ''} onChange={handle_change} className="w-full p-2 border rounded" rows={3} required />
+                    <div className="space-y-2">
+                        <label className="block text-xs font-black text-slate-400 uppercase tracking-widest">المبلغ (ل.س)</label>
+                        <input type="number" name="amount" value={form_data.amount || 0} onChange={handle_change} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-black text-xl text-blue-600" required />
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium">المستخدم (إن وجد)</label>
-                            <select name="user_id" value={form_data.user_id || 'none'} onChange={handle_user_change} className="w-full p-2 border rounded">
+                    <div className="space-y-2">
+                        <label className="block text-xs font-black text-slate-400 uppercase tracking-widest">البيان / الوصف</label>
+                        <textarea name="description" value={form_data.description || ''} onChange={handle_change} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" rows={3} placeholder="اكتب تفاصيل القيد هنا..." required />
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                            <label className="block text-xs font-black text-slate-400 uppercase tracking-widest">المستخدم</label>
+                            <select name="user_id" value={form_data.user_id || 'none'} onChange={handle_user_change} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold">
                                 <option value="none">-- لا يوجد --</option>
                                 {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
                             </select>
                         </div>
-                        <div>
-                            <label className="block text-sm font-medium">الفئة</label>
-                            <input type="text" name="category" value={form_data.category || ''} onChange={handle_change} className="w-full p-2 border rounded" list="expense_categories" />
+                        <div className="space-y-2">
+                            <label className="block text-xs font-black text-slate-400 uppercase tracking-widest">الفئة</label>
+                            <input type="text" name="category" value={form_data.category || ''} onChange={handle_change} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold" list="expense_categories" placeholder="اختر أو اكتب..." />
                             <datalist id="expense_categories">
                                 <option value="رواتب" />
                                 <option value="إيجار مكتب" />
-                                <option value="فواتير (كهرباء, ماء, انترنت)" />
+                                <option value="فواتير" />
                                 <option value="مستلزمات مكتبية" />
                                 <option value="صيانة" />
                                 <option value="ضرائب ورسوم" />
@@ -354,26 +513,42 @@ const FinancialEntryModal: React.FC<ModalProps> = ({ isOpen, onClose, onSubmit, 
                         </div>
                     </div>
                     {form_data.type === 'income' && (
-                        <div className="pt-2">
-                             <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-gray-700">
-                                <input type="checkbox" name="is_subscription_renewal" checked={is_subscription_renewal} onChange={handle_change} className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500" />
-                                هذا المبلغ هو تجديد اشتراك لمستخدم؟
+                        <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                             <label className="flex items-center gap-3 cursor-pointer group">
+                                <div className="relative flex items-center">
+                                    <input type="checkbox" name="is_subscription_renewal" checked={is_subscription_renewal} onChange={handle_change} className="peer h-5 w-5 cursor-pointer appearance-none rounded-md border border-slate-300 transition-all checked:bg-blue-600 checked:border-blue-600" />
+                                    <CheckCircleIcon className="absolute h-3.5 w-3.5 text-white opacity-0 peer-checked:opacity-100 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 transition-opacity" />
+                                </div>
+                                <span className="text-sm font-bold text-slate-700 group-hover:text-blue-600 transition-colors">تجديد اشتراك لمستخدم؟</span>
                             </label>
                         </div>
                     )}
                     {is_subscription_renewal && form_data.user_id !== 'none' && (
-                        <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-4">
-                            <h4 className="font-semibold text-blue-800">تحديث تواريخ الاشتراك:</h4>
+                        <div className="p-6 bg-blue-50 rounded-2xl border border-blue-100 space-y-4 animate-in fade-in slide-in-from-top-4 duration-300">
+                            <h4 className="font-black text-blue-800 text-sm flex items-center gap-2">
+                                <ClockIcon className="w-4 h-4" />
+                                تحديث تواريخ الاشتراك
+                            </h4>
                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div><label className="block text-sm font-medium">تاريخ البدء الجديد</label><input type="date" name="new_subscription_start" value={form_data.new_subscription_start || ''} onChange={handle_change} className="w-full p-2 border rounded" required={is_subscription_renewal} /></div>
-                                <div><label className="block text-sm font-medium">تاريخ الانتهاء الجديد</label><input type="date" name="new_subscription_end" value={form_data.new_subscription_end || ''} onChange={handle_change} className="w-full p-2 border rounded" required={is_subscription_renewal} /></div>
+                                <div className="space-y-1">
+                                    <label className="block text-[10px] font-black text-blue-400 uppercase tracking-widest">تاريخ البدء</label>
+                                    <input type="date" name="new_subscription_start" value={form_data.new_subscription_start || ''} onChange={handle_change} className="w-full p-2 bg-white border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold text-sm" required={is_subscription_renewal} />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="block text-[10px] font-black text-blue-400 uppercase tracking-widest">تاريخ الانتهاء</label>
+                                    <input type="date" name="new_subscription_end" value={form_data.new_subscription_end || ''} onChange={handle_change} className="w-full p-2 bg-white border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold text-sm" required={is_subscription_renewal} />
+                                </div>
                             </div>
                         </div>
                     )}
-                    <div className="flex justify-end gap-4 pt-4"><button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded">إلغاء</button><button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded">حفظ</button></div>
+                    <div className="flex gap-3 pt-4">
+                        <button type="button" onClick={onClose} className="flex-1 px-6 py-3 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-all">إلغاء</button>
+                        <button type="submit" className="flex-1 px-6 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-200">حفظ القيد</button>
+                    </div>
                 </form>
             </div>
         </div>
     );
 };
+
 export default SiteFinancesPage;

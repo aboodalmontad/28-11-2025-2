@@ -121,7 +121,6 @@ interface HomePageProps {
     main_view: 'agenda' | 'admin_tasks';
     selected_date: Date;
     set_selected_date: (date: Date) => void;
-    assistant_filter?: string | null;
 }
 
 const HomePage: React.FC<HomePageProps> = ({ 
@@ -129,8 +128,7 @@ const HomePage: React.FC<HomePageProps> = ({
     show_context_menu,
     main_view,
     selected_date,
-    set_selected_date,
-    assistant_filter
+    set_selected_date 
 }) => {
     const { 
         appointments, 
@@ -415,18 +413,7 @@ const HomePage: React.FC<HomePageProps> = ({
 
     const handle_date_select = (date: Date) => { set_selected_date(date); set_view_mode('daily'); };
     const handle_show_todays_agenda = () => { const today = new Date(); set_selected_date(today); set_calendar_view_date(today); set_view_mode('daily'); };
-    const get_title = () => { 
-        let title = '';
-        switch(view_mode) { 
-            case 'unpostponed': title = "الجلسات غير المرحلة"; break;
-            case 'upcoming': title = `الجلسات القادمة (بعد ${format_date(selected_date)})`; break;
-            case 'daily': default: title = `جدول أعمال يوم: ${format_date(selected_date)}`; break;
-        }
-        if (assistant_filter) {
-            title += ` - المساعد: ${assistant_filter}`;
-        }
-        return title;
-    };
+    const get_title = () => { switch(view_mode) { case 'unpostponed': return "الجلسات غير المرحلة"; case 'upcoming': return `الجلسات القادمة (بعد ${format_date(selected_date)})`; case 'daily': default: return `جدول أعمال يوم: ${format_date(selected_date)}`; } };
     
     const handle_appointment_context_menu = (event: React.MouseEvent, appointment: Appointment) => { const menuItems: MenuItem[] = [ { label: 'إرسال إلى المهام الإدارية', icon: <BuildingLibraryIcon className="w-4 h-4" />, onClick: () => { const description = `متابعة موعد "${appointment.title}" يوم ${format_date(appointment.date)} الساعة ${format_time(appointment.time)}.\nالمكلف: ${appointment.assignee || 'غير محدد'}.\nالأهمية: ${importance_map[appointment.importance]?.text}.`; on_open_admin_task_modal({ task: description, assignee: appointment.assignee, importance: appointment.importance, }); } }, { label: 'مشاركة عبر واتساب', icon: <ShareIcon className="w-4 h-4" />, onClick: () => { const message = [ `*موعد:* ${appointment.title}`, `*التاريخ:* ${format_date(appointment.date)}`, `*الوقت:* ${format_time(appointment.time)}`, `*المسؤول:* ${appointment.assignee || 'غير محدد'}`, `*الأهمية:* ${importance_map[appointment.importance]?.text}` ].join('\n'); const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`; window.open(whatsappUrl, '_blank'); } } ]; show_context_menu(event, menuItems); }
     const handle_session_context_menu = (event: React.MouseEvent, session: Session) => { let client, caseItem, stage; for (const c of clients) { for (const cs of c.cases) { const s = cs.stages.find(st => st.id === session.stage_id); if (s) { client = c; caseItem = cs; stage = s; break; } } if (stage) break; } let description = ''; let message = ''; if (client && caseItem && stage) { const details = [ `*الموكل:* ${client.name}`, `*الخصم:* ${caseItem.opponent_name}`, `*القضية:* ${caseItem.subject}`, `*المحكمة:* ${stage.court}`, `*رقم الأساس:* ${stage.case_number}`, `*تاريخ الجلسة:* ${format_date(session.date)}`, `*المكلف بالحضور:* ${session.assignee || 'غير محدد'}`, `*سبب التأجيل السابق:* ${session.postponement_reason || 'لا يوجد'}` ]; if (session.stage_decision_date) { details.push('---'); details.push(`*تم حسم المرحلة:*`); details.push(`*تاريخ الحسم:* ${format_date(session.stage_decision_date)}`); if (stage.decision_number) details.push(`*رقم القرار:* ${stage.decision_number}`); if (stage.decision_summary) details.push(`*ملخص القرار:* ${stage.decision_summary}`); } description = `متابعة جلسة قضائية:\n- ${details.join('\n- ')}`; message = `*ملخص جلسة قضائية:*\n${details.join('\n')}`; } else { description = `متابعة جلسة قضية (${session.client_name} ضد ${session.opponent_name}) يوم ${format_date(session.date)} في محكمة ${session.court} (أساس: ${session.case_number}).\nسبب التأجيل السابق: ${session.postponement_reason || 'لا يوجد'}.\nالمكلف بالحضور: ${session.assignee}.`; message = [ `*جلسة قضائية:*`, `*القضية:* ${session.client_name} ضد ${session.opponent_name}`, `*المحكمة:* ${session.court} (أساس: ${session.case_number})`, `*التاريخ:* ${format_date(session.date)}`, `*المسؤول:* ${session.assignee || 'غير محدد'}`, `*سبب التأجيل السابق:* ${session.postponement_reason || 'لا يوجد'}` ].join('\n'); } const menuItems: MenuItem[] = [ { label: 'إرسال إلى المهام الإدارية', icon: <BuildingLibraryIcon className="w-4 h-4" />, onClick: () => { on_open_admin_task_modal({ task: description, assignee: session.assignee, }); } }, { label: 'مشاركة عبر واتساب', icon: <ShareIcon className="w-4 h-4" />, onClick: () => { const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`; window.open(whatsappUrl, '_blank'); } } ]; show_context_menu(event, menuItems); }
@@ -436,17 +423,7 @@ const HomePage: React.FC<HomePageProps> = ({
         return unpostponed_sessions.filter(s => is_before_today(s.date));
     }, [unpostponed_sessions]);
 
-    const daily_data = React.useMemo(() => {
-        let daily_sessions = all_sessions.filter(s => is_same_day(s.date, selected_date));
-        let daily_appointments = appointments.filter(a => is_same_day(a.date, selected_date));
-        
-        if (assistant_filter) {
-            daily_sessions = daily_sessions.filter(s => s.assignee === assistant_filter);
-            daily_appointments = daily_appointments.filter(a => a.assignee === assistant_filter);
-        }
-        
-        return { daily_sessions, daily_appointments };
-    }, [selected_date, all_sessions, appointments, assistant_filter]);
+    const daily_data = React.useMemo(() => ({ daily_sessions: all_sessions.filter(s => is_same_day(s.date, selected_date)), daily_appointments: appointments.filter(a => is_same_day(a.date, selected_date)) }), [selected_date, all_sessions, appointments]);
     const upcoming_sessions = React.useMemo(() => { 
         const tomorrow = new Date(selected_date); 
         tomorrow.setDate(tomorrow.getDate() + 1); 
@@ -458,8 +435,7 @@ const HomePage: React.FC<HomePageProps> = ({
         const filtered = admin_tasks.filter(task => {
             const searchLower = debounced_admin_task_search.toLowerCase();
             const matchesSearch = searchLower === '' || task.task.toLowerCase().includes(searchLower) || (task.assignee && task.assignee.toLowerCase().includes(searchLower)) || (task.location && task.location.toLowerCase().includes(searchLower));
-            const matchesAssistant = !assistant_filter || task.assignee === assistant_filter;
-            return task.completed === isCompleted && matchesSearch && matchesAssistant;
+            return task.completed === isCompleted && matchesSearch;
         });
         
         filtered.sort((a, b) => (a.order_index ?? Infinity) - (b.order_index ?? Infinity));
@@ -472,7 +448,7 @@ const HomePage: React.FC<HomePageProps> = ({
             acc[location].push(task);
             return acc;
         }, {} as Record<string, AdminTask[]>);
-    }, [admin_tasks, active_task_tab, debounced_admin_task_search, assistant_filter]);
+    }, [admin_tasks, active_task_tab, debounced_admin_task_search]);
     
     React.useEffect(() => { const allKnownLocations = new Set(Object.keys(grouped_tasks)); const currentSavedOrder = saved_location_order || []; const ordered = currentSavedOrder.filter(loc => allKnownLocations.has(loc)); const orderedSet = new Set(ordered); let changed = false; allKnownLocations.forEach(loc => { if (!orderedSet.has(loc)) { ordered.push(loc); changed = true; } }); if (changed || ordered.length !== currentSavedOrder.length) { set_saved_location_order(ordered); } set_location_order(ordered); }, [grouped_tasks, saved_location_order, set_saved_location_order]);
     React.useEffect(() => { if (active_location_tab && location_order.includes(active_location_tab)) { return; } if (location_order.length > 0) { set_active_location_tab(location_order[0]); } else { set_active_location_tab(''); } }, [location_order, active_location_tab]);
@@ -536,87 +512,9 @@ const HomePage: React.FC<HomePageProps> = ({
                     </div>
 
                     <div className="lg:col-span-2 space-y-6">
-                        <div id="print-section">
-                            <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                         <div id="print-section">
+                            <div className="mb-4">
                                 <h2 className="text-2xl font-semibold">{get_title()}</h2>
-                                <div className="flex items-center gap-2 no-print">
-                                    <button 
-                                        onClick={() => {
-                                            const agendaElement = document.getElementById('print-section');
-                                            if (agendaElement) {
-                                                printElement(agendaElement);
-                                            } else {
-                                                window.print();
-                                            }
-                                        }}
-                                        className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors text-sm font-medium shadow-sm"
-                                        title="طباعة جدول الأعمال"
-                                    >
-                                        <PrintIcon className="w-4 h-4" />
-                                        <span className="hidden sm:inline">طباعة</span>
-                                    </button>
-                                    <button 
-                                        onClick={() => {
-                                            const dateStr = format_date(selected_date);
-                                            
-                                            // Grouping by location
-                                            const groupedByLocation: { [location: string]: { sessions: any[], appointments: any[], tasks: any[] } } = {};
-
-                                            const addToGroup = (location: string, type: 'sessions' | 'appointments' | 'tasks', item: any) => {
-                                                const loc = location || 'أخرى';
-                                                if (!groupedByLocation[loc]) {
-                                                    groupedByLocation[loc] = { sessions: [], appointments: [], tasks: [] };
-                                                }
-                                                groupedByLocation[loc][type].push(item);
-                                            };
-
-                                            daily_data.daily_sessions.forEach(s => addToGroup(s.court, 'sessions', s));
-                                            admin_tasks.filter(t => is_same_day(t.due_date, selected_date) && (!assistant_filter || t.assignee === assistant_filter)).forEach(t => addToGroup(t.location || '', 'tasks', t));
-                                            daily_data.daily_appointments.forEach(a => addToGroup('', 'appointments', a));
-
-                                            let message = `*جدول أعمال المكتب ليوم ${dateStr}*\n\n`;
-
-                                            Object.keys(groupedByLocation).sort().forEach(location => {
-                                                const group = groupedByLocation[location];
-                                                const hasItems = group.sessions.length > 0 || group.appointments.length > 0 || group.tasks.length > 0;
-                                                
-                                                if (hasItems) {
-                                                    message += `📍 *${location}*\n`;
-                                                    
-                                                    if (group.sessions.length > 0) {
-                                                        message += `*الجلسات:*\n`;
-                                                        group.sessions.forEach(s => {
-                                                            message += `- ${s.case_number} | ${s.client_name} ضد ${s.opponent_name} [${s.assignee || 'غير محدد'}]\n`;
-                                                        });
-                                                    }
-
-                                                    if (group.appointments.length > 0) {
-                                                        message += `*المواعيد:*\n`;
-                                                        group.appointments.forEach(a => {
-                                                            message += `- ${a.title} (${a.time}) [${a.assignee || 'غير محدد'}]\n`;
-                                                        });
-                                                    }
-
-                                                    if (group.tasks.length > 0) {
-                                                        message += `*المهام الإدارية:*\n`;
-                                                        group.tasks.forEach(t => {
-                                                            message += `- ${t.task} [${t.assignee || 'غير محدد'}]\n`;
-                                                        });
-                                                    }
-                                                    message += `\n`;
-                                                }
-                                            });
-
-                                            const encodedMessage = encodeURIComponent(message);
-                                            window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
-                                        }}
-                                        className="flex items-center gap-2 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium shadow-sm"
-                                        title="مشاركة عبر واتساب"
-                                    >
-                                        <ShareIcon className="w-4 h-4" />
-                                        <span className="hidden sm:inline">واتساب</span>
-                                    </button>
-                                </div>
                             </div>
                             <div className="space-y-6">
                                 {view_mode === 'daily' && (

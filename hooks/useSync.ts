@@ -51,7 +51,7 @@ const flatten_data = (data: AppData): FlatData => {
         assistants: data.assistants.map(a => typeof a === 'string' ? { name: a } : a),
         invoices: data.invoices.map(({ items, ...inv }) => inv),
         invoice_items,
-        case_documents: data.case_documents,
+        case_documents: data.documents,
         profiles: data.profiles,
         site_finances: data.site_finances,
     };
@@ -103,7 +103,7 @@ const construct_data = (flat_data: Partial<FlatData>): AppData => {
         accounting_entries: (flat_data.accounting_entries || []) as any,
         assistants: (flat_data.assistants || []).map(a => typeof a === 'string' ? a : (a.name || 'بدون اسم')),
         invoices: (flat_data.invoices || []).map(inv => ({...inv, items: invoice_item_map.get(inv.id) || []})) as any,
-        case_documents: (flat_data.case_documents || []) as any,
+        documents: (flat_data.case_documents || []) as any,
         profiles: (flat_data.profiles || []) as any,
         site_finances: (flat_data.site_finances || []) as any,
     };
@@ -259,13 +259,6 @@ export const use_sync = ({ user, local_data, deleted_ids, on_data_synced, on_del
         set_status('syncing', 'التحقق من الخادم...');
         const schema_check = await check_supabase_schema();
         if (!schema_check.success) {
-            const error_message_raw = String(schema_check.message || '').toLowerCase();
-            if (error_message_raw.includes('auth_session_expired') || error_message_raw.includes('refresh token not found') || error_message_raw.includes('invalid refresh token')) {
-                set_status('error', "انتهت صلاحية الجلسة أو حدث خطأ في المصادقة. يرجى تسجيل الخروج ثم الدخول مرة أخرى.");
-                log('error', 'خطأ في المصادقة.', "يرجى إعادة تسجيل الدخول.");
-                return;
-            }
-
             if (schema_check.error === 'unconfigured') {
                 set_status('unconfigured');
                 log('error', 'Supabase غير مهيأ.');
@@ -281,7 +274,7 @@ export const use_sync = ({ user, local_data, deleted_ids, on_data_synced, on_del
     
         try {
             // 0. Upload Pending Files FIRST
-            const pending_docs = local_data_ref.current.case_documents.filter(d => d.local_state === 'pending_upload');
+            const pending_docs = local_data_ref.current.documents.filter(d => d.local_state === 'pending_upload');
             const uploaded_doc_ids: string[] = [];
 
             if (pending_docs.length > 0) {
@@ -294,32 +287,24 @@ export const use_sync = ({ user, local_data, deleted_ids, on_data_synced, on_del
                     try {
                         const file = await db.get(DOCS_FILES_STORE_NAME, doc.id);
                         if (file) {
-                            // Extremely aggressive sanitization right before upload
-                            const sanitized_path = doc.storage_path.split('/').map(part => {
-                                // Replace any non-ASCII or non-allowed character with underscore
-                                return part.replace(/[^a-zA-Z0-9._-]/g, '_') || 'unnamed';
-                            }).join('/');
-                            
-                            console.log(`[SYNC] Uploading document: ${doc.name}`);
-                            console.log(`[SYNC] Final sanitized path: ${sanitized_path}`);
-                            
-                            if (sanitized_path !== doc.storage_path) {
-                                console.log(`[SYNC] Path was sanitized from ${doc.storage_path} to ${sanitized_path}`);
-                                doc.storage_path = sanitized_path;
-                                doc.updated_at = new Date().toISOString();
+                            let storage_path = doc.storage_path;
+                            // Check if storage_path contains non-ASCII characters or spaces
+                            if (/[^\x00-\x7F]/.test(storage_path) || storage_path.includes(' ')) {
+                                const parts = storage_path.split('/');
+                                const filename = parts.pop() || '';
+                                const safe_filename = encodeURIComponent(filename);
+                                storage_path = [...parts, safe_filename].join('/');
+                                doc.storage_path = storage_path; // Mutate the object so it gets saved with the new path
+                                doc.updated_at = new Date().toISOString(); // Ensure it gets upserted to DB
                             }
 
-                            const { error: upload_error } = await supabase!.storage.from('documents').upload(sanitized_path, file, {
+                            const { error: upload_error } = await supabase!.storage.from('documents').upload(storage_path, file, {
                                 upsert: true
                             });
                             
                             if (upload_error) {
                                 console.error(`Failed to upload ${doc.name}:`, upload_error);
-                                let errorMessage = upload_error.message;
-                                if (errorMessage.includes('Invalid key')) {
-                                    errorMessage = `اسم الملف غير صالح (يحتوي على أحرف غير مدعومة): ${sanitized_path}`;
-                                }
-                                log('warning', `فشل رفع الوثيقة: ${doc.name}`, errorMessage);
+                                log('warning', `فشل رفع الوثيقة: ${doc.name}`, upload_error.message);
                             } else {
                                 uploaded_doc_ids.push(doc.id);
                             }
@@ -383,7 +368,7 @@ export const use_sync = ({ user, local_data, deleted_ids, on_data_synced, on_del
                 sessions: new Set(deleted_ids_ref.current.sessions), admin_tasks: new Set(deleted_ids_ref.current.admin_tasks), appointments: new Set(deleted_ids_ref.current.appointments),
                 accounting_entries: new Set(deleted_ids_ref.current.accounting_entries), invoices: new Set(deleted_ids_ref.current.invoices),
                 invoice_items: new Set(deleted_ids_ref.current.invoice_items), assistants: new Set(deleted_ids_ref.current.assistants),
-                case_documents: new Set(deleted_ids_ref.current.case_documents), profiles: new Set(deleted_ids_ref.current.profiles), site_finances: new Set(deleted_ids_ref.current.site_finances),
+                documents: new Set(deleted_ids_ref.current.documents), profiles: new Set(deleted_ids_ref.current.profiles), site_finances: new Set(deleted_ids_ref.current.site_finances),
             };
 
             for (const key of Object.keys(local_flat_data) as (keyof FlatData)[]) {
@@ -490,7 +475,7 @@ export const use_sync = ({ user, local_data, deleted_ids, on_data_synced, on_del
                 assistants: deleted_ids_ref.current.assistants.map(name => ({ name })),
                 invoices: deleted_ids_ref.current.invoices.map(id => ({ id })) as any,
                 invoice_items: deleted_ids_ref.current.invoice_items.map(id => ({ id })) as any,
-                case_documents: deleted_ids_ref.current.case_documents.map(id => ({ id })) as any,
+                case_documents: deleted_ids_ref.current.documents.map(id => ({ id })) as any,
                 site_finances: deleted_ids_ref.current.site_finances.map(id => ({ id })) as any,
             };
 
@@ -533,12 +518,6 @@ export const use_sync = ({ user, local_data, deleted_ids, on_data_synced, on_del
                 error_message = "تعذر الاتصال بالخادم. يرجى التحقق من اتصالك بالإنترنت، أو التأكد من أن مشروع Supabase الخاص بك يعمل (غير متوقف).";
             }
             
-            if (error_message_raw.includes('auth_session_expired') || error_message_raw.includes('refresh token not found') || error_message_raw.includes('invalid refresh token')) {
-                error_message = "انتهت صلاحية الجلسة أو حدث خطأ في المصادقة. يرجى تسجيل الخروج ثم الدخول مرة أخرى.";
-                set_status('error', error_message);
-                return;
-            }
-            
             if ((error_message_raw.includes('column') && error_message_raw.includes('does not exist')) || error_message_raw.includes('relation')) {
                 set_status('uninitialized', `هناك عدم تطابق في مخطط قاعدة البيانات: ${error_message}`); return;
             }
@@ -565,7 +544,7 @@ export const use_sync = ({ user, local_data, deleted_ids, on_data_synced, on_del
                 clients: new Set(deleted_ids_ref.current.clients), cases: new Set(deleted_ids_ref.current.cases), stages: new Set(deleted_ids_ref.current.stages),
                 sessions: new Set(deleted_ids_ref.current.sessions), admin_tasks: new Set(deleted_ids_ref.current.admin_tasks), appointments: new Set(deleted_ids_ref.current.appointments),
                 accounting_entries: new Set(deleted_ids_ref.current.accounting_entries), invoices: new Set(deleted_ids_ref.current.invoices), invoice_items: new Set(deleted_ids_ref.current.invoice_items),
-                assistants: new Set(deleted_ids_ref.current.assistants), case_documents: new Set(deleted_ids_ref.current.case_documents), profiles: new Set(deleted_ids_ref.current.profiles), site_finances: new Set(deleted_ids_ref.current.site_finances),
+                assistants: new Set(deleted_ids_ref.current.assistants), documents: new Set(deleted_ids_ref.current.documents), profiles: new Set(deleted_ids_ref.current.profiles), site_finances: new Set(deleted_ids_ref.current.site_finances),
             };
     
             const remote_flat_data: Partial<FlatData> = {};
@@ -596,11 +575,6 @@ export const use_sync = ({ user, local_data, deleted_ids, on_data_synced, on_del
         } catch (err: any) {
             const error_message_raw = String(err.message || '').toLowerCase();
             let error_message = err.message || 'حدث خطأ غير متوقع.';
-            if (error_message_raw.includes('auth_session_expired') || error_message_raw.includes('refresh token not found') || error_message_raw.includes('invalid refresh token')) {
-                error_message = "انتهت صلاحية الجلسة أو حدث خطأ في المصادقة. يرجى تسجيل الخروج ثم الدخول مرة أخرى.";
-                set_status('error', error_message);
-                return;
-            }
             if (error_message_raw.includes('failed to fetch') || error_message_raw.includes('abort') || error_message_raw.includes('lock') || error_message_raw.includes('network')) {
                 error_message = "تعذر الاتصال بالخادم. يرجى التحقق من اتصالك بالإنترنت، أو التأكد من أن مشروع Supabase الخاص بك يعمل (غير متوقف).";
             } else {
