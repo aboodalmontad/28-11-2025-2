@@ -36,7 +36,8 @@ const getDisplayPhoneNumber = (mobile: string | null | undefined): string => {
 };
 
 const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ user, onClose, onEdit, onToggleVerification }) => {
-    const { clients, site_finances, documents, all_sessions } = useData();
+    const data = useData();
+    const { clients, site_finances, documents, all_sessions } = data;
 
     const user_stats = React.useMemo(() => {
         if (!user) return null;
@@ -156,10 +157,22 @@ const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ user, onClose, onEd
                             <div className="text-sm space-y-2">
                                 <p><strong className="font-medium text-gray-600">تاريخ التسجيل:</strong> {user.created_at ? format_date(user.created_at) : '-'}</p>
                             </div>
-                            <button onClick={() => { onEdit(user); onClose(); }} className="flex items-center gap-2 text-sm px-4 py-2 bg-gray-100 text-gray-800 rounded-lg hover:bg-gray-200">
-                                <PencilIcon className="w-4 h-4" />
-                                <span>تعديل الاشتراك</span>
-                            </button>
+                            <div className="flex gap-2">
+                                <button onClick={() => { onEdit(user); onClose(); }} className="flex items-center gap-2 text-sm px-4 py-2 bg-gray-100 text-gray-800 rounded-lg hover:bg-gray-200">
+                                    <PencilIcon className="w-4 h-4" />
+                                    <span>تعديل الاشتراك</span>
+                                </button>
+                                <button 
+                                    onClick={() => { 
+                                        data.set_admin_viewing_user_id(user.id); 
+                                        onClose(); 
+                                    }} 
+                                    className="flex items-center gap-2 text-sm px-4 py-2 bg-blue-100 text-blue-800 rounded-lg hover:bg-blue-200"
+                                >
+                                    <FolderIcon className="w-4 h-4" />
+                                    <span>عرض مكتب المستخدم</span>
+                                </button>
+                            </div>
                         </div>
 
                         {/* Financial History */}

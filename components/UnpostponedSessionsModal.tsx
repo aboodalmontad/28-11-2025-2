@@ -1,4 +1,5 @@
 import * as React from 'react';
+import DatePicker from './DatePicker';
 import { Session } from '../types';
 import { format_date, to_input_date_string, safe_revive_date } from '../utils/dateUtils';
 import { ExclamationTriangleIcon, CalendarIcon } from './icons';
@@ -46,11 +47,9 @@ const SessionPostponeItem: React.FC<{
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                     <label className="block text-xs font-medium text-gray-700">تاريخ الجلسة القادمة</label>
-                    <input
-                        type="date"
+                    <DatePicker
                         value={next_date}
-                        onChange={(e) => set_next_date(e.target.value)}
-                        className="mt-1 w-full p-2 border rounded-md text-sm"
+                        onChange={(date) => set_next_date(date)}
                         aria-label="تاريخ الجلسة القادمة"
                     />
                 </div>

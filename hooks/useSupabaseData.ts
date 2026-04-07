@@ -225,17 +225,43 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
         }
     }, [is_data_loading]);
 
+    const [admin_viewing_user_id, set_admin_viewing_user_id] = React.useState<string | null>(null);
+
     const effective_user_id = React.useMemo(() => {
+        if (admin_viewing_user_id) return admin_viewing_user_id;
         if (!user) return null;
         const current_user_profile = data.profiles.find(p => p.id === user.id);
         return current_user_profile?.lawyer_id || user.id;
-    }, [user, data.profiles]);
+    }, [user, data.profiles, admin_viewing_user_id]);
 
     const is_admin = React.useMemo(() => {
         if (!user) return false;
         const current_user_profile = data.profiles.find(p => p.id === user.id);
         return current_user_profile?.role === 'admin';
     }, [user, data.profiles]);
+
+    const filtered_data = React.useMemo(() => {
+        // If not admin, we always use the full data (which is already filtered by user_id in useSync/useOnlineData)
+        if (!is_admin) return data;
+        
+        // If admin but NOT viewing a specific user, default to viewing ONLY their own data
+        // This prevents admins from seeing everyone's data mixed together by default.
+        const target_user_id = admin_viewing_user_id || user?.id;
+        
+        if (!target_user_id) return data;
+
+        return {
+            ...data,
+            clients: data.clients.filter(c => c.user_id === target_user_id),
+            admin_tasks: data.admin_tasks.filter(t => t.user_id === target_user_id),
+            appointments: data.appointments.filter(a => a.user_id === target_user_id),
+            accounting_entries: data.accounting_entries.filter(e => e.user_id === target_user_id),
+            invoices: data.invoices.filter(i => i.user_id === target_user_id),
+            documents: data.documents.filter(d => d.user_id === target_user_id),
+            site_finances: data.site_finances.filter(f => f.user_id === target_user_id),
+            assistants: data.assistants, // Assistants are strings locally, cannot filter by user_id easily without changing AppData structure
+        };
+    }, [data, is_admin, admin_viewing_user_id, user?.id]);
 
     const current_user_permissions: Permissions = React.useMemo(() => {
         if (!user) return default_permissions;
@@ -260,9 +286,8 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
     }, [user, data.profiles]);
 
     const filtered_clients = React.useMemo(() => {
-        if (is_admin) return data.clients;
-        return data.clients.filter(c => c.user_id === effective_user_id);
-    }, [data.clients, is_admin, effective_user_id]);
+        return filtered_data.clients;
+    }, [filtered_data.clients]);
 
     // Load initial data from IndexedDB on mount or when user changes
     React.useEffect(() => {
@@ -446,7 +471,7 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
     }, [data]);
 
     const all_sessions = React.useMemo(() => {
-        return data.clients.flatMap(c => 
+        return filtered_data.clients.flatMap(c => 
             c.cases.flatMap(cs => 
                 cs.stages.flatMap(st => 
                     st.sessions.map(s => ({
@@ -455,19 +480,20 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
                         opponent_name: s.opponent_name || cs.opponent_name,
                         case_number: s.case_number || cs.subject || cs.id,
                         stage_id: s.stage_id || st.id,
+                        stage_decision_date: st.decision_date,
                         is_postponed: Boolean(s.is_postponed)
                     }))
                 )
             )
         );
-    }, [data.clients]);
+    }, [filtered_data.clients]);
 
     const unpostponed_sessions = React.useMemo(() => {
-        return all_sessions.filter(s => !s.is_postponed && !s.stage_decision_date);
+        return all_sessions.filter(s => !s.is_postponed && !s.stage_decision_date && !s.next_session_date);
     }, [all_sessions]);
 
     return {
-        ...data,
+        ...filtered_data,
         clients: filtered_clients,
         sync_status: sync_status, 
         manual_sync: manual_sync, 
@@ -497,6 +523,8 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
         dismiss_realtime_alert: (id: number) => set_realtime_alerts(p => p.filter(a => a.id !== id)),
         user_approval_alerts: user_approval_alerts, 
         dismiss_user_approval_alert: (id: number) => set_user_approval_alerts(p => p.filter(a => a.id !== id)),
+        admin_viewing_user_id,
+        set_admin_viewing_user_id,
         set_clients: (clients: any) => {
             const now = new Date().toISOString();
             set_full_data(prev => {
@@ -691,12 +719,12 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
                     const file = files[i];
                     const id = crypto.randomUUID();
                     const safe_filename = encodeURIComponent(file.name);
-                    const storage_path = `${user?.id}/${case_id}/${id}-${safe_filename}`;
+                    const storage_path = `${effective_user_id}/${case_id}/${id}-${safe_filename}`;
                     
                     const new_doc: CaseDocument = {
                         id,
                         case_id,
-                        user_id: user?.id || '',
+                        user_id: effective_user_id || '',
                         name: file.name,
                         type: file.type,
                         size: file.size,

@@ -2,6 +2,7 @@
 import * as React from 'react';
 import ClientsTreeView from '../components/ClientsTreeView';
 import ClientsListView from '../components/ClientsListView';
+import DatePicker from '../components/DatePicker';
 import { PlusIcon, SearchIcon, ListBulletIcon, ViewColumnsIcon, ExclamationTriangleIcon, PrintIcon, ScaleIcon, FolderOpenIcon, GavelIcon, AddressBookIcon } from '../components/icons';
 import { Client, Case, Stage, Session, AccountingEntry } from '../types';
 import { format_date, to_input_date_string, parse_input_date_string } from '../utils/dateUtils';
@@ -438,7 +439,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ show_context_menu, on_open_ad
 
     const handle_confirm_delete_case = () => {
         if (case_to_delete) {
-            delete_case(case_to_delete.case_id, case_to_delete.client_id);
+            delete_case(case_to_delete.client_id, case_to_delete.case_id);
         }
         set_is_delete_case_modal_open(false);
         set_case_to_delete(null);
@@ -455,7 +456,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ show_context_menu, on_open_ad
     
     const handle_confirm_delete_stage = () => {
         if (stage_to_delete) {
-            delete_stage(stage_to_delete.stage_id, stage_to_delete.case_id, stage_to_delete.client_id);
+            delete_stage(stage_to_delete.client_id, stage_to_delete.case_id, stage_to_delete.stage_id);
         }
         set_is_delete_stage_modal_open(false);
         set_stage_to_delete(null);
@@ -473,7 +474,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ show_context_menu, on_open_ad
 
     const handle_confirm_delete_session = () => {
         if (session_to_delete) {
-            delete_session(session_to_delete.session_id, session_to_delete.stage_id, session_to_delete.case_id, session_to_delete.client_id);
+            delete_session(session_to_delete.client_id, session_to_delete.case_id, session_to_delete.stage_id, session_to_delete.session_id);
         }
         set_is_delete_session_modal_open(false);
         set_session_to_delete(null);
@@ -573,12 +574,6 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ show_context_menu, on_open_ad
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                  <h1 className="text-3xl font-bold text-gray-800">الموكلين والقضايا</h1>
                  <div className="flex items-center gap-2">
-                    <button 
-                        onClick={() => console.log("Client Data Diagnostic:", clients)}
-                        className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white font-semibold rounded-lg hover:bg-gray-700 transition-colors"
-                    >
-                        <span>تشخيص البيانات</span>
-                    </button>
                     {permissions.can_add_client && (
                         <button onClick={() => handle_open_modal('client')} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors">
                             <PlusIcon className="w-5 h-5" />
@@ -694,21 +689,21 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ show_context_menu, on_open_ad
                                 <div><label className="block text-sm font-medium">اسم الخصم</label><input type="text" name="opponent_name" value={form_data.opponent_name || ''} onChange={handle_form_change} className="w-full p-2 border rounded" /></div>
                                 <div><label className="block text-sm font-medium">اتفاقية الأتعاب</label><textarea name="fee_agreement" value={form_data.fee_agreement || ''} onChange={handle_form_change} className="w-full p-2 border rounded" rows={3}></textarea></div>
                                 <div><label className="block text-sm font-medium">حالة القضية</label><select name="status" value={form_data.status || 'active'} onChange={handle_form_change} className="w-full p-2 border rounded"><option value="active">نشطة</option><option value="closed">مغلقة</option><option value="on_hold">معلقة</option></select></div>
-                                {!modal.is_editing && <div className="p-4 bg-gray-50 border rounded-lg space-y-4"><h3 className="font-semibold text-gray-700">إضافة المرحلة الأولى (اختياري)</h3><div><label className="block text-xs font-medium">المحكمة</label><input type="text" name="court" value={form_data.court || ''} onChange={handle_form_change} className="w-full p-2 border rounded" /></div><div className="grid grid-cols-2 gap-4"><div><label className="block text-xs font-medium">رقم الأساس</label><input type="text" name="case_number" value={form_data.case_number || ''} onChange={handle_form_change} className="w-full p-2 border rounded" /></div><div><label className="block text-xs font-medium">تاريخ أول جلسة</label><input type="date" name="first_session_date" value={form_data.first_session_date || ''} onChange={handle_form_change} className="w-full p-2 border rounded" /></div></div><div><label className="block text-xs font-medium">سبب التأجيل (إن وجد)</label><input type="text" name="first_session_reason" value={form_data.first_session_reason || ''} onChange={handle_form_change} className="w-full p-2 border rounded" /></div></div>}
+                                {!modal.is_editing && <div className="p-4 bg-gray-50 border rounded-lg space-y-4"><h3 className="font-semibold text-gray-700">إضافة المرحلة الأولى (اختياري)</h3><div><label className="block text-xs font-medium">المحكمة</label><input type="text" name="court" value={form_data.court || ''} onChange={handle_form_change} className="w-full p-2 border rounded" /></div><div className="grid grid-cols-2 gap-4"><div><label className="block text-xs font-medium">رقم الأساس</label><input type="text" name="case_number" value={form_data.case_number || ''} onChange={handle_form_change} className="w-full p-2 border rounded" /></div><div><label className="block text-xs font-medium">تاريخ أول جلسة</label><DatePicker name="first_session_date" value={form_data.first_session_date || ''} onChange={(date, name) => handle_form_change({ target: { name, value: date } } as any)} /></div></div><div><label className="block text-xs font-medium">سبب التأجيل (إن وجد)</label><input type="text" name="first_session_reason" value={form_data.first_session_reason || ''} onChange={handle_form_change} className="w-full p-2 border rounded" /></div></div>}
                                 </>
                             )}
                             {modal.type === 'stage' && (
                                 <>
                                 <div><label className="block text-sm font-medium">المحكمة</label><input type="text" name="court" value={form_data.court || ''} onChange={handle_form_change} className="w-full p-2 border rounded" required/></div>
                                 <div><label className="block text-sm font-medium">رقم الأساس</label><input type="text" name="case_number" value={form_data.case_number || ''} onChange={handle_form_change} className="w-full p-2 border rounded" /></div>
-                                {!modal.is_editing && <div><label className="block text-sm font-medium">تاريخ أول جلسة (اختياري)</label><input type="date" name="first_session_date" value={form_data.first_session_date || ''} onChange={handle_form_change} className="w-full p-2 border rounded" /></div>}
+                                {!modal.is_editing && <div><label className="block text-sm font-medium">تاريخ أول جلسة (اختياري)</label><DatePicker name="first_session_date" value={form_data.first_session_date || ''} onChange={(date, name) => handle_form_change({ target: { name, value: date } } as any)} /></div>}
                                 {!modal.is_editing && <div><label className="block text-sm font-medium">سبب التأجيل الأول (إن وجد)</label><input type="text" name="first_session_reason" value={form_data.first_session_reason || ''} onChange={handle_form_change} className="w-full p-2 border rounded" /></div>}
-                                {modal.is_editing && <div className="p-4 bg-gray-50 border rounded-lg space-y-4"><h3 className="font-semibold">قرار الحسم (إن وجد)</h3><div className="grid grid-cols-2 gap-4"><div><label className="block text-xs font-medium">تاريخ الحسم</label><input type="date" name="decision_date" value={form_data.decision_date || ''} onChange={handle_form_change} className="w-full p-2 border rounded" /></div><div><label className="block text-xs font-medium">رقم القرار</label><input type="text" name="decision_number" value={form_data.decision_number || ''} onChange={handle_form_change} className="w-full p-2 border rounded" /></div></div><div><label className="block text-xs font-medium">ملخص القرار</label><textarea name="decision_summary" value={form_data.decision_summary || ''} onChange={handle_form_change} className="w-full p-2 border rounded" rows={2}></textarea></div><div><label className="block text-xs font-medium">ملاحظات</label><textarea name="decision_notes" value={form_data.decision_notes || ''} onChange={handle_form_change} className="w-full p-2 border rounded" rows={2}></textarea></div></div>}
+                                {modal.is_editing && <div className="p-4 bg-gray-50 border rounded-lg space-y-4"><h3 className="font-semibold">قرار الحسم (إن وجد)</h3><div className="grid grid-cols-2 gap-4"><div><label className="block text-xs font-medium">تاريخ الحسم</label><DatePicker name="decision_date" value={form_data.decision_date || ''} onChange={(date, name) => handle_form_change({ target: { name, value: date } } as any)} /></div><div><label className="block text-xs font-medium">رقم القرار</label><input type="text" name="decision_number" value={form_data.decision_number || ''} onChange={handle_form_change} className="w-full p-2 border rounded" /></div></div><div><label className="block text-xs font-medium">ملخص القرار</label><textarea name="decision_summary" value={form_data.decision_summary || ''} onChange={handle_form_change} className="w-full p-2 border rounded" rows={2}></textarea></div><div><label className="block text-xs font-medium">ملاحظات</label><textarea name="decision_notes" value={form_data.decision_notes || ''} onChange={handle_form_change} className="w-full p-2 border rounded" rows={2}></textarea></div></div>}
                                 </>
                             )}
                             {modal.type === 'session' && (
                                 <>
-                                <div><label className="block text-sm font-medium">تاريخ الجلسة</label><input type="date" name="date" value={form_data.date || ''} onChange={handle_form_change} className="w-full p-2 border rounded" required /></div>
+                                <div><label className="block text-sm font-medium">تاريخ الجلسة</label><DatePicker name="date" value={form_data.date || ''} onChange={(date, name) => handle_form_change({ target: { name, value: date } } as any)} required /></div>
                                 {modal.is_editing && <div><label className="block text-sm font-medium">سبب التأجيل (السابق)</label><input type="text" name="postponement_reason" value={form_data.postponement_reason || ''} onChange={handle_form_change} className="w-full p-2 border rounded" /></div>}
                                 <div><label className="block text-sm font-medium">المكلف بالحضور</label><select name="assignee" value={form_data.assignee || 'بدون تخصيص'} onChange={handle_form_change} className="w-full p-2 border rounded">{assistants.map(a => <option key={a} value={a}>{a}</option>)}</select></div>
                                 </>
@@ -748,7 +743,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ show_context_menu, on_open_ad
                     <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
                         <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><GavelIcon className="w-6 h-6"/> تسجيل قرار الحسم</h2>
                         <form onSubmit={handle_decide_submit} className="space-y-4">
-                            <div><label className="block text-sm font-medium">تاريخ الحسم</label><input type="date" value={to_input_date_string(decide_modal.session.date)} readOnly className="w-full p-2 border rounded bg-gray-100" /></div>
+                            <div><label className="block text-sm font-medium">تاريخ الحسم</label><DatePicker value={to_input_date_string(decide_modal.session.date)} onChange={() => {}} disabled className="bg-gray-100" /></div>
                             <div><label className="block text-sm font-medium">رقم القرار</label><input type="text" value={decide_form_data.decision_number} onChange={e => set_decide_form_data(p => ({...p, decision_number: e.target.value}))} className="w-full p-2 border rounded" /></div>
                             <div><label className="block text-sm font-medium">ملخص القرار</label><textarea value={decide_form_data.decision_summary} onChange={e => set_decide_form_data(p => ({...p, decision_summary: e.target.value}))} className="w-full p-2 border rounded" rows={3}></textarea></div>
                             <div><label className="block text-sm font-medium">ملاحظات</label><textarea value={decide_form_data.decision_notes} onChange={e => set_decide_form_data(p => ({...p, decision_notes: e.target.value}))} className="w-full p-2 border rounded" rows={2}></textarea></div>

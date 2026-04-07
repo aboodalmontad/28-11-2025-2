@@ -1,5 +1,6 @@
 
 import * as React from 'react';
+import DatePicker from './DatePicker';
 import { Case, Client, AccountingEntry } from '../types';
 import { format_date, to_input_date_string, safe_revive_date } from '../utils/dateUtils';
 import { PlusIcon, PencilIcon, TrashIcon, ExclamationCircleIcon } from './icons';
@@ -192,7 +193,7 @@ const CaseAccounting: React.FC<CaseAccountingProps> = ({ case_data, client, case
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700">التاريخ</label>
-                                <input type="date" name="date" value={form_data.date ? to_input_date_string(form_data.date) : ''} onChange={handle_form_change} className="w-full p-2 border rounded" placeholder="DD/MM/YYYY" required />
+                                <DatePicker name="date" value={form_data.date ? to_input_date_string(form_data.date) : ''} onChange={(date, name) => handle_form_change({ target: { name, value: date } } as any)} required />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700">البيان</label>

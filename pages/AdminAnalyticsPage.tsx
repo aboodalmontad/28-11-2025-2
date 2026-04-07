@@ -36,7 +36,7 @@ const CustomTooltip = ({ active, payload, label, formatter }: any) => {
 };
 
 const AdminAnalyticsPage: React.FC = () => {
-    const { profiles, clients, admin_tasks, is_data_loading: loading } = useData();
+    const { profiles, clients, admin_tasks, is_data_loading: loading, set_admin_viewing_user_id } = useData();
     const [stats, setStats] = React.useState<any>(null);
     const [error, setError] = React.useState<string | null>(null);
 
@@ -77,7 +77,7 @@ const AdminAnalyticsPage: React.FC = () => {
                 const clientCount = clients.filter(c => (c as any).user_id === p.id).length;
                 const caseCount = allCases.filter(c => (c as any).user_id === p.id).length;
                 const taskCount = admin_tasks.filter(t => (t as any).user_id === p.id).length;
-                return { name: p.full_name, "عدد الإدخالات": clientCount + caseCount + taskCount };
+                return { id: p.id, name: p.full_name, "عدد الإدخالات": clientCount + caseCount + taskCount };
             }).sort((a, b) => b["عدد الإدخالات"] - a["عدد الإدخالات"]).slice(0, 10);
 
             setStats({
@@ -177,6 +177,34 @@ const AdminAnalyticsPage: React.FC = () => {
                         <Bar dataKey="عدد الإدخالات" fill="#6366f1" radius={[0, 10, 10, 0]} barSize={24} />
                     </BarChart>
                 </ResponsiveContainer>
+                
+                <div className="mt-10 overflow-x-auto">
+                    <table className="w-full text-sm text-right border-collapse">
+                        <thead>
+                            <tr className="bg-slate-50 border-b border-slate-200">
+                                <th className="px-6 py-4 font-bold text-slate-700">المستخدم</th>
+                                <th className="px-6 py-4 font-bold text-slate-700">إجمالي الإدخالات</th>
+                                <th className="px-6 py-4 font-bold text-slate-700">الإجراء</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                            {stats.activityByUser.map((user: any) => (
+                                <tr key={user.id} className="hover:bg-slate-50 transition-colors">
+                                    <td className="px-6 py-4 font-bold text-slate-900">{user.name}</td>
+                                    <td className="px-6 py-4 text-slate-600">{user["عدد الإدخالات"]}</td>
+                                    <td className="px-6 py-4">
+                                        <button 
+                                            onClick={() => set_admin_viewing_user_id(user.id)}
+                                            className="px-4 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-bold hover:bg-blue-100 transition-colors"
+                                        >
+                                            عرض المكتب
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     );

@@ -1,9 +1,11 @@
 
 import * as React from 'react';
+import JSZip from 'jszip';
+import DatePicker from '../components/DatePicker';
 import { get_supabase_client } from '../supabaseClient';
 import { Profile } from '../types';
 import { format_date, to_input_date_string, safe_revive_date } from '../utils/dateUtils';
-import { CheckCircleIcon, NoSymbolIcon, PencilIcon, TrashIcon, ExclamationTriangleIcon, PhoneIcon, ShareIcon, ArrowPathIcon, ClipboardDocumentIcon, UserIcon, UserGroupIcon } from '../components/icons';
+import { CheckCircleIcon, NoSymbolIcon, PencilIcon, TrashIcon, ExclamationTriangleIcon, PhoneIcon, ShareIcon, ArrowPathIcon, ClipboardDocumentIcon, UserIcon, UserGroupIcon, FolderIcon } from '../components/icons';
 import { useData } from '../context/DataContext';
 import UserDetailsModal from '../components/UserDetailsModal';
 
@@ -36,11 +38,13 @@ interface UserRowProps {
     on_toggle_active: (user: Profile) => void;
     on_toggle_verification: (user: Profile) => void;
     on_generate_otp: (user: Profile) => void;
+    on_view_office: (user: Profile) => void;
+    on_download_backup: (user: Profile) => void;
     generating_otp_for: string | null;
     current_admin_id: string | undefined;
 }
 
-const UserRow: React.FC<UserRowProps> = ({ user, lawyer, on_view, on_edit, on_delete, on_toggle_approval, on_toggle_active, on_toggle_verification, on_generate_otp, generating_otp_for, current_admin_id }) => {
+const UserRow: React.FC<UserRowProps> = ({ user, lawyer, on_view, on_edit, on_delete, on_toggle_approval, on_toggle_active, on_toggle_verification, on_generate_otp, on_view_office, on_download_backup, generating_otp_for, current_admin_id }) => {
     const [copied_otp_id, set_copied_otp_id] = React.useState<string | null>(null);
     
     const copy_to_clipboard = (text: string, id: string) => {
@@ -208,6 +212,8 @@ const UserRow: React.FC<UserRowProps> = ({ user, lawyer, on_view, on_edit, on_de
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     {user.role !== 'admin' && user.id !== current_admin_id ? (
                         <>
+                            <button onClick={() => on_download_backup(user)} className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-xl transition-all" title="تنزيل نسخة احتياطية"><ArrowPathIcon className="w-4 h-4 rotate-180" /></button>
+                            <button onClick={() => on_view_office(user)} className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-xl transition-all" title="عرض المكتب"><FolderIcon className="w-4 h-4" /></button>
                             <button onClick={() => on_edit(user)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all" title="تعديل"><PencilIcon className="w-4 h-4" /></button>
                             <button onClick={() => on_delete(user)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all" title="حذف"><TrashIcon className="w-4 h-4" /></button>
                         </>
@@ -221,8 +227,9 @@ const UserRow: React.FC<UserRowProps> = ({ user, lawyer, on_view, on_edit, on_de
 };
 
 const AdminPage: React.FC = () => {
-    const { profiles: users, set_profiles: setUsers, is_data_loading: loading, user_id, fetch_and_refresh } = useData();
+    const { profiles: users, clients, admin_tasks, appointments, accounting_entries, invoices, documents, site_finances, set_profiles: setUsers, is_data_loading: loading, user_id, fetch_and_refresh, set_admin_viewing_user_id } = useData();
     const [error, setError] = React.useState<string | null>(null);
+    const [is_downloading, set_is_downloading] = React.useState(false);
     const [editing_user, set_editing_user] = React.useState<Profile | null>(null);
     const [user_to_delete, set_user_to_delete] = React.useState<Profile | null>(null);
     const [viewing_user, set_viewing_user] = React.useState<Profile | null>(null);
@@ -355,6 +362,73 @@ const AdminPage: React.FC = () => {
         }
     };
 
+    const get_user_backup_data = (targetUser: Profile) => {
+        const userId = targetUser.id;
+        const assistants = users.filter(u => u.lawyer_id === userId);
+        const assistantIds = assistants.map(a => a.id);
+        const allUserIds = [userId, ...assistantIds];
+
+        return {
+            version: "1.1",
+            export_date: new Date().toISOString(),
+            lawyer_profile: targetUser,
+            assistants_profiles: assistants,
+            clients: clients.filter(c => allUserIds.includes(c.user_id)),
+            admin_tasks: admin_tasks.filter(t => allUserIds.includes(t.user_id)),
+            appointments: appointments.filter(a => allUserIds.includes(a.user_id)),
+            accounting_entries: accounting_entries.filter(e => allUserIds.includes(e.user_id)),
+            invoices: invoices.filter(i => allUserIds.includes(i.user_id)),
+            documents: documents.filter(d => allUserIds.includes(d.user_id)),
+            site_finances: site_finances.filter(f => allUserIds.includes(f.user_id))
+        };
+    };
+
+    const handle_download_single_backup = (user: Profile) => {
+        const backup = get_user_backup_data(user);
+        const fileName = `${user.full_name}_${new Date().toISOString().split('T')[0]}.json`;
+        const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    };
+
+    const handle_download_all_backups = async () => {
+        set_is_downloading(true);
+        try {
+            const zip = new JSZip();
+            const dateStr = new Date().toISOString().split('T')[0];
+            const folder = zip.folder(dateStr);
+
+            const lawyers = users.filter(u => u.role !== 'admin' && !u.lawyer_id);
+
+            lawyers.forEach(lawyer => {
+                const backup = get_user_backup_data(lawyer);
+                const fileName = `${lawyer.full_name}_${dateStr}.json`;
+                folder?.file(fileName, JSON.stringify(backup, null, 2));
+            });
+
+            const content = await zip.generateAsync({ type: "blob" });
+            const url = URL.createObjectURL(content);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `backups_${dateStr}.zip`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            console.error("Failed to generate ZIP backup:", err);
+            alert("فشل إنشاء النسخة الاحتياطية المجمعة.");
+        } finally {
+            set_is_downloading(false);
+        }
+    };
+
     const filtered_users = React.useMemo(() => {
         return users.filter(u => {
             const matches_search = u.full_name.toLowerCase().includes(search_query.toLowerCase()) || 
@@ -417,6 +491,14 @@ const AdminPage: React.FC = () => {
                     <p className="text-slate-500 mt-1">إدارة حسابات المحامين والمساعدين والتحقق من هويتهم.</p>
                 </div>
                 <div className="flex items-center gap-2">
+                    <button 
+                        onClick={handle_download_all_backups}
+                        disabled={is_downloading}
+                        className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-xl hover:bg-amber-700 font-bold text-sm transition-all shadow-sm disabled:opacity-50"
+                    >
+                        {is_downloading ? <ArrowPathIcon className="w-4 h-4 animate-spin" /> : <ArrowPathIcon className="w-4 h-4 rotate-180" />}
+                        تنزيل جميع النسخ الاحتياطية
+                    </button>
                     <div className="px-4 py-2 bg-blue-50 text-blue-700 rounded-xl border border-blue-100 font-bold text-sm">
                         إجمالي المستخدمين: {users.length}
                     </div>
@@ -476,6 +558,8 @@ const AdminPage: React.FC = () => {
                                         on_toggle_active={() => toggle_user_active_status(lawyer)}
                                         on_toggle_verification={() => toggle_user_verification(lawyer)}
                                         on_generate_otp={() => handle_generate_and_send_otp(lawyer)}
+                                        on_view_office={(u) => set_admin_viewing_user_id(u.id)}
+                                        on_download_backup={handle_download_single_backup}
                                         generating_otp_for={generating_otp_for}
                                         current_admin_id={user_id}
                                     />
@@ -492,6 +576,8 @@ const AdminPage: React.FC = () => {
                                             on_toggle_active={() => toggle_user_active_status(assistant)}
                                             on_toggle_verification={() => toggle_user_verification(assistant)}
                                             on_generate_otp={() => handle_generate_and_send_otp(assistant)}
+                                            on_view_office={(u) => set_admin_viewing_user_id(u.id)}
+                                            on_download_backup={handle_download_single_backup}
                                             generating_otp_for={generating_otp_for}
                                             current_admin_id={user_id}
                                         />
@@ -521,8 +607,8 @@ const AdminPage: React.FC = () => {
                             <div><label className="block text-sm font-medium text-gray-700">الاسم الكامل</label><input type="text" value={editing_user.full_name} onChange={e => set_editing_user({ ...editing_user, full_name: e.target.value })} className="w-full p-2 border rounded" /></div>
                             <div><label className="block text-sm font-medium text-gray-700">رقم الجوال</label><input type="text" value={editing_user.mobile_number} onChange={e => set_editing_user({ ...editing_user, mobile_number: e.target.value })} className="w-full p-2 border rounded" dir="ltr" /></div>
                             <div className="grid grid-cols-2 gap-4">
-                                <div><label className="block text-sm font-medium text-gray-700">تاريخ بدء الاشتراك</label><input type="date" value={to_input_date_string(editing_user.subscription_start_date)} onChange={e => set_editing_user({ ...editing_user, subscription_start_date: e.target.value })} className="w-full p-2 border rounded" /></div>
-                                <div><label className="block text-sm font-medium text-gray-700">تاريخ انتهاء الاشتراك</label><input type="date" value={to_input_date_string(editing_user.subscription_end_date)} onChange={e => set_editing_user({ ...editing_user, subscription_end_date: e.target.value })} className="w-full p-2 border rounded" /></div>
+                                <div><label className="block text-sm font-medium text-gray-700">تاريخ بدء الاشتراك</label><DatePicker value={to_input_date_string(editing_user.subscription_start_date)} onChange={(date) => set_editing_user({ ...editing_user, subscription_start_date: date })} /></div>
+                                <div><label className="block text-sm font-medium text-gray-700">تاريخ انتهاء الاشتراك</label><DatePicker value={to_input_date_string(editing_user.subscription_end_date)} onChange={(date) => set_editing_user({ ...editing_user, subscription_end_date: date })} /></div>
                             </div>
                             <div className="flex items-center gap-6 pt-2 flex-wrap">
                                 <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={editing_user.is_approved} onChange={e => set_editing_user({ ...editing_user, is_approved: e.target.checked })} className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500" /> موافق عليه</label>

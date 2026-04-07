@@ -1,5 +1,6 @@
 
 import * as React from 'react';
+import DatePicker from '../components/DatePicker';
 import { AccountingEntry, Client, Invoice, InvoiceItem, Case, Stage, Session } from '../types';
 import { format_date, to_input_date_string, parse_input_date_string, safe_revive_date } from '../utils/dateUtils';
 import { PlusIcon, PencilIcon, TrashIcon, SearchIcon, ExclamationTriangleIcon, PrintIcon, DocumentTextIcon, CalculatorIcon, ChartPieIcon } from '../components/icons';
@@ -178,7 +179,7 @@ const EntriesTab: React.FC = () => {
                         <form onSubmit={handle_submit} className="space-y-4">
                             <div className="grid grid-cols-2 gap-4">
                                 <div><label className="block text-sm font-medium">النوع</label><select name="type" value={form_data.type || 'income'} onChange={handle_form_change} className="w-full p-2 border rounded"><option value="income">مقبوضات</option><option value="expense">مصروفات</option></select></div>
-                                <div><label className="block text-sm font-medium">التاريخ</label><input type="date" name="date" value={(form_data.date as any) || ''} onChange={handle_form_change} className="w-full p-2 border rounded" required /></div>
+                                <div><label className="block text-sm font-medium">التاريخ</label><DatePicker name="date" value={(form_data.date as any) || ''} onChange={(date, name) => handle_form_change({ target: { name, value: date } } as any)} required /></div>
                             </div>
                             <div><label className="block text-sm font-medium">المبلغ</label><input type="number" name="amount" value={form_data.amount || ''} onChange={handle_form_change} className="w-full p-2 border rounded" required /></div>
                             <div><label className="block text-sm font-medium">البيان</label><input type="text" name="description" value={form_data.description || ''} onChange={handle_form_change} className="w-full p-2 border rounded" required /></div>
@@ -405,8 +406,8 @@ const InvoiceModal: React.FC<{ is_open: boolean; on_close: () => void; initial_d
                                 {clients.find(c => c.id === form_data.client_id)?.cases.map(cs => <option key={cs.id} value={cs.id}>{cs.subject}</option>)}
                             </select>
                         </div>
-                        <div><label className="block text-sm font-medium">تاريخ الإصدار</label><input type="date" value={to_input_date_string(form_data.issue_date)} onChange={e => set_form_data({...form_data, issue_date: e.target.value})} className="w-full p-2 border rounded" required /></div>
-                        <div><label className="block text-sm font-medium">تاريخ الاستحقاق</label><input type="date" value={to_input_date_string(form_data.due_date)} onChange={e => set_form_data({...form_data, due_date: e.target.value})} className="w-full p-2 border rounded" required /></div>
+                        <div><label className="block text-sm font-medium">تاريخ الإصدار</label><DatePicker value={to_input_date_string(form_data.issue_date)} onChange={date => set_form_data({...form_data, issue_date: date})} required /></div>
+                        <div><label className="block text-sm font-medium">تاريخ الاستحقاق</label><DatePicker value={to_input_date_string(form_data.due_date)} onChange={date => set_form_data({...form_data, due_date: date})} required /></div>
                     </div>
 
                     <div className="border-t pt-4">

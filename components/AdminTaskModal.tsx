@@ -1,4 +1,5 @@
 import * as React from 'react';
+import DatePicker from './DatePicker';
 import { AdminTask } from '../types';
 import { to_input_date_string, safe_revive_date } from '../utils/dateUtils';
 
@@ -91,7 +92,7 @@ const AdminTaskModal: React.FC<AdminTaskModalProps> = ({ isOpen, onClose, onSubm
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <label className="block text-sm font-medium text-gray-700">تاريخ الاستحقاق</label>
-                            <input type="date" name="due_date" value={task_form_data.due_date || ''} onChange={handle_task_form_change} className="w-full p-2 border rounded" placeholder="DD/MM/YYYY" required />
+                            <DatePicker name="due_date" value={task_form_data.due_date || ''} onChange={(date, name) => handle_task_form_change({ target: { name, value: date } } as any)} required />
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700">الأهمية</label>

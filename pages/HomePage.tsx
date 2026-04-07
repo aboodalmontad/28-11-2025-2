@@ -1,6 +1,7 @@
 
 import * as React from 'react';
 import Calendar from '../components/Calendar';
+import DatePicker from '../components/DatePicker';
 import { Session, AdminTask, Appointment, Stage, Client } from '../types';
 import { format_date, is_same_day, is_before_today, to_input_date_string, safe_revive_date } from '../utils/dateUtils';
 import { PrintIcon, PlusIcon, PencilIcon, TrashIcon, SearchIcon, ExclamationTriangleIcon, CalendarIcon, ChevronLeftIcon, ScaleIcon, BuildingLibraryIcon, ShareIcon, UserIcon, ClipboardDocumentIcon, ClipboardDocumentCheckIcon, HomeIcon, ListBulletIcon, ViewColumnsIcon } from '../components/icons';
@@ -795,7 +796,7 @@ const HomePage: React.FC<HomePageProps> = ({
                                 </div>
                                 <div>
                                     <label htmlFor="date" className="block text-sm font-medium text-gray-700">التاريخ</label>
-                                    <input type="date" id="date" name="date" value={new_appointment.date} onChange={handle_appointment_form_change} className="mt-1 w-full p-2 border rounded" placeholder="DD/MM/YYYY" required />
+                                    <DatePicker name="date" value={new_appointment.date} onChange={(date, name) => handle_appointment_form_change({ target: { name, value: date } } as any)} required />
                                     {date_warning && (
                                         <p className="mt-1 text-xs text-yellow-600 flex items-center gap-1">
                                             <ExclamationTriangleIcon className="w-4 h-4" />
@@ -918,7 +919,7 @@ const HomePage: React.FC<HomePageProps> = ({
                         <form onSubmit={handle_decide_submit} className="space-y-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700">تاريخ الحسم</label>
-                                <input type="date" value={to_input_date_string(decide_modal.session.date)} readOnly className="w-full p-2 border rounded bg-gray-100" />
+                                <DatePicker value={to_input_date_string(decide_modal.session.date)} onChange={() => {}} disabled className="bg-gray-100" />
                             </div>
                              <div>
                                 <label className="block text-sm font-medium text-gray-700">رقم القرار</label>

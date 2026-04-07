@@ -1,4 +1,5 @@
 import * as React from 'react';
+import DatePicker from '../components/DatePicker';
 import { get_supabase_client } from '../supabaseClient';
 import { SiteFinancialEntry, Profile } from '../types';
 import { format_date, to_input_date_string, safe_revive_date } from '../utils/dateUtils';
@@ -478,7 +479,7 @@ const FinancialEntryModal: React.FC<ModalProps> = ({ isOpen, onClose, onSubmit, 
                         </div>
                         <div className="space-y-2">
                             <label className="block text-xs font-black text-slate-400 uppercase tracking-widest">تاريخ الدفع</label>
-                            <input type="date" name="payment_date" value={form_data.payment_date || ''} onChange={handle_change} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold" required />
+                            <DatePicker name="payment_date" value={form_data.payment_date || ''} onChange={(date, name) => handle_change({ target: { name, value: date } } as any)} required />
                         </div>
                     </div>
                     <div className="space-y-2">
@@ -532,11 +533,11 @@ const FinancialEntryModal: React.FC<ModalProps> = ({ isOpen, onClose, onSubmit, 
                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="space-y-1">
                                     <label className="block text-[10px] font-black text-blue-400 uppercase tracking-widest">تاريخ البدء</label>
-                                    <input type="date" name="new_subscription_start" value={form_data.new_subscription_start || ''} onChange={handle_change} className="w-full p-2 bg-white border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold text-sm" required={is_subscription_renewal} />
+                                    <DatePicker name="new_subscription_start" value={form_data.new_subscription_start || ''} onChange={(date, name) => handle_change({ target: { name, value: date } } as any)} required={is_subscription_renewal} />
                                 </div>
                                 <div className="space-y-1">
                                     <label className="block text-[10px] font-black text-blue-400 uppercase tracking-widest">تاريخ الانتهاء</label>
-                                    <input type="date" name="new_subscription_end" value={form_data.new_subscription_end || ''} onChange={handle_change} className="w-full p-2 bg-white border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold text-sm" required={is_subscription_renewal} />
+                                    <DatePicker name="new_subscription_end" value={form_data.new_subscription_end || ''} onChange={(date, name) => handle_change({ target: { name, value: date } } as any)} required={is_subscription_renewal} />
                                 </div>
                             </div>
                         </div>

@@ -1,5 +1,6 @@
 
 import * as React from 'react';
+import DatePicker from './DatePicker';
 import { Session, Stage } from '../types';
 import { format_date, is_before_today, is_today, is_weekend, get_public_holiday, parse_input_date_string, safe_revive_date } from '../utils/dateUtils';
 import { PencilIcon, TrashIcon, ScaleIcon, GavelIcon } from './icons';
@@ -183,15 +184,16 @@ const SessionsTable: React.FC<SessionsTableProps> = ({ sessions, onPostpone, onE
                 <tbody>
                     {sessions.map(s => {
                         const isStageDecided = stage ? !!stage.decision_date : !!s.stage_decision_date;
-                        const isOverdue = is_before_today(s.date) && !s.is_postponed && !isStageDecided;
-                        const isUpcoming = !is_before_today(s.date) && !is_today(s.date) && !s.is_postponed && !isStageDecided;
-                        const isTodaySession = is_today(s.date) && !s.is_postponed && !isStageDecided;
+                        const isEffectivelyPostponed = s.is_postponed || !!s.next_session_date;
+                        const isOverdue = is_before_today(s.date) && !isEffectivelyPostponed && !isStageDecided;
+                        const isUpcoming = !is_before_today(s.date) && !is_today(s.date) && !isEffectivelyPostponed && !isStageDecided;
+                        const isTodaySession = is_today(s.date) && !isEffectivelyPostponed && !isStageDecided;
 
                         // IMPORTANT: Only show postponement fields if onPostpone is provided AND other conditions met
-                        const showPostponeFields = !!onPostpone && !s.is_postponed && !isStageDecided && (!is_before_today(s.date) || allowPostponingPastSessions);
+                        const showPostponeFields = !!onPostpone && !isEffectivelyPostponed && !isStageDecided && (!is_before_today(s.date) || allowPostponingPastSessions);
                         const isEditing = (field: keyof Session) => onUpdate && editingCell?.sessionId === s.id && editingCell?.field === field;
                         const cellClasses = onUpdate ? "cursor-pointer hover:bg-blue-50 transition-colors duration-150" : "";
-                        const nextReasonCellClasses = (onUpdate && s.is_postponed) ? "cursor-pointer hover:bg-blue-50 transition-colors duration-150" : "";
+                        const nextReasonCellClasses = (onUpdate && isEffectivelyPostponed) ? "cursor-pointer hover:bg-blue-50 transition-colors duration-150" : "";
 
                         return (
                         <tr 
@@ -206,7 +208,8 @@ const SessionsTable: React.FC<SessionsTableProps> = ({ sessions, onPostpone, onE
                                 <div className="flex flex-col gap-1">
                                     {isEditing('court') ? <input type="text" value={edit_value || ''} onChange={e => set_edit_value(e.target.value)} onBlur={handleSaveEdit} onKeyDown={handleInputKeyDown} className="p-1 border rounded bg-white w-full" autoFocus /> : s.court}
                                     <div className="flex flex-wrap gap-1">
-                                        {s.is_postponed && <span className="px-1.5 py-0.5 bg-orange-100 text-orange-700 text-[10px] rounded-md font-bold">مؤجلة</span>}
+                                        {isStageDecided && <span className="px-1.5 py-0.5 bg-gray-100 text-gray-700 text-[10px] rounded-md font-bold border border-gray-300">حسمت</span>}
+                                        {isEffectivelyPostponed && <span className="px-1.5 py-0.5 bg-orange-100 text-orange-700 text-[10px] rounded-md font-bold">مؤجلة</span>}
                                         {isOverdue && <span className="px-1.5 py-0.5 bg-red-100 text-red-700 text-[10px] rounded-md font-bold">غير مرحلة</span>}
                                         {isUpcoming && <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-[10px] rounded-md font-bold">جلسة قادمة</span>}
                                         {isTodaySession && <span className="px-1.5 py-0.5 bg-green-100 text-green-700 text-[10px] rounded-md font-bold">جلسة اليوم</span>}
@@ -237,13 +240,11 @@ const SessionsTable: React.FC<SessionsTableProps> = ({ sessions, onPostpone, onE
                             {showPostponeFields ? (
                                 <>
                                     <td className="px-2 sm:px-6 py-4 no-print">
-                                        <input 
-                                            type="date" 
-                                            className={`p-2 border rounded-md w-full focus:outline-none focus:ring-2 ${errors[s.id] ? 'border-red-500 focus:ring-red-500' : 'focus:ring-blue-500'}`}
+                                        <DatePicker 
                                             value={postponeData[s.id]?.date || ''}
-                                            onChange={(e) => handleInputChange(s.id, 'date', e.target.value)}
+                                            onChange={(date) => handleInputChange(s.id, 'date', date)}
                                             aria-label="تاريخ الجلسة القادمة"
-                                            placeholder="DD/MM/YYYY"
+                                            className={errors[s.id] ? 'border-red-500 focus:ring-red-500' : ''}
                                         />
                                     </td>
                                     <td className="px-2 sm:px-6 py-4 no-print">
@@ -278,7 +279,7 @@ const SessionsTable: React.FC<SessionsTableProps> = ({ sessions, onPostpone, onE
                             ) : (
                                 <>
                                     <td className="px-2 sm:px-6 py-4 text-center no-print">{s.next_session_date ? format_date(s.next_session_date) : '-'}</td>
-                                    <td className={`px-2 sm:px-6 py-4 no-print ${nextReasonCellClasses}`} onClick={() => !isEditing('next_postponement_reason') && s.is_postponed && handleCellClick(s, 'next_postponement_reason')}>
+                                    <td className={`px-2 sm:px-6 py-4 no-print ${nextReasonCellClasses}`} onClick={() => !isEditing('next_postponement_reason') && isEffectivelyPostponed && handleCellClick(s, 'next_postponement_reason')}>
                                         {isEditing('next_postponement_reason') ? <input type="text" value={edit_value || ''} onChange={e => set_edit_value(e.target.value)} onBlur={handleSaveEdit} onKeyDown={handleInputKeyDown} className="p-1 border rounded bg-white w-full" autoFocus /> : (s.next_postponement_reason || '-')}
                                     </td>
                                     <td className="px-2 sm:px-6 py-4 text-center no-print">

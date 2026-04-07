@@ -163,7 +163,7 @@ export const fetch_data_from_supabase = async (user_id?: string): Promise<Partia
                 let p_attempt = 0;
                 while (p_attempt < 3) {
                     try {
-                        const res = await supabase.from('profiles').select('*').eq('id', user_id);
+                        const res = await supabase.from('profiles').select('*').or(`id.eq.${user_id},lawyer_id.eq.${user_id}`);
                         if (res.error) throw res.error;
                         profiles = res.data || [];
                         break;
@@ -317,7 +317,7 @@ export const upsert_data_to_supabase = async (data: Partial<FlatData>, user: Use
             name: client.name,
             contact_info: client.contact_info,
             updated_at: client.updated_at,
-            user_id: user_id_to_use
+            user_id: client.user_id || user_id_to_use
         })),
         cases: data.cases?.map(case_item => ({ 
             id: case_item.id,
@@ -328,7 +328,7 @@ export const upsert_data_to_supabase = async (data: Partial<FlatData>, user: Use
             status: case_item.status,
             updated_at: case_item.updated_at,
             client_id: case_item.client_id,
-            user_id: user_id_to_use
+            user_id: case_item.user_id || user_id_to_use
         })),
         stages: data.stages?.map(stage => ({ 
             id: stage.id,
@@ -341,7 +341,7 @@ export const upsert_data_to_supabase = async (data: Partial<FlatData>, user: Use
             decision_notes: stage.decision_notes,
             updated_at: stage.updated_at,
             case_id: stage.case_id,
-            user_id: user_id_to_use
+            user_id: stage.user_id || user_id_to_use
         })),
         sessions: data.sessions?.map((s: any) => ({ 
             id: s.id,
@@ -358,7 +358,7 @@ export const upsert_data_to_supabase = async (data: Partial<FlatData>, user: Use
             stage_id: s.stage_id,
             stage_decision_date: s.stage_decision_date,
             updated_at: s.updated_at,
-            user_id: user_id_to_use
+            user_id: s.user_id || user_id_to_use
         })),
         admin_tasks: data.admin_tasks?.map((task: any) => ({ 
             id: task.id,
@@ -370,7 +370,7 @@ export const upsert_data_to_supabase = async (data: Partial<FlatData>, user: Use
             location: task.location,
             updated_at: task.updated_at,
             order_index: task.order_index,
-            user_id: user_id_to_use
+            user_id: task.user_id || user_id_to_use
         })),
         appointments: data.appointments?.map((apt: any) => ({ 
             id: apt.id,
@@ -383,7 +383,7 @@ export const upsert_data_to_supabase = async (data: Partial<FlatData>, user: Use
             reminder_time_in_minutes: apt.reminder_time_in_minutes,
             assignee: apt.assignee,
             updated_at: apt.updated_at,
-            user_id: user_id_to_use
+            user_id: apt.user_id || user_id_to_use
         })),
         accounting_entries: data.accounting_entries?.map((entry: any) => ({ 
             id: entry.id,
@@ -395,9 +395,9 @@ export const upsert_data_to_supabase = async (data: Partial<FlatData>, user: Use
             case_id: entry.case_id,
             client_name: entry.client_name,
             updated_at: entry.updated_at,
-            user_id: user_id_to_use
+            user_id: entry.user_id || user_id_to_use
         })),
-        assistants: data.assistants?.map(item => ({ name: item.name, user_id: user_id_to_use })),
+        assistants: data.assistants?.map((item: any) => ({ name: item.name, user_id: item.user_id || user_id_to_use })),
         invoices: data.invoices?.map(inv => ({ 
             id: inv.id,
             client_id: inv.client_id,
@@ -411,7 +411,7 @@ export const upsert_data_to_supabase = async (data: Partial<FlatData>, user: Use
             status: inv.status,
             notes: inv.notes,
             updated_at: inv.updated_at,
-            user_id: user_id_to_use
+            user_id: inv.user_id || user_id_to_use
         })),
         invoice_items: data.invoice_items?.map((item: any) => ({ 
             id: item.id,
@@ -419,7 +419,7 @@ export const upsert_data_to_supabase = async (data: Partial<FlatData>, user: Use
             description: item.description,
             amount: item.amount,
             updated_at: item.updated_at,
-            user_id: user_id_to_use
+            user_id: item.user_id || user_id_to_use
         })),
         case_documents: data.case_documents?.map((doc: any) => ({ 
             id: doc.id,
@@ -430,7 +430,7 @@ export const upsert_data_to_supabase = async (data: Partial<FlatData>, user: Use
             added_at: doc.added_at,
             storage_path: doc.storage_path,
             updated_at: doc.updated_at,
-            user_id: user_id_to_use
+            user_id: doc.user_id || user_id_to_use
         })),
         profiles: data.profiles?.map((profile: any) => ({ 
             id: profile.id,
@@ -456,7 +456,7 @@ export const upsert_data_to_supabase = async (data: Partial<FlatData>, user: Use
             description: finance.description,
             payment_method: finance.payment_method,
             category: finance.category,
-            user_id: finance.user_id,
+            user_id: finance.user_id || user_id_to_use,
             updated_at: finance.updated_at
         })),
     };

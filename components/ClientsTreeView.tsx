@@ -208,7 +208,10 @@ const StageItem: React.FC<{ stage: Stage; caseItem: Case; client: Client; props:
                         الجلسات
                     </h5>
                     <SessionsTable
-                        sessions={stage.sessions.map(s => ({ ...s, stage_id: stage.id, stage_decision_date: stage.decision_date }))}
+                        sessions={stage.sessions
+                            .map(s => ({ ...s, stage_id: stage.id, stage_decision_date: stage.decision_date }))
+                            .sort((a, b) => safe_revive_date(a.date).getTime() - safe_revive_date(b.date).getTime())
+                        }
                         onPostpone={props.on_postpone_session}
                         onEdit={permissions?.can_edit_session ? (session) => props.on_edit_session(session, stage, caseItem, client) : undefined}
                         onDelete={permissions?.can_delete_session ? (sessionId) => props.on_delete_session(sessionId, stage.id, caseItem.id, client.id) : undefined}
@@ -472,10 +475,10 @@ const ClientItem: React.FC<{ client: Client; props: ClientsTreeViewProps; expand
 };
 
 const ClientsTreeView: React.FC<ClientsTreeViewProps> = (props) => {
-    const [expanded, setExpanded] = React.useState<ExpandedState>({});
+    const [expandedId, setExpandedId] = React.useState<string | null>(null);
 
     const toggle = (id: string) => {
-        setExpanded(prev => ({ ...prev, [id]: !prev[id] }));
+        setExpandedId(prevId => (prevId === id ? null : id));
     };
 
     if (props.clients.length === 0) {
@@ -489,7 +492,7 @@ const ClientsTreeView: React.FC<ClientsTreeViewProps> = (props) => {
                     key={client.id} 
                     client={client} 
                     props={props} 
-                    expanded={!!expanded[client.id]} 
+                    expanded={expandedId === client.id} 
                     onToggle={() => toggle(client.id)}
                 />
             ))}

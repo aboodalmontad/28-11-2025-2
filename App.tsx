@@ -12,16 +12,17 @@ import SubscriptionExpiredPage from './pages/SubscriptionExpiredPage';
 
 import ConfigurationModal from './components/ConfigurationModal';
 import { useSupabaseData, SyncStatus } from './hooks/useSupabaseData';
-import { UserIcon, CalculatorIcon, Cog6ToothIcon, PowerIcon, CalendarDaysIcon, ClipboardDocumentCheckIcon, ExclamationTriangleIcon, ArrowPathIcon, PrintIcon } from './components/icons';
+import { UserIcon, CalculatorIcon, Cog6ToothIcon, PowerIcon, CalendarDaysIcon, ClipboardDocumentCheckIcon, ExclamationTriangleIcon, ArrowPathIcon, PrintIcon, ShareIcon } from './components/icons';
 import ContextMenu, { MenuItem } from './components/ContextMenu';
 import AdminTaskModal from './components/AdminTaskModal';
 import { get_supabase_client } from './supabaseClient';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
 import { DataProvider } from './context/DataContext';
-import { safe_revive_date } from './utils/dateUtils';
+import { safe_revive_date, format_date, format_time, is_same_day } from './utils/dateUtils';
 import { printElement } from './utils/printUtils';
 import SyncStatusIndicator from './components/SyncStatusIndicator';
 import NotificationCenter from './components/RealtimeNotifier';
+import { AdminTask } from './types';
 
 type Page = 'home' | 'admin-tasks' | 'clients' | 'accounting' | 'settings';
 
@@ -34,6 +35,7 @@ interface NavbarProps {
     is_dirty: boolean;
     is_online: boolean;
     on_manual_sync: () => void;
+    on_generate_agenda: (e: React.MouseEvent) => void;
     userName: string;
     is_auto_sync_enabled: boolean;
     permissions: any;
@@ -41,7 +43,7 @@ interface NavbarProps {
     on_clear_log?: () => void;
 }
 
-const Navbar: React.FC<NavbarProps> = ({ currentPage, onNavigate, onLogout, sync_status, last_sync_error, is_dirty, is_online, on_manual_sync, userName, is_auto_sync_enabled, permissions, sync_log, on_clear_log }) => {
+const Navbar: React.FC<NavbarProps> = ({ currentPage, onNavigate, onLogout, sync_status, last_sync_error, is_dirty, is_online, on_manual_sync, on_generate_agenda, userName, is_auto_sync_enabled, permissions, sync_log, on_clear_log }) => {
     const navItems = [
         { id: 'home', label: 'المفكرة', icon: CalendarDaysIcon, visible: permissions.can_view_agenda }, 
         { id: 'admin-tasks', label: 'المهام', icon: ClipboardDocumentCheckIcon, visible: permissions.can_view_admin_tasks },
@@ -66,15 +68,8 @@ const Navbar: React.FC<NavbarProps> = ({ currentPage, onNavigate, onLogout, sync
                 </div>
             </div>
             <div className="flex items-center gap-2">
-                <button onClick={() => {
-                    const agendaElement = document.getElementById('print-section');
-                    if (agendaElement) {
-                        printElement(agendaElement);
-                    } else {
-                        window.print();
-                    }
-                }} className="p-2 rounded-full text-gray-500 hover:bg-gray-100" title="طباعة">
-                    <PrintIcon className="w-5 h-5" />
+                <button onClick={on_generate_agenda} className="p-2 rounded-full text-indigo-600 hover:bg-indigo-50" title="جدول الأعمال">
+                    <ClipboardDocumentCheckIcon className="w-5 h-5" />
                 </button>
                 <SyncStatusIndicator 
                     status={sync_status} 
@@ -145,6 +140,157 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
     const [adminTaskInitialData, setAdminTaskInitialData] = useState<any>(undefined);
     const [contextMenu, setContextMenu] = useState<any>({ isOpen: false, position: { x: 0, y: 0 }, menuItems: [] });
     const [selectedDate, setSelectedDate] = useState(new Date());
+
+    const handle_generate_agenda = (event: React.MouseEvent) => {
+        const pending_tasks = data.admin_tasks.filter(t => !t.completed);
+        const grouped_pending: Record<string, AdminTask[]> = pending_tasks.reduce((acc, task) => {
+            const location = task.location || 'غير محدد';
+            if (!acc[location]) acc[location] = [];
+            acc[location].push(task);
+            return acc;
+        }, {} as Record<string, AdminTask[]>);
+
+        const sessions = data.all_sessions.filter(s => is_same_day(safe_revive_date(s.date), selectedDate));
+        const appts = data.appointments.filter(a => is_same_day(safe_revive_date(a.date), selectedDate));
+
+        const menuItems: MenuItem[] = [
+            {
+                label: 'مشاركة عبر واتساب',
+                icon: <ShareIcon className="w-4 h-4" />,
+                onClick: () => {
+                    let text = `*جدول أعمال يوم: ${format_date(selectedDate)}*\n\n`;
+
+                    if (sessions.length > 0) {
+                        text += `*--- الجلسات ---*\n`;
+                        sessions.forEach(s => {
+                            text += `• ${s.client_name} ضد ${s.opponent_name}\n`;
+                            text += `  (${s.court} - ${s.case_number})\n`;
+                            if (s.assignee) text += `  المكلف: ${s.assignee}\n`;
+                        });
+                        text += `\n`;
+                    }
+
+                    if (appts.length > 0) {
+                        text += `*--- المواعيد ---*\n`;
+                        appts.forEach(a => {
+                            text += `• ${a.title} (${format_time(a.time)})\n`;
+                            if (a.assignee) text += `  المسؤول: ${a.assignee}\n`;
+                        });
+                        text += `\n`;
+                    }
+
+                    const locations = Object.keys(grouped_pending);
+                    if (locations.length > 0) {
+                        text += `*--- الأعمال الإدارية المعلقة ---*\n`;
+                        locations.forEach(loc => {
+                            text += `*📍 ${loc}:*\n`;
+                            grouped_pending[loc].forEach(t => {
+                                text += `  - ${t.task}\n`;
+                                if (t.assignee) text += `    المسؤول: ${t.assignee}\n`;
+                            });
+                        });
+                    }
+
+                    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
+                    window.open(whatsappUrl, '_blank');
+                }
+            },
+            {
+                label: 'طباعة جدول الأعمال',
+                icon: <PrintIcon className="w-4 h-4" />,
+                onClick: () => {
+                    const printWindow = window.open('', '_blank');
+                    if (!printWindow) return;
+
+                    const html = `
+                        <html dir="rtl">
+                        <head>
+                            <title>جدول أعمال - ${format_date(selectedDate)}</title>
+                            <style>
+                                body { font-family: 'Inter', sans-serif; padding: 40px; color: #333; }
+                                h1 { text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; }
+                                h2 { color: #2563eb; border-bottom: 1px solid #ddd; padding-bottom: 5px; margin-top: 30px; }
+                                h3 { color: #4b5563; margin-bottom: 5px; }
+                                .section { margin-bottom: 20px; }
+                                .item { margin-bottom: 10px; padding: 10px; background: #f9fafb; border-radius: 5px; }
+                                .location-group { margin-bottom: 20px; }
+                                .location-title { font-weight: bold; background: #e5e7eb; padding: 5px 10px; border-radius: 4px; margin-bottom: 10px; }
+                                .meta { font-size: 0.9em; color: #666; }
+                                .no-print-btn { 
+                                    display: block; 
+                                    width: 200px; 
+                                    margin: 20px auto; 
+                                    padding: 10px; 
+                                    background: #2563eb; 
+                                    color: white; 
+                                    text-align: center; 
+                                    text-decoration: none; 
+                                    border-radius: 5px; 
+                                    cursor: pointer;
+                                    border: none;
+                                    font-size: 16px;
+                                    font-weight: bold;
+                                }
+                                @media print {
+                                    .no-print-btn { display: none; }
+                                }
+                            </style>
+                        </head>
+                        <body>
+                            <button class="no-print-btn" onclick="window.print()">طباعة التقرير</button>
+                            <h1>جدول أعمال يوم: ${format_date(selectedDate)}</h1>
+                            
+                            ${sessions.length > 0 ? `
+                                <div class="section">
+                                    <h2>الجلسات</h2>
+                                    ${sessions.map(s => `
+                                        <div class="item">
+                                            <strong>${s.client_name} ضد ${s.opponent_name}</strong><br/>
+                                            <span class="meta">${s.court} - ${s.case_number}</span>
+                                            ${s.assignee ? `<br/><span class="meta">المكلف: ${s.assignee}</span>` : ''}
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            ` : ''}
+
+                            ${appts.length > 0 ? `
+                                <div class="section">
+                                    <h2>المواعيد</h2>
+                                    ${appts.map(a => `
+                                        <div class="item">
+                                            <strong>${a.title}</strong> - ${format_time(a.time)}
+                                            ${a.assignee ? `<br/><span class="meta">المسؤول: ${a.assignee}</span>` : ''}
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            ` : ''}
+
+                            ${Object.keys(grouped_pending).length > 0 ? `
+                                <div class="section">
+                                    <h2>الأعمال الإدارية المعلقة</h2>
+                                    ${Object.keys(grouped_pending).map(loc => `
+                                        <div class="location-group">
+                                            <div class="location-title">${loc}</div>
+                                            ${grouped_pending[loc].map(t => `
+                                                <div class="item">
+                                                    ${t.task}
+                                                    ${t.assignee ? `<br/><span class="meta">المسؤول: ${t.assignee}</span>` : ''}
+                                                </div>
+                                            `).join('')}
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            ` : ''}
+                        </body>
+                        </html>
+                    `;
+                    printWindow.document.write(html);
+                    printWindow.document.close();
+                }
+            }
+        ];
+        setContextMenu({isOpen: true, position: {x: event.clientX, y: event.clientY}, menuItems: menuItems});
+    };
     
     const supabase = get_supabase_client();
     const data = useSupabaseData(session?.user ?? null, isAuthLoading);
@@ -349,7 +495,7 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
         );
     }
 
-    if (profile && profile.role === 'admin') {
+    if (profile && profile.role === 'admin' && !data.admin_viewing_user_id) {
         return (
             <DataProvider value={data}>
                 <AdminDashboard 
@@ -384,6 +530,17 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
     return (
         <DataProvider value={data}>
             <div className="flex flex-col h-screen print:h-auto bg-gray-50 print:bg-white">
+                {data.admin_viewing_user_id && (
+                    <div className="bg-red-600 text-white p-2 text-center text-sm font-bold flex justify-center items-center gap-4">
+                        <span>أنت الآن تتصفح مكتب مستخدم آخر كمسؤول</span>
+                        <button 
+                            onClick={() => data.set_admin_viewing_user_id(null)}
+                            className="bg-white text-red-600 px-3 py-1 rounded-md text-xs hover:bg-red-50 transition-colors"
+                        >
+                            العودة للوحة الإدارة
+                        </button>
+                    </div>
+                )}
                 <Navbar 
                     currentPage={currentPage} 
                     onNavigate={setCurrentPage} 
@@ -393,6 +550,7 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
                     is_dirty={data.is_dirty} 
                     is_online={isOnline} 
                     on_manual_sync={data.manual_sync} 
+                    on_generate_agenda={handle_generate_agenda}
                     userName={userName} 
                     is_auto_sync_enabled={true} 
                     permissions={data.permissions} 

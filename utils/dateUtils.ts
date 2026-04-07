@@ -64,11 +64,21 @@ export const is_before_today = (date: Date | string): boolean => {
 export const format_date = (date: Date | string): string => {
     const d = safe_revive_date(date);
     if (isNaN(d.getTime())) return 'تاريخ غير صالح';
-    return new Intl.DateTimeFormat('ar-SY', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-    }).format(d);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
+};
+
+export const format_time = (time: string): string => {
+    if (!time) return '';
+    const parts = time.split(':');
+    if (parts.length < 2) return time;
+    const hours = parseInt(parts[0], 10);
+    const minutes = parts[1];
+    const ampm = hours >= 12 ? 'م' : 'ص';
+    const displayHours = hours % 12 || 12;
+    return `${displayHours}:${minutes} ${ampm}`;
 };
 
 /**
