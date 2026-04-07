@@ -471,7 +471,7 @@ const HomePage: React.FC<HomePageProps> = ({
             
             {main_view === 'agenda' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 print:block gap-6 animate-fade-in">
-                    <div className="lg:col-span-1 bg-white p-4 rounded-lg shadow space-y-4 no-print">
+                    <div className="lg:col-span-1 bg-white p-4 rounded-lg shadow space-y-4 no-print overflow-visible">
                         <Calendar 
                             onDateSelect={handle_date_select} 
                             selectedDate={selected_date} 

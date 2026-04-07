@@ -50,7 +50,7 @@ const Calendar: React.FC<CalendarProps> = ({ onDateSelect, selectedDate, session
                 <button onClick={() => changeMonth(-1)} className="p-2 rounded-full hover:bg-gray-100">
                     <ChevronLeftIcon className="w-6 h-6 transform rotate-180" />
                 </button>
-                <h2 className="text-lg font-bold">
+                <h2 className="text-lg font-bold truncate">
                     {monthYearFormatter.format(currentDate)}
                 </h2>
                 <button onClick={() => changeMonth(1)} className="p-2 rounded-full hover:bg-gray-100">
@@ -70,16 +70,16 @@ const Calendar: React.FC<CalendarProps> = ({ onDateSelect, selectedDate, session
                     const isWknd = is_weekend(day);
                     let title = holidayName || '';
                     
-                    let dayClasses = "relative flex flex-col items-center justify-start pt-2 h-12 w-full rounded-full cursor-pointer transition-colors duration-200";
+                    let dayClasses = "relative flex flex-col items-center justify-start pt-1 min-h-[3rem] w-full rounded-lg cursor-pointer transition-colors duration-200";
 
                     if (isSelected) {
-                        dayClasses += " bg-blue-600 text-white";
+                        dayClasses += " bg-blue-600 text-white shadow-md";
                     } else if (holidayName) {
-                        dayClasses += " bg-red-100 text-red-800 font-semibold hover:bg-red-200";
+                        dayClasses += " bg-red-50 text-red-800 font-semibold hover:bg-red-100";
                     } else if (isCurrentDay) {
-                        dayClasses += " bg-blue-100 text-blue-700 font-bold";
+                        dayClasses += " bg-blue-50 text-blue-700 font-bold ring-1 ring-blue-200";
                     } else if (isWknd) {
-                        dayClasses += " bg-gray-100 text-gray-500";
+                        dayClasses += " bg-gray-50 text-gray-400";
                     } else {
                         dayClasses += " hover:bg-gray-100";
                     }
@@ -87,15 +87,15 @@ const Calendar: React.FC<CalendarProps> = ({ onDateSelect, selectedDate, session
 
                     return (
                         <div key={day.toString()} onClick={() => onDateSelect(day)} className={dayClasses} title={title}>
-                            <span>{dayFormatter.format(day)}</span>
-                             <div className="absolute bottom-1.5 flex w-full justify-center items-center gap-1">
+                            <span className="text-sm">{dayFormatter.format(day)}</span>
+                             <div className="mt-auto mb-1 flex w-full justify-center items-center gap-0.5 px-0.5">
                                 {sessionCount > 0 && (
-                                    <span className="flex items-center justify-center w-5 h-5 text-xs font-semibold text-white bg-green-500 rounded-full" title={`${numberFormatter.format(sessionCount)} جلسات`}>
+                                    <span className="flex items-center justify-center min-w-[1.25rem] h-5 px-1 text-[10px] font-bold text-white bg-green-500 rounded-full shadow-sm" title={`${numberFormatter.format(sessionCount)} جلسات`}>
                                         {numberFormatter.format(sessionCount)}
                                     </span>
                                 )}
                                 {appointmentCount > 0 && (
-                                    <span className="flex items-center justify-center w-5 h-5 text-xs font-semibold text-white bg-purple-500 rounded-full" title={`${numberFormatter.format(appointmentCount)} مواعيد`}>
+                                    <span className="flex items-center justify-center min-w-[1.25rem] h-5 px-1 text-[10px] font-bold text-white bg-purple-500 rounded-full shadow-sm" title={`${numberFormatter.format(appointmentCount)} مواعيد`}>
                                         {numberFormatter.format(appointmentCount)}
                                     </span>
                                 )}
