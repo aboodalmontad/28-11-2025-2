@@ -154,7 +154,7 @@ const SiteFinancesPage: React.FC = () => {
                 return acc; 
             }
             const monthStart = new Date(d.getFullYear(), d.getMonth(), 1);
-            const monthKey = monthStart.toISOString();
+            const monthKey = to_input_date_string(monthStart);
 
             if (!acc[monthKey]) {
                 acc[monthKey] = {
@@ -420,7 +420,8 @@ const FinancialEntryModal: React.FC<ModalProps> = ({ isOpen, onClose, onSubmit, 
                 const user = users.find(u => u.id === form_data.user_id);
                 const current_end = user?.subscription_end_date ? safe_revive_date(user.subscription_end_date) : new Date();
                 const new_start = to_input_date_string(current_end);
-                const new_end = to_input_date_string(new Date(current_end.getTime() + 365 * 24 * 60 * 60 * 1000));
+                const new_end_date = new Date(current_end.getFullYear() + 1, current_end.getMonth(), current_end.getDate());
+                const new_end = to_input_date_string(new_end_date);
                 
                 set_form_data((prev: any) => ({ 
                     ...prev, 
@@ -441,7 +442,8 @@ const FinancialEntryModal: React.FC<ModalProps> = ({ isOpen, onClose, onSubmit, 
             const user = users.find(u => u.id === userId);
             const current_end = user?.subscription_end_date ? safe_revive_date(user.subscription_end_date) : new Date();
             const new_start = to_input_date_string(current_end);
-            const new_end = to_input_date_string(new Date(current_end.getTime() + 365 * 24 * 60 * 60 * 1000));
+            const new_end_date = new Date(current_end.getFullYear() + 1, current_end.getMonth(), current_end.getDate());
+            const new_end = to_input_date_string(new_end_date);
 
             set_form_data((prev: any) => ({ 
                 ...prev, 

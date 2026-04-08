@@ -18,24 +18,35 @@ export const get_first_day_of_month = (year: number, month: number): number => {
  * Returns the current date if the input is invalid or null.
  */
 export const safe_revive_date = (date: any): Date => {
-    if (!date) return new Date();
+    if (!date) return new Date(0); // Use epoch for null/undefined to allow comparison
     
     // Handle strings specifically to avoid browser inconsistencies and timezone shifts
     if (typeof date === 'string') {
-        // Handle YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss...
-        // If it's a date-only string or a date-time string at midnight, 
-        // we treat it as a local calendar date to avoid shifting back a day in negative timezones.
-        const dateMatch = date.match(/^(\d{4})-(\d{2})-(\d{2})(T(00:00:00|23:59:59))?/);
-        if (dateMatch) {
-            const y = parseInt(dateMatch[1], 10);
-            const m = parseInt(dateMatch[2], 10);
-            const d = parseInt(dateMatch[3], 10);
+        // ONLY handle YYYY-MM-DD (exactly 10 chars) or YYYY-MM-DD with midnight/end-of-day
+        // to avoid shifting back a day in negative timezones for calendar dates.
+        // For full ISO strings with time, we MUST preserve the time for sync precision.
+        const dateOnlyMatch = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (dateOnlyMatch) {
+            const y = parseInt(dateOnlyMatch[1], 10);
+            const m = parseInt(dateOnlyMatch[2], 10);
+            const d = parseInt(dateOnlyMatch[3], 10);
             return new Date(y, m - 1, d);
+        }
+        
+        // If it's a date-time string at exactly midnight or 23:59:59 (even with Z or offset), 
+        // we treat it as local to avoid shifting the day for calendar dates.
+        // Also catch strings like "2026-04-10T00:00:00.000" or "2026-04-10 00:00:00+00"
+        const midnightMatch = date.match(/^(\d{4})-(\d{2})-(\d{2})[T ](00:00:00|23:59:59)(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/);
+        if (midnightMatch) {
+            const y = parseInt(midnightMatch[1], 10);
+            const m = parseInt(midnightMatch[2], 10);
+            const d = parseInt(midnightMatch[3], 10);
+            return new Date(y, m - 1, d, midnightMatch[4] === '00:00:00' ? 0 : 23, midnightMatch[4] === '00:00:00' ? 0 : 59, midnightMatch[4] === '00:00:00' ? 0 : 59);
         }
     }
     
     const d = new Date(date);
-    return isNaN(d.getTime()) ? new Date() : d;
+    return isNaN(d.getTime()) ? new Date(0) : d;
 };
 
 export const is_same_day = (d1: Date | string | null | undefined, d2: Date | string | null | undefined): boolean => {

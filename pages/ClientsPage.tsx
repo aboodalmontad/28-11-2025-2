@@ -190,7 +190,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ show_context_menu, on_open_ad
     };
 
     const handle_postpone_session = (session_id: string, new_date: Date, reason: string) => {
-        const warning = postpone_session(session_id, new_date.toISOString(), reason);
+        const warning = postpone_session(session_id, to_input_date_string(new_date), reason);
         if (warning) {
             alert(warning);
         }

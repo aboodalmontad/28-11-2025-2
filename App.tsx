@@ -18,7 +18,7 @@ import AdminTaskModal from './components/AdminTaskModal';
 import { get_supabase_client } from './supabaseClient';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
 import { DataProvider } from './context/DataContext';
-import { safe_revive_date, format_date, format_time, is_same_day } from './utils/dateUtils';
+import { safe_revive_date, format_date, format_time, is_same_day, is_before_today } from './utils/dateUtils';
 import { printElement } from './utils/printUtils';
 import SyncStatusIndicator from './components/SyncStatusIndicator';
 import NotificationCenter from './components/RealtimeNotifier';
@@ -316,7 +316,7 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
                 is_active: true,
                 mobile_verified: is_admin,
                 subscription_start_date: new Date().toISOString(),
-                subscription_end_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+                subscription_end_date: new Date(new Date().getFullYear() + 1, new Date().getMonth(), new Date().getDate()).toISOString(),
             };
             
             const { error } = await supabase.from('profiles').upsert([newProfile]);
@@ -525,7 +525,7 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
     }
 
     if (profile && profile.role !== 'admin' && (!profile.is_approved || !profile.is_active)) return <PendingApprovalPage onLogout={handleLogout} />;
-    if (profile && profile.subscription_end_date && safe_revive_date(profile.subscription_end_date) < new Date()) return <SubscriptionExpiredPage onLogout={handleLogout} />;
+    if (profile && profile.subscription_end_date && is_before_today(profile.subscription_end_date)) return <SubscriptionExpiredPage onLogout={handleLogout} />;
 
     return (
         <DataProvider value={data}>

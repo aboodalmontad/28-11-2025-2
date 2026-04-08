@@ -5,6 +5,7 @@ import type { User } from '@supabase/supabase-js';
 import { use_sync, SyncStatus as SyncStatusType, SyncLogEntry } from './useSync';
 import { get_supabase_client } from '../supabaseClient';
 import { is_before_today, to_input_date_string, is_holiday, safe_revive_date } from '../utils/dateUtils';
+import { generateId } from '../utils/idUtils';
 import { RealtimeAlert } from '../components/RealtimeNotifier';
 import { get_db, DATA_STORE_NAME, DELETED_IDS_STORE_NAME, DOCS_FILES_STORE_NAME } from '../utils/db';
 
@@ -717,7 +718,7 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
                 const new_docs: CaseDocument[] = [];
                 for (let i = 0; i < files.length; i++) {
                     const file = files[i];
-                    const id = crypto.randomUUID();
+                    const id = generateId('doc');
                     const safe_filename = encodeURIComponent(file.name);
                     const storage_path = `${effective_user_id}/${case_id}/${id}-${safe_filename}`;
                     
@@ -753,6 +754,10 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
             if (is_holiday(safe_revive_date(next_date))) {
                 return 'تحذير: التاريخ المختار يصادف عطلة رسمية أو نهاية أسبوع.';
             }
+            
+            // Ensure next_date is just YYYY-MM-DD to avoid timezone shifts
+            const normalized_next_date = to_input_date_string(next_date);
+
             set_full_data(prev => {
                 // Find the session and its context
                 let found_client_id = '';
@@ -785,22 +790,25 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
                     ...prev,
                     clients: prev.clients.map(c => c.id === found_client_id ? {
                         ...c,
+                        updated_at: now,
                         cases: c.cases.map(cs => cs.id === found_case_id ? {
                             ...cs,
+                            updated_at: now,
                             stages: cs.stages.map(st => st.id === found_stage_id ? {
                                ...st,
+                                updated_at: now,
                                 sessions: [
                                     ...st.sessions.map(s => s.id === session_id ? {
                                         ...s,
                                         is_postponed: true,
-                                        next_session_date: next_date,
+                                        next_session_date: normalized_next_date,
                                         next_postponement_reason: reason,
                                         updated_at: now
                                     } : s),
                                     {
                                         ...found_session!,
-                                        id: crypto.randomUUID(),
-                                        date: next_date,
+                                        id: generateId('session'),
+                                        date: normalized_next_date,
                                         is_postponed: false,
                                         postponement_reason: reason,
                                         next_session_date: undefined,

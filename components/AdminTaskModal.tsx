@@ -54,7 +54,7 @@ const AdminTaskModal: React.FC<AdminTaskModalProps> = ({ isOpen, onClose, onSubm
             // Spread task_form_data to include any other properties like order_index if they exist
             ...task_form_data,
             id: initialData?.id, // Override with id from initialData for editing
-            due_date: taskDate.toISOString(), // Use the ISO string
+            due_date: to_input_date_string(taskDate), // Use the YYYY-MM-DD string
             location: task_form_data.location || 'غير محدد', // Ensure location has a default
         } as Omit<AdminTask, 'completed'> & { id?: string });
     };

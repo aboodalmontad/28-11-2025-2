@@ -4,7 +4,7 @@ import JSZip from 'jszip';
 import DatePicker from '../components/DatePicker';
 import { get_supabase_client } from '../supabaseClient';
 import { Profile } from '../types';
-import { format_date, to_input_date_string, safe_revive_date } from '../utils/dateUtils';
+import { format_date, to_input_date_string, safe_revive_date, is_before_today } from '../utils/dateUtils';
 import { CheckCircleIcon, NoSymbolIcon, PencilIcon, TrashIcon, ExclamationTriangleIcon, PhoneIcon, ShareIcon, ArrowPathIcon, ClipboardDocumentIcon, UserIcon, UserGroupIcon, FolderIcon } from '../components/icons';
 import { useData } from '../context/DataContext';
 import UserDetailsModal from '../components/UserDetailsModal';
@@ -80,7 +80,7 @@ const UserRow: React.FC<UserRowProps> = ({ user, lawyer, on_view, on_edit, on_de
     const is_assistant = !!lawyer;
     
     // Check parent status: Active, Approved, and Subscription Valid
-    const is_parent_subscription_valid = lawyer ? (!lawyer.subscription_end_date || safe_revive_date(lawyer.subscription_end_date) >= new Date()) : true;
+    const is_parent_subscription_valid = lawyer ? (!lawyer.subscription_end_date || !is_before_today(lawyer.subscription_end_date)) : true;
     const is_parent_active = lawyer ? (lawyer.is_active && lawyer.is_approved && is_parent_subscription_valid) : true;
 
     return (

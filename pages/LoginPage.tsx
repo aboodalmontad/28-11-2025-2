@@ -7,6 +7,7 @@ import { get_app_data_key } from '../hooks/useSupabaseData';
 import { ExclamationCircleIcon, EyeIcon, EyeSlashIcon, ClipboardDocumentIcon, ClipboardDocumentCheckIcon, ArrowTopRightOnSquareIcon, CheckCircleIcon, UserGroupIcon, KeyIcon, ArrowPathIcon, ShareIcon, ClockIcon } from '../components/icons';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { normalize_mobile_for_db, normalize_mobile_to_e164 } from '../utils/mobileUtils';
+import { to_input_date_string } from '../utils/dateUtils';
 import type { User } from '@supabase/supabase-js';
 
 interface auth_page_props {
@@ -415,16 +416,15 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
             if (is_verified) {
                 // Automatically approve and activate the user with a 1-month free trial
                 const now = new Date();
-                const oneMonthLater = new Date();
-                oneMonthLater.setDate(now.getDate() + 30);
+                const oneMonthLater = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
 
                 const { error: updateError } = await supabase
                     .from('profiles')
                     .update({
                         is_approved: true,
                         is_active: true,
-                        subscription_start_date: now.toISOString(),
-                        subscription_end_date: oneMonthLater.toISOString(),
+                        subscription_start_date: to_input_date_string(now),
+                        subscription_end_date: to_input_date_string(oneMonthLater),
                         updated_at: now.toISOString()
                     })
                     .eq('mobile_number', normalized_mobile);
@@ -492,6 +492,8 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
                     if (!profile) {
                         console.log("Profile missing for user, creating one...");
                         const normalized_mobile = normalize_mobile_for_db(form.mobile) || form.mobile;
+                        const now = new Date();
+                        const oneYearLater = new Date(now.getFullYear() + 1, now.getMonth(), now.getDate());
                         const new_profile = {
                             id: sign_in_data.user.id,
                             full_name: sign_in_data.user.user_metadata?.full_name || "مستخدم",
@@ -500,8 +502,8 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
                             is_approved: true,
                             is_active: true,
                             mobile_verified: true,
-                            subscription_start_date: new Date().toISOString(),
-                            subscription_end_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+                            subscription_start_date: to_input_date_string(now),
+                            subscription_end_date: to_input_date_string(oneYearLater),
                         };
                         const { data: created_profile, error: create_error } = await supabase.from('profiles').upsert([new_profile]).select().single();
                         if (!create_error) profile = created_profile;
@@ -589,6 +591,8 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
                     if (standard_error) throw standard_error;
                     if (standard_data.user) {
                         // Create profile manually since trigger might be missing
+                        const now = new Date();
+                        const oneYearLater = new Date(now.getFullYear() + 1, now.getMonth(), now.getDate());
                         await supabase.from('profiles').upsert([{
                             id: standard_data.user.id,
                             full_name: form.full_name,
@@ -598,8 +602,8 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
                             is_active: true,
                             mobile_verified: false,
                             lawyer_id: null,
-                            subscription_start_date: new Date().toISOString(),
-                            subscription_end_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+                            subscription_start_date: to_input_date_string(now),
+                            subscription_end_date: to_input_date_string(oneYearLater),
                         }]);
                         
                         try { await supabase.rpc('generate_mobile_otp', { target_user_id: standard_data.user.id }); } catch (e) {}
@@ -607,6 +611,8 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
                         set_auth_step('otp');
                     }
                 } else if (data.user) {
+                    const now = new Date();
+                    const oneYearLater = new Date(now.getFullYear() + 1, now.getMonth(), now.getDate());
                     // Create profile manually for admin-created user
                     await supabase.from('profiles').upsert([{
                         id: data.user.id,
@@ -617,8 +623,8 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
                         is_active: true,
                         mobile_verified: false, // Set to false so they go through activation
                         lawyer_id: null,
-                        subscription_start_date: new Date().toISOString(),
-                        subscription_end_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+                        subscription_start_date: to_input_date_string(now),
+                        subscription_end_date: to_input_date_string(oneYearLater),
                     }]);
 
                     try { await supabase.rpc('generate_mobile_otp', { target_user_id: data.user.id }); } catch (e) {}

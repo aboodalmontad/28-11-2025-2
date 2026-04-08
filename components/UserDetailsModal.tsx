@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Profile, SiteFinancialEntry } from '../types';
 import { useData } from '../context/DataContext';
-import { format_date, safe_revive_date } from '../utils/dateUtils';
+import { format_date, safe_revive_date, is_before_today } from '../utils/dateUtils';
 import { XMarkIcon, PhoneIcon, UserGroupIcon, FolderIcon, CalendarDaysIcon, DocumentTextIcon, CheckCircleIcon, NoSymbolIcon, PencilIcon, ExclamationTriangleIcon } from './icons';
 
 interface UserDetailsModalProps {
@@ -65,7 +65,7 @@ const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ user, onClose, onEd
         if (!user.is_active) return { text: 'حساب غير نشط', color: 'bg-red-100 text-red-800' };
         
         const end_date = user.subscription_end_date ? safe_revive_date(user.subscription_end_date) : null;
-        if (end_date && end_date < new Date()) {
+        if (user.subscription_end_date && is_before_today(user.subscription_end_date)) {
             return { text: 'اشتراك منتهي', color: 'bg-red-100 text-red-800' };
         }
         
@@ -80,8 +80,10 @@ const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ user, onClose, onEd
     let progress = 0;
     if (start_date && end_date) {
         const total_duration = end_date.getTime() - start_date.getTime();
-        const elapsed = new Date().getTime() - start_date.getTime();
-        days_remaining = Math.max(0, Math.ceil((end_date.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)));
+        const now = new Date();
+        const today_start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const elapsed = today_start.getTime() - start_date.getTime();
+        days_remaining = Math.max(0, Math.ceil((end_date.getTime() - today_start.getTime()) / (1000 * 60 * 60 * 24)));
         progress = Math.max(0, Math.min(100, (elapsed / total_duration) * 100));
     }
 
