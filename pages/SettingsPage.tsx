@@ -22,7 +22,8 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
         set_admin_tasks_layout, 
         delete_assistant, 
         export_data, 
-        permissions 
+        permissions,
+        is_update_available
     } = useData();
     const [feedback, set_feedback] = React.useState<{ message: string; type: 'success' | 'error' } | null>(null);
     const [is_confirm_modal_open, set_is_confirm_modal_open] = React.useState(false);
@@ -74,6 +75,7 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
                 }
             }
             setTimeout(() => {
+                localStorage.setItem('app_version', '12-4-2026-5');
                 window.location.reload();
             }, 1000);
         } catch (error) {
@@ -115,19 +117,21 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
             {/* ... (Other sections: Layout, DB Inspect, Export/Import, Assistants List, Clear Data) ... */}
             <div className="bg-white p-6 rounded-lg shadow space-y-4"><h2 className="text-xl font-bold text-gray-800 border-b pb-3">تخطيط المهام</h2><div className="pt-2 flex gap-4"><button onClick={() => set_admin_tasks_layout('horizontal')} className={`px-4 py-2 rounded ${admin_tasks_layout === 'horizontal' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>أفقي</button><button onClick={() => set_admin_tasks_layout('vertical')} className={`px-4 py-2 rounded ${admin_tasks_layout === 'vertical' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>عمودي</button></div></div>
             <div className="bg-white p-6 rounded-lg shadow space-y-4"><h2 className="text-xl font-bold text-gray-800 border-b pb-3">فحص البيانات</h2><button onClick={handle_inspect_db} className="px-4 py-2 bg-gray-600 text-white rounded">فحص</button>{db_stats && <pre className="mt-4 bg-gray-100 p-4 rounded text-xs">{db_stats}</pre>}</div>
-            <div className="bg-white p-6 rounded-lg shadow space-y-4">
-                <h2 className="text-xl font-bold text-gray-800 border-b pb-3 flex items-center gap-2">
-                    <ArrowPathIcon className="w-6 h-6 text-blue-600" />
-                    تحديث النظام
-                </h2>
-                <p className="text-gray-600 text-sm">إذا لم تظهر التعديلات الجديدة أو واجهت مشكلة في العرض، يمكنك تحديث التطبيق ومسح الذاكرة المؤقتة (الكاش) لجلب أحدث التغييرات.</p>
-                <div className="pt-2">
-                    <button onClick={handle_hard_refresh} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors">
-                        <ArrowPathIcon className="w-5 h-5" />
-                        <span>تحديث التطبيق ومسح الكاش</span>
-                    </button>
+            {is_update_available && (
+                <div className="bg-white p-6 rounded-lg shadow space-y-4">
+                    <h2 className="text-xl font-bold text-gray-800 border-b pb-3 flex items-center gap-2">
+                        <ArrowPathIcon className="w-6 h-6 text-blue-600" />
+                        تحديث النظام
+                    </h2>
+                    <p className="text-gray-600 text-sm">إذا لم تظهر التعديلات الجديدة أو واجهت مشكلة في العرض، يمكنك تحديث التطبيق ومسح الذاكرة المؤقتة (الكاش) لجلب أحدث التغييرات.</p>
+                    <div className="pt-2">
+                        <button onClick={handle_hard_refresh} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors">
+                            <ArrowPathIcon className="w-5 h-5" />
+                            <span>تحديث التطبيق ومسح الكاش</span>
+                        </button>
+                    </div>
                 </div>
-            </div>
+            )}
 
             <div className="bg-white p-6 rounded-lg shadow space-y-4">
                 <h2 className="text-xl font-bold text-gray-800 border-b pb-3 flex items-center gap-2">
@@ -147,7 +151,10 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
                     </label>
                 </div>
             </div>
-            <div className="bg-white p-6 rounded-lg shadow space-y-6"><h2 className="text-xl font-bold text-gray-800 border-b pb-3">قائمة المساعدين (للقوائم المنسدلة)</h2><div className="space-y-4"><form onSubmit={handle_add_assistant} className="flex gap-2"><input type="text" value={new_assistant} onChange={e => set_new_assistant(e.target.value)} className="flex-grow p-2 border rounded" placeholder="اسم" /><button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded">إضافة</button></form><ul className="space-y-2">{assistants.map(a => <li key={a} className="flex justify-between p-2 bg-gray-50 border rounded">{a}{a !== 'بدون تخصيص' && <button onClick={() => handle_delete_assistant(a)}><TrashIcon className="w-4 h-4 text-red-500"/></button>}</li>)}</ul></div></div>
+            <div className="bg-white p-6 rounded-lg shadow space-y-6"><h2 className="text-xl font-bold text-gray-800 border-b pb-3">قائمة المساعدين (للقوائم المنسدلة)</h2><div className="space-y-4"><form onSubmit={handle_add_assistant} className="flex gap-2"><input type="text" value={new_assistant} onChange={e => set_new_assistant(e.target.value)} className="flex-grow p-2 border rounded" placeholder="اسم" /><button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded">إضافة</button></form><ul className="space-y-2">{assistants.map(a => {
+    const name = typeof a === 'string' ? a : a.name;
+    return <li key={name} className="flex justify-between p-2 bg-gray-50 border rounded">{name}{name !== 'بدون تخصيص' && <button onClick={() => handle_delete_assistant(name)}><TrashIcon className="w-4 h-4 text-red-500"/></button>}</li>;
+})}</ul></div></div>
             <div className="bg-white p-6 rounded-lg shadow space-y-4"><h2 className="text-xl font-bold text-gray-800 border-b pb-3">خطر</h2><button onClick={() => set_is_confirm_modal_open(true)} className="px-4 py-2 bg-red-600 text-white rounded">مسح كافة البيانات</button></div>
 
             {is_confirm_modal_open && <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"><div className="bg-white p-8 rounded shadow-lg"><p className="mb-4">هل أنت متأكد؟</p><div className="flex gap-4"><button onClick={() => set_is_confirm_modal_open(false)} className="px-4 py-2 bg-gray-200 rounded">إلغاء</button><button onClick={handle_confirm_clear_data} className="px-4 py-2 bg-red-600 text-white rounded">نعم</button></div></div></div>}

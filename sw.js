@@ -1,6 +1,6 @@
 
 // This version number is incremented to trigger the 'install' event and update the cache.
-const CACHE_NAME = 'lawyer-app-cache-v27-12-2025-4';
+const CACHE_NAME = 'lawyer-app-cache-v2026-04-12-10-57'; // Updated for version 12-4-2026-5 (Force Refresh)
 
 // The list of URLs to cache explicitly (App Shell)
 const urlsToCache = [

@@ -1,13 +1,14 @@
 
 import * as React from 'react';
 import AdminPage from './AdminPage';
-import { PowerIcon, UserGroupIcon, ChartPieIcon, Bars3Icon, XMarkIcon, CurrencyDollarIcon, Cog6ToothIcon, ExclamationTriangleIcon } from '../components/icons';
+import { PowerIcon, UserGroupIcon, UserIcon, ChartPieIcon, Bars3Icon, XMarkIcon, CurrencyDollarIcon, Cog6ToothIcon, ExclamationTriangleIcon, ArrowPathIcon, CloudArrowDownIcon } from '../components/icons';
 import { useData } from '../context/DataContext';
 import AdminAnalyticsPage from './AdminAnalyticsPage';
 import SiteFinancesPage from './SiteFinancesPage';
 import AdminTestsPage from './AdminTestsPage';
 import AdminSettingsPage from './AdminSettingsPage';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
+import { fetch_data_from_supabase } from '../hooks/useOnlineData';
 
 interface AdminDashboardProps {
     on_logout: () => void;
@@ -45,14 +46,85 @@ const NavLink: React.FC<{
 
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ on_logout, on_open_config }) => {
-    const { profiles, is_data_loading: loading } = useData();
+    const { profiles, is_data_loading: loading, admin_viewing_user_id, set_admin_viewing_user_id, unfiltered_data, is_update_available } = useData();
     const [view, set_view] = React.useState<AdminView>('users');
     const [is_mobile_menu_open, set_is_mobile_menu_open] = React.useState(false);
+    const [is_backing_up, set_is_backing_up] = React.useState(false);
     const is_online = useOnlineStatus();
+
+    const viewing_user_stats = React.useMemo(() => {
+        if (!admin_viewing_user_id || !unfiltered_data) return null;
+        const user_clients = unfiltered_data.clients.filter((c: any) => c.user_id === admin_viewing_user_id);
+        const user_cases = user_clients.flatMap((c: any) => c.cases || []);
+        const user_sessions = user_cases.flatMap((cs: any) => (cs.stages || []).flatMap((st: any) => st.sessions || []));
+        const user_documents = (unfiltered_data.documents || []).filter((d: any) => d.user_id === admin_viewing_user_id);
+
+        return {
+            clients: user_clients.length,
+            active_cases: user_cases.filter((cs: any) => cs.status === 'active').length,
+            sessions: user_sessions.length,
+            documents: user_documents.length
+        };
+    }, [admin_viewing_user_id, unfiltered_data]);
 
     const pending_users_count = React.useMemo(() => {
         return profiles.filter(p => !p.is_approved && p.role !== 'admin').length;
     }, [profiles]);
+
+    const handle_admin_backup = async () => {
+        if (is_backing_up) return;
+        set_is_backing_up(true);
+        try {
+            const fullData = await fetch_data_from_supabase();
+            const adminOnlyData = {
+                profiles: fullData.profiles || [],
+                site_finances: fullData.site_finances || [],
+                assistants: fullData.assistants || [],
+                sync_deletions: fullData.sync_deletions || []
+            };
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const filename = `lawyer_admin_only_backup_${timestamp}.json`;
+            const jsonString = JSON.stringify(adminOnlyData, null, 2);
+            const blob = new Blob([jsonString], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            alert('تم تحميل نسخة بيانات لوحة التحكم بنجاح.');
+        } catch (error: any) {
+            console.error('Admin backup failed:', error);
+            alert(`فشل النسخ الاحتياطي: ${error.message}`);
+        } finally {
+            set_is_backing_up(false);
+        }
+    };
+
+    const handle_hard_refresh = async () => {
+        if (!confirm('هل تريد مسح الذاكرة المؤقتة وتحديث النظام؟ سيتم إعادة تحميل الصفحة.')) return;
+        try {
+            if ('serviceWorker' in navigator) {
+                const registrations = await navigator.serviceWorker.getRegistrations();
+                for (let registration of registrations) {
+                    await registration.unregister();
+                }
+            }
+            if ('caches' in window) {
+                const cacheNames = await caches.keys();
+                for (let name of cacheNames) {
+                    await caches.delete(name);
+                }
+            }
+            localStorage.setItem('app_version', '12-4-2026-5');
+            window.location.reload();
+        } catch (error) {
+            console.error('Error clearing cache:', error);
+            window.location.reload();
+        }
+    };
 
     // Automatically unlock audio and vibration on component mount.
     React.useEffect(() => {
@@ -140,6 +212,25 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ on_logout, on_open_conf
 
                         {/* User Actions */}
                         <div className="flex items-center gap-2">
+                            <button 
+                                onClick={handle_admin_backup}
+                                disabled={is_backing_up}
+                                className="hidden lg:flex items-center gap-2 px-3 py-1.5 text-[10px] font-black text-white bg-indigo-600 hover:bg-indigo-700 rounded-full shadow-sm transition-all active:scale-95 disabled:opacity-50"
+                                title="تحميل نسخة احتياطية لبيانات لوحة التحكم"
+                            >
+                                {is_backing_up ? <ArrowPathIcon className="w-3 h-3 animate-spin" /> : <CloudArrowDownIcon className="w-3 h-3" />}
+                                نسخة الإدارة
+                            </button>
+                            {is_update_available && (
+                                <button 
+                                    onClick={handle_hard_refresh}
+                                    className="hidden sm:flex items-center gap-2 px-3 py-1.5 text-[10px] font-black text-white bg-blue-600 hover:bg-blue-700 rounded-full shadow-sm transition-all active:scale-95 animate-pulse"
+                                    title="تحديث النظام ومسح الكاش"
+                                >
+                                    <ArrowPathIcon className="w-3 h-3" />
+                                    تحديث (12-4-2026-5)
+                                </button>
+                            )}
                             <div className="hidden sm:flex items-center gap-2 px-3 py-1 bg-green-50 text-green-700 rounded-full border border-green-100 text-xs font-bold">
                                 <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
                                 متصل
@@ -196,6 +287,50 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ on_logout, on_open_conf
 
             {/* Main Content Area */}
             <main className="flex-grow p-4 md:p-6 lg:p-10 max-w-[1600px] mx-auto w-full">
+                {admin_viewing_user_id && (
+                    <div className="mb-6 bg-blue-600 text-white p-6 rounded-2xl shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-6 animate-in slide-in-from-top-4 duration-300">
+                        <div className="flex items-center gap-4">
+                            <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center">
+                                <UserIcon className="w-8 h-8 text-white" />
+                            </div>
+                            <div>
+                                <p className="text-xs font-bold text-blue-100 uppercase tracking-widest">أنت تشاهد حالياً بيانات:</p>
+                                <p className="text-2xl font-black">{profiles.find(p => p.id === admin_viewing_user_id)?.full_name || 'مستخدم غير معروف'}</p>
+                            </div>
+                        </div>
+
+                        {viewing_user_stats && (
+                            <div className="flex flex-wrap items-center gap-4 md:gap-8 bg-white/10 p-4 rounded-xl border border-white/10">
+                                <div className="text-center">
+                                    <p className="text-[10px] font-bold text-blue-100 uppercase">الموكلين</p>
+                                    <p className="text-xl font-black">{viewing_user_stats.clients}</p>
+                                </div>
+                                <div className="w-px h-8 bg-white/20 hidden sm:block"></div>
+                                <div className="text-center">
+                                    <p className="text-[10px] font-bold text-blue-100 uppercase">القضايا النشطة</p>
+                                    <p className="text-xl font-black">{viewing_user_stats.active_cases}</p>
+                                </div>
+                                <div className="w-px h-8 bg-white/20 hidden sm:block"></div>
+                                <div className="text-center">
+                                    <p className="text-[10px] font-bold text-blue-100 uppercase">الجلسات</p>
+                                    <p className="text-xl font-black">{viewing_user_stats.sessions}</p>
+                                </div>
+                                <div className="w-px h-8 bg-white/20 hidden sm:block"></div>
+                                <div className="text-center">
+                                    <p className="text-[10px] font-bold text-blue-100 uppercase">الوثائق</p>
+                                    <p className="text-xl font-black">{viewing_user_stats.documents}</p>
+                                </div>
+                            </div>
+                        )}
+
+                        <button 
+                            onClick={() => set_admin_viewing_user_id(null)}
+                            className="px-8 py-3 bg-white text-blue-600 font-bold rounded-xl hover:bg-blue-50 transition-all shadow-md active:scale-95 shrink-0"
+                        >
+                            العودة للوحة الإدارة
+                        </button>
+                    </div>
+                )}
                 <div className="mb-6">
                     <h1 className="text-2xl font-bold text-slate-800">
                         {view === 'users' && 'إدارة المستخدمين'}
@@ -212,7 +347,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ on_logout, on_open_conf
 
             {/* Footer / Info */}
             <footer className="bg-white border-t border-slate-200 py-3 px-6 text-center no-print">
-                <p className="text-[10px] text-slate-400 font-medium">نظام إدارة المحاماة - الإصدار: 27-12-2025-3</p>
+                <p className="text-[10px] text-slate-400 font-medium">نظام إدارة المحاماة - الإصدار: 12-4-2026-5</p>
             </footer>
         </div>
     );

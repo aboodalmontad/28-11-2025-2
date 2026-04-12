@@ -259,7 +259,7 @@ export interface AppData {
     appointments: Appointment[];
     accounting_entries: AccountingEntry[];
     invoices: Invoice[];
-    assistants: string[];
+    assistants: (string | { name: string; user_id?: string })[];
     documents: CaseDocument[];
     profiles: Profile[];
     site_finances: SiteFinancialEntry[];

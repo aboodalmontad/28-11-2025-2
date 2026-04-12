@@ -617,7 +617,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ show_context_menu, on_open_ad
                         on_edit_client={permissions.can_edit_client ? (client) => handle_open_modal('client', true, { item: client }) : () => {}} 
                         on_delete_client={permissions.can_delete_client ? (client_id) => handle_delete_client(clients.find(c=>c.id===client_id)!) : () => {}} 
                         on_print_client_statement={handlePrintClientStatement} 
-                        assistants={assistants} 
+                        assistants={assistants.map(a => typeof a === 'string' ? a : a.name)} 
                         on_postpone_session={permissions.can_postpone_session ? handle_postpone_session : undefined} 
                         on_update_session={permissions.can_edit_session ? on_update_session : undefined} 
                         on_decide={permissions.can_decide_session ? handle_open_decide_modal : undefined} 
@@ -644,7 +644,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ show_context_menu, on_open_ad
                         on_edit_client={permissions.can_edit_client ? (client) => handle_open_modal('client', true, { item: client }) : () => {}} 
                         on_delete_client={permissions.can_delete_client ? (client_id) => handle_delete_client(clients.find(c=>c.id===client_id)!) : () => {}} 
                         on_print_client_statement={handlePrintClientStatement} 
-                        assistants={assistants} 
+                        assistants={assistants.map(a => typeof a === 'string' ? a : a.name)} 
                         on_postpone_session={permissions.can_postpone_session ? handle_postpone_session : undefined} 
                         on_update_session={permissions.can_edit_session ? on_update_session : undefined} 
                         on_decide={permissions.can_decide_session ? handle_open_decide_modal : undefined} 
@@ -705,7 +705,10 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ show_context_menu, on_open_ad
                                 <>
                                 <div><label className="block text-sm font-medium">تاريخ الجلسة</label><DatePicker name="date" value={form_data.date || ''} onChange={(date, name) => handle_form_change({ target: { name, value: date } } as any)} required /></div>
                                 {modal.is_editing && <div><label className="block text-sm font-medium">سبب التأجيل (السابق)</label><input type="text" name="postponement_reason" value={form_data.postponement_reason || ''} onChange={handle_form_change} className="w-full p-2 border rounded" /></div>}
-                                <div><label className="block text-sm font-medium">المكلف بالحضور</label><select name="assignee" value={form_data.assignee || 'بدون تخصيص'} onChange={handle_form_change} className="w-full p-2 border rounded">{assistants.map(a => <option key={a} value={a}>{a}</option>)}</select></div>
+                                <div><label className="block text-sm font-medium">المكلف بالحضور</label><select name="assignee" value={form_data.assignee || 'بدون تخصيص'} onChange={handle_form_change} className="w-full p-2 border rounded">{assistants.map(a => {
+                                    const name = typeof a === 'string' ? a : a.name;
+                                    return <option key={name} value={name}>{name}</option>;
+                                })}</select></div>
                                 </>
                             )}
                             <div className="mt-6 flex justify-end gap-4"><button type="button" onClick={handle_close_modal} className="px-4 py-2 bg-gray-200 rounded-lg">إلغاء</button><button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg">حفظ</button></div>

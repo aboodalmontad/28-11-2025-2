@@ -56,8 +56,9 @@ export function get_supabase_client(): SupabaseClient | null {
             auth: {
                 persistSession: true,
                 autoRefreshToken: true,
-                detectSessionInUrl: true
-            },
+                detectSessionInUrl: true,
+                lockAcquireTimeout: 60000 // Increase to 60 seconds to prevent lock stealing during retries
+            } as any,
             global: {
                 // Use our robust fetch wrapper for all Supabase requests
                 fetch: robustFetch as any

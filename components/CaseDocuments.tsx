@@ -153,7 +153,15 @@ const DocxPreview: React.FC<{ file: File; name: string }> = ({ file, name }) => 
                 <div className="flex flex-col items-center justify-center h-full text-center p-8">
                      <ExclamationCircleIcon className="w-12 h-12 text-red-500 mb-4" />
                      <h4 className="text-lg font-bold text-red-800">فشل العرض</h4>
-                     <p className="text-gray-600 mt-2">{error}</p>
+                     <p className="text-gray-600 mt-2 mb-6">{error}</p>
+                     <a 
+                        href={URL.createObjectURL(file)} 
+                        download={name}
+                        className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                     >
+                        <ArrowDownTrayIcon className="w-5 h-5" />
+                        <span>تنزيل الملف لفتحه يدوياً</span>
+                     </a>
                 </div>
             ) : (
                 <div ref={previewerRef} className="docx-container bg-white shadow-sm p-4 min-h-[500px]" />
@@ -218,7 +226,7 @@ const ImageViewer: React.FC<{ src: string; name: string }> = ({ src, name }) => 
 };
 
 const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ doc, onClose }) => {
-    const { get_document_file, documents } = useData();
+    const { get_document_file, download_document_file, documents } = useData();
     const [file, setFile] = React.useState<File | null>(null);
     const [objectUrl, setObjectUrl] = React.useState<string | null>(null);
     const [error, setError] = React.useState<string | null>(null);
@@ -232,8 +240,13 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
             setIsLoading(true);
             setError(null);
             try {
-                const retrievedFile = await get_document_file(doc.id);
+                let retrievedFile = await get_document_file(doc.id);
                 
+                // If not found locally, try to download
+                if (!retrievedFile && (doc.local_state === 'synced' || doc.local_state === 'pending_download' || doc.local_state === 'error')) {
+                    retrievedFile = await download_document_file(doc);
+                }
+
                 if (retrievedFile) {
                     setFile(retrievedFile);
                     url = URL.createObjectURL(retrievedFile);
@@ -242,8 +255,10 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
                     const latestDocState = documents.find(d => d.id === doc.id)?.local_state;
                     if (latestDocState === 'error') {
                         setError('فشل تنزيل الملف. تحقق من الاتصال.');
+                    } else if (latestDocState === 'downloading') {
+                        // Wait for download to finish (handled by state change)
                     } else {
-                        setError('الملف غير متوفر محلياً.');
+                        setError('الملف غير متوفر محلياً وجاري محاولة التنزيل...');
                     }
                 }
             } catch (e: any) {
@@ -258,7 +273,7 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
         return () => {
             if (url) URL.revokeObjectURL(url);
         };
-    }, [doc.id, get_document_file]);
+    }, [doc.id, get_document_file, download_document_file]);
 
     const handleDownload = () => {
         if (objectUrl) {
@@ -311,19 +326,12 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
         
         if (file.type === 'application/pdf') {
             return (
-                <div className="flex flex-col items-center justify-center h-full text-white p-8 text-center">
-                    <DocumentTextIcon className="w-20 h-20 text-red-500 mb-6" />
-                    <h3 className="font-bold text-xl mb-2">مستند PDF</h3>
-                    <p className="text-gray-400 mb-8 max-w-md">
-                        لفتح هذا المستند، يرجى الضغط على الزر أدناه لفتحه في متصفح الجهاز.
-                    </p>
-                    <button 
-                        onClick={handleOpenExternal} 
-                        className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-lg"
-                    >
-                        <ArrowTopRightOnSquareIcon className="w-5 h-5" />
-                        <span>فتح PDF في المتصفح</span>
-                    </button>
+                <div className="w-full h-full bg-gray-800 flex flex-col">
+                    <iframe 
+                        src={`${objectUrl}#toolbar=0`} 
+                        className="w-full h-full border-none bg-white" 
+                        title={doc.name}
+                    />
                 </div>
             );
         }
@@ -332,7 +340,7 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
             return <TextPreview file={file} name={doc.name} />;
         }
 
-        if (doc.name.toLowerCase().endsWith('.docx')) {
+        if (doc.name.toLowerCase().endsWith('.docx') || doc.name.toLowerCase().endsWith('.doc')) {
              return <DocxPreview file={file} name={doc.name} />;
         }
 
@@ -599,50 +607,6 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
     };
     
     const handlePreview = async (doc: CaseDocument) => {
-        const isPdf = doc.type === 'application/pdf';
-        // Add check for legacy Word documents (.doc) or specific mime type
-        const isLegacyWord = doc.name.toLowerCase().endsWith('.doc') || doc.type === 'application/msword';
-
-        if (isPdf || isLegacyWord) {
-            try {
-                const file = await get_document_file(doc.id);
-                if (file) {
-                    const objectUrl = URL.createObjectURL(file);
-                    
-                    if (isPdf) {
-                        const newWindow = window.open(objectUrl, '_blank');
-                        if (!newWindow || newWindow.closed || typeof newWindow.closed == 'undefined') {
-                            alert('تم منع فتح النافذة المنبثقة. يرجى السماح بالنوافذ المنبثقة لعرض ملفات PDF.');
-                        }
-                    } else {
-                        // For legacy Word files, we use a hidden anchor with the 'download' attribute.
-                        // This preserves the filename and extension, allowing the OS to properly recognize
-                        // the file type and offer the correct "Open with" application (e.g., Word).
-                        // It does trigger a browser download/save action, but this is the standard way
-                        // to hand off a Blob to an external application from a web page.
-                        const a = document.createElement('a');
-                        a.style.display = 'none';
-                        a.href = objectUrl;
-                        a.download = doc.name;
-                        document.body.appendChild(a);
-                        a.click();
-                        
-                        setTimeout(() => {
-                            document.body.removeChild(a);
-                            // Revoke URL after a delay to ensure download starts
-                            setTimeout(() => URL.revokeObjectURL(objectUrl), 10000); 
-                        }, 100);
-                        return; // Exit here
-                    }
-                } else {
-                    alert('تعذر فتح الملف حالياً. تأكد من اكتمال التنزيل.');
-                }
-            } catch (e) {
-                console.error("Error opening file directly:", e);
-                alert('حدث خطأ أثناء محاولة فتح الملف.');
-            }
-            return; // CRITICAL: Return here so setPreviewDoc (modal) is never called for these types
-        }
         setPreviewDoc(doc);
     };
 

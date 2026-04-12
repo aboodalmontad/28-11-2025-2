@@ -84,6 +84,14 @@ window.addEventListener('storage', (event) => {
 
 // Resilient Service Worker Registration
 if ('serviceWorker' in navigator) {
+  // Listen for messages from the service worker
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'RELOAD_PAGE_NOW') {
+      console.log('Service Worker requested a reload.');
+      window.location.reload();
+    }
+  });
+
   const registerSW = async () => {
     try {
       // Check if we are in a secure context

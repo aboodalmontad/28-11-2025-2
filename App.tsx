@@ -405,13 +405,13 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
     };
 
     if (isAuthLoading && !session) return <div className="fixed inset-0 bg-white flex items-center justify-center"><ArrowPathIcon className="w-10 h-10 animate-spin text-blue-600"/></div>;
-    if (showConfigModal) return <ConfigurationModal onRetry={() => { setShowConfigModal(false); data.manual_sync(); }} />;
-    if (data.sync_status === 'unconfigured' || data.sync_status === 'uninitialized') return <ConfigurationModal onRetry={data.manual_sync} />;
+    if (showConfigModal) return <ConfigurationModal onRetry={() => { setShowConfigModal(false); data.manual_sync({ force: true }); }} />;
+    if (data.sync_status === 'unconfigured' || data.sync_status === 'uninitialized') return <ConfigurationModal onRetry={() => data.manual_sync({ force: true })} />;
     
     const is_admin_email = session?.user?.email && ['nahwiabdo@gmail.com', 'avocat.nahwi@gmail.com', 'sy963958932922@email.com'].includes(session.user.email);
     const has_metadata_mobile = session?.user?.user_metadata?.mobile_number;
 
-    if (!session) return <LoginPage key="auth-login" on_force_setup={() => setShowConfigModal(true)} on_login_success={(u) => setSession({user: u} as any)} sync_log={syncLog} on_clear_log={clearSyncLog} is_local_empty={data.is_local_empty} />;
+    if (!session) return <LoginPage key="auth-login" on_force_setup={() => setShowConfigModal(true)} on_login_success={(u) => setSession({user: u} as any)} sync_log={syncLog} on_clear_log={clearSyncLog} is_local_empty={data.is_local_empty} is_update_available={data.is_update_available} />;
 
     if ((data.is_data_loading || data.sync_status === 'syncing' || data.sync_status === 'loading' || isCreatingProfile) && !profile) {
         // If we have a session and it's not a known admin, and we have mobile metadata, show OTP screen instead of loading
@@ -441,7 +441,7 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
 
                     <div className="flex flex-col gap-2">
                         <button 
-                            onClick={() => data.manual_sync()} 
+                            onClick={() => data.manual_sync({ force: true })} 
                             disabled={(data.sync_status as string) === 'syncing'}
                             className="w-full py-2 bg-blue-600 text-white rounded-lg font-medium disabled:opacity-50 flex items-center justify-center gap-2"
                         >
@@ -549,7 +549,7 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
                     last_sync_error={data.last_sync_error} 
                     is_dirty={data.is_dirty} 
                     is_online={isOnline} 
-                    on_manual_sync={data.manual_sync} 
+                    on_manual_sync={() => data.manual_sync({ force: true })} 
                     on_generate_agenda={handle_generate_agenda}
                     userName={userName} 
                     is_auto_sync_enabled={true} 
@@ -565,20 +565,20 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
                     {currentPage === 'settings' && <SettingsPage />}
                     {currentPage === 'admin-tasks' && <HomePage on_open_admin_task_modal={(initialData) => { setAdminTaskInitialData(initialData); setIsAdminTaskModalOpen(true); }} show_context_menu={(e, m) => setContextMenu({isOpen: true, position: {x: e.clientX, y: e.clientY}, menuItems: m})} main_view="admin_tasks" selected_date={selectedDate} set_selected_date={setSelectedDate} />}
                 </main>
-                <AdminTaskModal 
-                    isOpen={isAdminTaskModalOpen} 
-                    onClose={() => setIsAdminTaskModalOpen(false)} 
-                    initialData={adminTaskInitialData}
-                    onSubmit={(taskData) => {
-                        if (taskData.id) {
-                            data.set_admin_tasks((prev: any[]) => prev.map(t => t.id === taskData.id ? { ...t, ...taskData, user_id: data.effective_user_id, updated_at: new Date().toISOString() } : t));
-                        } else {
-                            data.set_admin_tasks((prev: any[]) => [...prev, { ...taskData, id: `task-${Date.now()}`, completed: false, user_id: data.effective_user_id, updated_at: new Date().toISOString() }]);
-                        }
-                        setIsAdminTaskModalOpen(false);
-                    }} 
-                    assistants={data.assistants} 
-                />
+                    <AdminTaskModal 
+                        isOpen={isAdminTaskModalOpen} 
+                        onClose={() => setIsAdminTaskModalOpen(false)} 
+                        initialData={adminTaskInitialData}
+                        onSubmit={(taskData) => {
+                            if (taskData.id) {
+                                data.set_admin_tasks((prev: any[]) => prev.map(t => t.id === taskData.id ? { ...t, ...taskData, user_id: data.effective_user_id, updated_at: new Date().toISOString() } : t));
+                            } else {
+                                data.set_admin_tasks((prev: any[]) => [...prev, { ...taskData, id: `task-${Date.now()}`, completed: false, user_id: data.effective_user_id, updated_at: new Date().toISOString() }]);
+                            }
+                            setIsAdminTaskModalOpen(false);
+                        }} 
+                        assistants={data.assistants.map(a => typeof a === 'string' ? a : a.name)} 
+                    />
                 <ContextMenu isOpen={contextMenu.isOpen} position={contextMenu.position} menuItems={contextMenu.menuItems} onClose={() => setContextMenu({...contextMenu, isOpen: false})} />
                 <NotificationCenter appointmentAlerts={data.triggered_alerts} realtimeAlerts={data.realtime_alerts} userApprovalAlerts={data.user_approval_alerts} dismissAppointmentAlert={data.dismiss_alert} dismissRealtimeAlert={data.dismiss_realtime_alert} dismissUserApprovalAlert={data.dismiss_user_approval_alert} />
                 <BottomNav currentPage={currentPage} onNavigate={setCurrentPage} permissions={data.permissions} />

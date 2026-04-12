@@ -241,18 +241,63 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ on_open_config })
                     </h2>
                     
                     <div className="p-4 bg-blue-50 border border-blue-100 rounded-lg">
-                        <h3 className="font-semibold text-blue-900 mb-2">تنزيل نسخة احتياطية كاملة</h3>
-                        <p className="text-sm text-blue-700 mb-4">
-                            قم بتنزيل ملف JSON يحتوي على كافة بيانات قاعدة البيانات السحابية (الموكلين، القضايا، المالية، المستخدمين، إلخ). يمكنك استخدام هذا الملف لاستعادة النظام لاحقاً.
+                        <h3 className="font-bold text-blue-900 mb-2 text-lg">تنزيل نسخة احتياطية شاملة (الإدارة والمستخدمين)</h3>
+                        <p className="text-sm text-blue-700 mb-4 leading-relaxed">
+                            هذا الخيار يتيح للمدير تنزيل نسخة كاملة من قاعدة البيانات السحابية. تشمل النسخة:
+                            <br/>
+                            • <b>حسابات المستخدمين:</b> كافة بيانات الملفات الشخصية، الصلاحيات، وحالات التفعيل.
+                            <br/>
+                            • <b>بيانات الإدارة:</b> السجلات المالية للموقع، إعدادات لوحة التحكم، وسجلات النظام.
+                            <br/>
+                            • <b>بيانات المكاتب:</b> كافة قضايا وموكلي وجلسات جميع المحامين المسجلين.
                         </p>
-                        <button 
-                            onClick={handleFullBackup}
-                            disabled={isProcessing}
-                            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed w-full justify-center"
-                        >
-                            {isProcessing ? <ArrowPathIcon className="w-5 h-5 animate-spin"/> : <CloudArrowDownIcon className="w-5 h-5" />}
-                            <span>تحميل النسخة الاحتياطية</span>
-                        </button>
+                        <div className="flex flex-col sm:flex-row gap-3">
+                            <button 
+                                onClick={handleFullBackup}
+                                disabled={isProcessing}
+                                className="flex-1 flex items-center gap-3 px-6 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all shadow-lg hover:shadow-blue-200 disabled:opacity-50 disabled:cursor-not-allowed justify-center active:scale-95"
+                            >
+                                {isProcessing ? <ArrowPathIcon className="w-6 h-6 animate-spin"/> : <CloudArrowDownIcon className="w-6 h-6" />}
+                                <span>نسخة احتياطية شاملة</span>
+                            </button>
+                            <button 
+                                onClick={async () => {
+                                    setIsProcessing(true);
+                                    showFeedback('جاري تحضير نسخة بيانات لوحة التحكم... يرجى الانتظار.', 'info');
+                                    try {
+                                        const fullData = await fetch_data_from_supabase();
+                                        const adminOnlyData = {
+                                            profiles: fullData.profiles || [],
+                                            site_finances: fullData.site_finances || [],
+                                            assistants: fullData.assistants || [],
+                                            sync_deletions: fullData.sync_deletions || []
+                                        };
+                                        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                                        const filename = `lawyer_admin_only_backup_${timestamp}.json`;
+                                        const jsonString = JSON.stringify(adminOnlyData, null, 2);
+                                        const blob = new Blob([jsonString], { type: 'application/json' });
+                                        const url = URL.createObjectURL(blob);
+                                        const a = document.createElement('a');
+                                        a.href = url;
+                                        a.download = filename;
+                                        document.body.appendChild(a);
+                                        a.click();
+                                        document.body.removeChild(a);
+                                        URL.revokeObjectURL(url);
+                                        showFeedback('تم تنزيل نسخة بيانات لوحة التحكم بنجاح.', 'success');
+                                    } catch (error: any) {
+                                        showFeedback(`فشل النسخ الاحتياطي: ${error.message}`, 'error');
+                                    } finally {
+                                        setIsProcessing(false);
+                                    }
+                                }}
+                                disabled={isProcessing}
+                                className="flex-1 flex items-center gap-3 px-6 py-3 bg-indigo-500 text-white font-bold rounded-xl hover:bg-indigo-600 transition-all shadow-lg hover:shadow-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed justify-center active:scale-95"
+                            >
+                                {isProcessing ? <ArrowPathIcon className="w-6 h-6 animate-spin"/> : <ServerIcon className="w-6 h-6" />}
+                                <span>بيانات لوحة التحكم فقط</span>
+                            </button>
+                        </div>
                     </div>
 
                     <div className="p-4 bg-orange-50 border border-orange-100 rounded-lg">

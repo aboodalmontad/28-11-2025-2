@@ -21,6 +21,7 @@ interface auth_page_props {
     sync_log?: any[];
     on_clear_log?: () => void;
     is_local_empty?: boolean;
+    is_update_available?: boolean;
 }
 
 const LAST_USER_CREDENTIALS_CACHE_KEY = 'lawyerAppLastUserCredentials';
@@ -47,7 +48,7 @@ const DatabaseIcon: React.FC<{ className?: string }> = ({ className = "w-6 h-6" 
     </svg>
 );
 
-const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success, initial_mode = 'login', current_user, current_mobile, on_verification_success, on_logout, sync_log = [], on_clear_log = () => {}, is_local_empty = false }) => {
+const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success, initial_mode = 'login', current_user, current_mobile, on_verification_success, on_logout, sync_log = [], on_clear_log = () => {}, is_local_empty = false, is_update_available = false }) => {
     const [auth_step, set_auth_step] = React.useState<'login' | 'signup' | 'otp' | 'forgot-password'>(initial_mode);
     const [forgot_password_step, set_forgot_password_step] = React.useState<'request' | 'verify'>('request');
     const [loading, set_loading] = React.useState(false);
@@ -641,6 +642,31 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
         }
     };
 
+    const handle_hard_refresh = async () => {
+        set_message('جاري مسح الذاكرة المؤقتة وتحديث التطبيق...');
+        try {
+            if ('serviceWorker' in navigator) {
+                const registrations = await navigator.serviceWorker.getRegistrations();
+                for (let registration of registrations) {
+                    await registration.unregister();
+                }
+            }
+            if ('caches' in window) {
+                const cacheNames = await caches.keys();
+                for (let name of cacheNames) {
+                    await caches.delete(name);
+                }
+            }
+            setTimeout(() => {
+                localStorage.setItem('app_version', '12-4-2026-5');
+                window.location.reload();
+            }, 1000);
+        } catch (error) {
+            console.error('Error clearing cache:', error);
+            window.location.reload();
+        }
+    };
+
     const handle_retry = () => {
         set_error(null);
         set_message(null);
@@ -668,6 +694,13 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
                 {is_fetch_error && (
                     <div className="flex items-center justify-end gap-2">
                         <button 
+                            onClick={handle_hard_refresh}
+                            className="px-4 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-bold hover:bg-amber-700 transition-all flex items-center gap-2 shadow-sm active:scale-95"
+                        >
+                            <ArrowPathIcon className="w-3.5 h-3.5" />
+                            مسح الكاش والتحديث
+                        </button>
+                        <button 
                             onClick={handle_retry}
                             className="px-4 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-all flex items-center gap-2 shadow-sm active:scale-95"
                         >
@@ -686,9 +719,21 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
                 <div className="text-center mb-6">
                     <h1 className="text-3xl font-bold text-gray-800">مكتب المحامي</h1>
                     <p className="text-gray-500">إدارة أعمال المحاماة بكفاءة</p>
-                    <div className={`mt-2 inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium ${db_status === 'connected' ? 'bg-green-100 text-green-800' : db_status === 'failed' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                        <span className={`w-2 h-2 rounded-full ${db_status === 'connected' ? 'bg-green-500' : db_status === 'failed' ? 'bg-red-500' : 'bg-yellow-500'}`}></span>
-                        {db_status === 'connected' ? 'متصل بقاعدة البيانات' : db_status === 'failed' ? 'فشل الاتصال بقاعدة البيانات' : 'جاري فحص الاتصال...'}
+                    <div className="flex flex-col items-center gap-2 mt-2">
+                        <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium ${db_status === 'connected' ? 'bg-green-100 text-green-800' : db_status === 'failed' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                            <span className={`w-2 h-2 rounded-full ${db_status === 'connected' ? 'bg-green-500' : db_status === 'failed' ? 'bg-red-500' : 'bg-yellow-500'}`}></span>
+                            {db_status === 'connected' ? 'متصل بقاعدة البيانات' : db_status === 'failed' ? 'فشل الاتصال بقاعدة البيانات' : 'جاري فحص الاتصال...'}
+                        </div>
+                        {is_update_available && (
+                            <button 
+                                onClick={handle_hard_refresh}
+                                className="flex items-center gap-2 px-4 py-2 text-xs font-black text-white bg-blue-600 hover:bg-blue-700 rounded-full shadow-md transition-all active:scale-95 animate-pulse"
+                                title="تحديث التطبيق ومسح الكاش (حل لمشاكل التحديث)"
+                            >
+                                <ArrowPathIcon className="w-4 h-4" />
+                                تحديث النظام (إصدار 12-4-2026-5)
+                            </button>
+                        )}
                     </div>
                 </div>
 
@@ -853,7 +898,7 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
                 </div>
                 
                 <div className="mt-8 text-center">
-                    <p className="text-xs text-gray-400 mb-1">الإصدار: 27-12-2025-3</p>
+                    <p className="text-xs text-gray-400 mb-1">الإصدار: 12-4-2026-5</p>
                     <p className="text-xs text-gray-400">جميع حقوق الملكية محفوظة لشركة الحلول التقنية © {new Date().getFullYear()}</p>
                 </div>
             </div>

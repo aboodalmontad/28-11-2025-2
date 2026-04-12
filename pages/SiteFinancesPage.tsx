@@ -39,7 +39,8 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 };
 
 const SiteFinancesPage: React.FC = () => {
-    const { site_finances: entries, set_site_finances, profiles: users, set_profiles, is_data_loading: loading } = useData();
+    const { unfiltered_data, set_site_finances, set_profiles, is_data_loading: loading } = useData();
+    const { site_finances: entries, profiles: users } = unfiltered_data;
     const [error, set_error] = React.useState<string | null>(null);
     const [modal, set_modal] = React.useState<{ is_open: boolean; data?: SiteFinancialEntry }>({ is_open: false });
     const [entry_to_delete, set_entry_to_delete] = React.useState<SiteFinancialEntry | null>(null);
@@ -53,9 +54,16 @@ const SiteFinancesPage: React.FC = () => {
     const handle_submit = async (form_data: any, is_subscription_renewal: boolean) => {
         if (!supabase) return;
 
-        const { new_subscription_start, new_subscription_end, ...financialData } = form_data;
-        const finalFinancialData = { 
-            ...financialData, 
+        const { new_subscription_start, new_subscription_end, profile_full_name, ...financialData } = form_data;
+        
+        // Sanitize data for Supabase
+        const finalFinancialData: any = { 
+            type: financialData.type,
+            payment_date: financialData.payment_date,
+            amount: Number(financialData.amount),
+            description: financialData.description || null,
+            payment_method: financialData.payment_method || null,
+            category: financialData.category || null,
             user_id: financialData.user_id === 'none' ? null : financialData.user_id, 
             updated_at: new Date().toISOString() 
         };

@@ -21,6 +21,7 @@ export interface SyncLogEntry {
 
 interface UseSyncProps {
     user: User | null;
+    effective_user_id: string | null;
     local_data: AppData;
     deleted_ids: DeletedIds;
     on_data_synced: (merged_data: AppData) => void;
@@ -32,30 +33,8 @@ interface UseSyncProps {
     is_online: boolean;
     is_auth_loading: boolean;
     sync_status: SyncStatus;
+    is_dirty: boolean;
 }
-
-const flatten_data = (data: AppData): FlatData => {
-    const cases = data.clients.flatMap(c => c.cases.map(cs => ({ ...cs, client_id: c.id })));
-    const stages = cases.flatMap(cs => cs.stages.map(st => ({ ...st, case_id: cs.id })));
-    const sessions = stages.flatMap(st => st.sessions.map(s => ({ ...s, stage_id: st.id })));
-    const invoice_items = data.invoices.flatMap(inv => inv.items.map(item => ({ ...item, invoice_id: inv.id })));
-
-    return {
-        clients: data.clients.map(({ cases, ...client }) => client),
-        cases: cases.map(({ stages, ...caseItem }) => caseItem),
-        stages: stages.map(({ sessions, ...stage }) => stage),
-        sessions,
-        admin_tasks: data.admin_tasks,
-        appointments: data.appointments,
-        accounting_entries: data.accounting_entries,
-        assistants: data.assistants.map(a => typeof a === 'string' ? { name: a } : a),
-        invoices: data.invoices.map(({ items, ...inv }) => inv),
-        invoice_items,
-        case_documents: data.documents,
-        profiles: data.profiles,
-        site_finances: data.site_finances,
-    };
-};
 
 const construct_data = (flat_data: Partial<FlatData>): AppData => {
     const session_map = new Map<string, Session[]>();
@@ -101,7 +80,14 @@ const construct_data = (flat_data: Partial<FlatData>): AppData => {
         admin_tasks: (flat_data.admin_tasks || []) as any,
         appointments: (flat_data.appointments || []) as any,
         accounting_entries: (flat_data.accounting_entries || []) as any,
-        assistants: (flat_data.assistants || []).map(a => typeof a === 'string' ? a : (a.name || 'بدون اسم')),
+        assistants: (flat_data.assistants || []).map(a => {
+            if (typeof a === 'string') return a;
+            if (typeof a === 'object' && a !== null) {
+                // Return the object as is (it will have name and user_id)
+                return a;
+            }
+            return 'بدون اسم';
+        }) as any,
         invoices: (flat_data.invoices || []).map(inv => ({...inv, items: invoice_item_map.get(inv.id) || []})) as any,
         documents: (flat_data.case_documents || []) as any,
         profiles: (flat_data.profiles || []) as any,
@@ -212,14 +198,16 @@ const cleanup_expired_documents = async (remote_docs: any[], supabase: any) => {
     }
 };
 
-export const use_sync = ({ user, local_data, deleted_ids, on_data_synced, on_deletions_synced, on_sync_status_change, on_documents_uploaded, on_log, excluded_doc_ids, is_online, is_auth_loading, sync_status }: UseSyncProps) => {
+export const use_sync = ({ user, effective_user_id, local_data, deleted_ids, on_data_synced, on_deletions_synced, on_sync_status_change, on_documents_uploaded, on_log, excluded_doc_ids, is_online, is_auth_loading, sync_status, is_dirty }: UseSyncProps) => {
     // Refs to store the latest values of data without triggering re-creation of manual_sync
     const user_ref = React.useRef(user);
+    const effective_user_id_ref = React.useRef(effective_user_id);
     const local_data_ref = React.useRef(local_data);
     const deleted_ids_ref = React.useRef(deleted_ids);
     const excluded_doc_ids_ref = React.useRef(excluded_doc_ids);
     // Track sync_status via ref to break dependency loop in useCallback
     const sync_status_ref = React.useRef(sync_status);
+    const is_dirty_ref = React.useRef(is_dirty);
     
     // Callbacks refs
     const on_data_synced_ref = React.useRef(on_data_synced);
@@ -230,15 +218,48 @@ export const use_sync = ({ user, local_data, deleted_ids, on_data_synced, on_del
 
     // Update refs on every render
     user_ref.current = user;
+    effective_user_id_ref.current = effective_user_id;
     local_data_ref.current = local_data;
     deleted_ids_ref.current = deleted_ids;
     excluded_doc_ids_ref.current = excluded_doc_ids;
     sync_status_ref.current = sync_status;
+    is_dirty_ref.current = is_dirty;
     on_data_synced_ref.current = on_data_synced;
     on_deletions_synced_ref.current = on_deletions_synced;
     on_sync_status_change_ref.current = on_sync_status_change;
     on_documents_uploaded_ref.current = on_documents_uploaded;
     on_log_ref.current = on_log;
+
+    const flatten_data = (data: AppData): FlatData => {
+        const cases = data.clients.flatMap(c => c.cases.map(cs => ({ ...cs, client_id: c.id })));
+        const stages = cases.flatMap(cs => cs.stages.map(st => ({ ...st, case_id: cs.id })));
+        const sessions = stages.flatMap(st => st.sessions.map(s => ({ ...s, stage_id: st.id })));
+        const invoice_items = data.invoices.flatMap(inv => inv.items.map(item => ({ ...item, invoice_id: inv.id })));
+
+        const assistants_with_user_id = data.assistants.map(a => {
+            const user_id_to_use = effective_user_id_ref.current || user_ref.current?.id;
+            if (typeof a === 'string') return { name: a, user_id: user_id_to_use || undefined };
+            const assistant_obj = typeof a === 'object' && a !== null ? a : { name: String(a) };
+            return { ...assistant_obj, user_id: (assistant_obj as any).user_id || user_id_to_use || undefined };
+        });
+
+        return {
+            clients: data.clients.map(({ cases, ...client }) => client),
+            cases: cases.map(({ stages, ...caseItem }) => caseItem),
+            stages: stages.map(({ sessions, ...stage }) => stage),
+            sessions,
+            admin_tasks: data.admin_tasks,
+            appointments: data.appointments,
+            accounting_entries: data.accounting_entries,
+            assistants: assistants_with_user_id,
+            invoices: data.invoices.map(({ items, ...inv }) => inv),
+            invoice_items,
+            case_documents: data.documents,
+            profiles: data.profiles,
+            site_finances: data.site_finances,
+            sync_deletions: [], // Local data doesn't track deletions this way
+        };
+    };
 
     const set_status = (status: SyncStatus, error: string | null = null) => { on_sync_status_change_ref.current(status, error); };
 
@@ -246,9 +267,16 @@ export const use_sync = ({ user, local_data, deleted_ids, on_data_synced, on_del
         if (on_log_ref.current) on_log_ref.current({ type, message, details });
     };
 
-    const manual_sync = React.useCallback(async () => {
+    const manual_sync = React.useCallback(async (options?: { force?: boolean }) => {
         if (sync_status_ref.current === 'syncing') return;
         if (is_auth_loading) return;
+
+        // Optimization: Skip sync if no local changes and already synced, unless forced
+        if (!is_dirty_ref.current && sync_status_ref.current === 'synced' && !options?.force) {
+            console.log("Skipping sync: no local changes and already synced.");
+            return;
+        }
+
         const current_user = user_ref.current;
         if (!is_online || !current_user) {
             set_status('error', is_online ? 'يجب تسجيل الدخول للمزامنة.' : 'يجب أن تكون متصلاً بالإنترنت للمزامنة.');
@@ -288,11 +316,16 @@ export const use_sync = ({ user, local_data, deleted_ids, on_data_synced, on_del
                         const file = await db.get(DOCS_FILES_STORE_NAME, doc.id);
                         if (file) {
                             let storage_path = doc.storage_path;
-                            // Check if storage_path contains non-ASCII characters or spaces
-                            if (/[^\x00-\x7F]/.test(storage_path) || storage_path.includes(' ')) {
-                                const parts = storage_path.split('/');
-                                const filename = parts.pop() || '';
-                                const safe_filename = encodeURIComponent(filename);
+                            // Sanitize storage_path to avoid "Invalid key" errors (Supabase/S3)
+                            // We use doc.id + extension for maximum safety as raw filenames often cause issues
+                            const parts = storage_path.split('/');
+                            const filename = parts.pop() || '';
+                            
+                            // Check if filename contains problematic characters or doesn't follow the safe format
+                            if (/[^a-zA-Z0-9._-]/.test(filename) || !filename.startsWith(doc.id)) {
+                                const extension = filename.includes('.') ? filename.split('.').pop() : '';
+                                const safe_filename = `${doc.id}${extension ? '.' + extension : ''}`;
+                                
                                 storage_path = [...parts, safe_filename].join('/');
                                 doc.storage_path = storage_path; // Mutate the object so it gets saved with the new path
                                 doc.updated_at = new Date().toISOString(); // Ensure it gets upserted to DB
@@ -329,7 +362,7 @@ export const use_sync = ({ user, local_data, deleted_ids, on_data_synced, on_del
             set_status('syncing', 'جاري جلب البيانات من السحابة...');
             
             // Sequentialize these calls to avoid concurrent auth token refresh attempts
-            const remote_data_raw = await fetch_data_from_supabase(current_user.id);
+            const remote_data_raw = await fetch_data_from_supabase(effective_user_id_ref.current || current_user.id);
             const remote_deletions = await fetch_deletions_from_supabase();
             
             const remote_flat_data = transform_remote_to_local(remote_data_raw);
@@ -387,10 +420,6 @@ export const use_sync = ({ user, local_data, deleted_ids, on_data_synced, on_del
                         if (doc.local_state === 'pending_upload' && !uploaded_doc_ids.includes(doc.id)) {
                             final_merged_items.set(doc.id, local_item);
                             continue; 
-                        }
-                        if (doc.local_state === 'synced' && !remote_map.has(doc.id)) {
-                            final_merged_items.set(doc.id, doc);
-                            continue;
                         }
                     }
 
@@ -483,7 +512,7 @@ export const use_sync = ({ user, local_data, deleted_ids, on_data_synced, on_del
             if (total_deletes > 0) {
                 log('info', `جاري حذف ${total_deletes} سجلات من السحابة...`);
                 set_status('syncing', 'جاري حذف البيانات من السحابة...');
-                await delete_data_from_supabase(flat_deletes, current_user);
+                await delete_data_from_supabase(flat_deletes, current_user, effective_user_id_ref.current || current_user.id);
                 successful_deletions = { ...successful_deletions, ...deleted_ids_ref.current };
                 log('success', `تم حذف ${total_deletes} سجلات بنجاح.`);
             }
@@ -491,7 +520,7 @@ export const use_sync = ({ user, local_data, deleted_ids, on_data_synced, on_del
             if (total_upserts > 0) {
                 log('info', `جاري رفع ${total_upserts} سجلات إلى السحابة...`);
                 set_status('syncing', 'جاري رفع البيانات إلى السحابة...');
-                const upserted_data_raw = await upsert_data_to_supabase(flat_upserts as FlatData, current_user);
+                const upserted_data_raw = await upsert_data_to_supabase(flat_upserts as FlatData, current_user, effective_user_id_ref.current || current_user.id);
                 const upserted_flat_data = transform_remote_to_local(upserted_data_raw);
                 const upserted_data_map = new Map();
                 Object.values(upserted_flat_data).forEach(arr => (arr as any[])?.forEach(item => upserted_data_map.set(item.id ?? item.name, item)));
@@ -535,7 +564,7 @@ export const use_sync = ({ user, local_data, deleted_ids, on_data_synced, on_del
         
         try {
             // Sequentialize these calls
-            const remote_data_raw = await fetch_data_from_supabase(current_user.id);
+            const remote_data_raw = await fetch_data_from_supabase(effective_user_id_ref.current || current_user.id);
             const remote_deletions = await fetch_deletions_from_supabase();
             
             const remote_flat_data_untyped = transform_remote_to_local(remote_data_raw);

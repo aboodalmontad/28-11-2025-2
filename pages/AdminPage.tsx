@@ -5,9 +5,10 @@ import DatePicker from '../components/DatePicker';
 import { get_supabase_client } from '../supabaseClient';
 import { Profile } from '../types';
 import { format_date, to_input_date_string, safe_revive_date, is_before_today } from '../utils/dateUtils';
-import { CheckCircleIcon, NoSymbolIcon, PencilIcon, TrashIcon, ExclamationTriangleIcon, PhoneIcon, ShareIcon, ArrowPathIcon, ClipboardDocumentIcon, UserIcon, UserGroupIcon, FolderIcon } from '../components/icons';
+import { CheckCircleIcon, NoSymbolIcon, PencilIcon, TrashIcon, ExclamationTriangleIcon, PhoneIcon, ShareIcon, ArrowPathIcon, ClipboardDocumentIcon, UserIcon, UserGroupIcon, FolderIcon, CloudArrowDownIcon } from '../components/icons';
 import { useData } from '../context/DataContext';
 import UserDetailsModal from '../components/UserDetailsModal';
+import { fetch_data_from_supabase } from '../hooks/useOnlineData';
 
 const formatSubscriptionDateRange = (user: Profile): string => {
     const { subscription_start_date, subscription_end_date } = user;
@@ -42,9 +43,10 @@ interface UserRowProps {
     on_download_backup: (user: Profile) => void;
     generating_otp_for: string | null;
     current_admin_id: string | undefined;
+    unfiltered_data: any;
 }
 
-const UserRow: React.FC<UserRowProps> = ({ user, lawyer, on_view, on_edit, on_delete, on_toggle_approval, on_toggle_active, on_toggle_verification, on_generate_otp, on_view_office, on_download_backup, generating_otp_for, current_admin_id }) => {
+const UserRow: React.FC<UserRowProps> = ({ user, lawyer, on_view, on_edit, on_delete, on_toggle_approval, on_toggle_active, on_toggle_verification, on_generate_otp, on_view_office, on_download_backup, generating_otp_for, current_admin_id, unfiltered_data }) => {
     const [copied_otp_id, set_copied_otp_id] = React.useState<string | null>(null);
     
     const copy_to_clipboard = (text: string, id: string) => {
@@ -227,9 +229,10 @@ const UserRow: React.FC<UserRowProps> = ({ user, lawyer, on_view, on_edit, on_de
 };
 
 const AdminPage: React.FC = () => {
-    const { profiles: users, clients, admin_tasks, appointments, accounting_entries, invoices, documents, site_finances, set_profiles: setUsers, is_data_loading: loading, user_id, fetch_and_refresh, set_admin_viewing_user_id } = useData();
+    const { profiles: users, clients, admin_tasks, appointments, accounting_entries, invoices, documents, site_finances, set_profiles: setUsers, is_data_loading: loading, user_id, fetch_and_refresh, set_admin_viewing_user_id, unfiltered_data } = useData();
     const [error, setError] = React.useState<string | null>(null);
     const [is_downloading, set_is_downloading] = React.useState(false);
+    const [is_full_backup_loading, set_is_full_backup_loading] = React.useState(false);
     const [editing_user, set_editing_user] = React.useState<Profile | null>(null);
     const [user_to_delete, set_user_to_delete] = React.useState<Profile | null>(null);
     const [viewing_user, set_viewing_user] = React.useState<Profile | null>(null);
@@ -364,22 +367,22 @@ const AdminPage: React.FC = () => {
 
     const get_user_backup_data = (targetUser: Profile) => {
         const userId = targetUser.id;
-        const assistants = users.filter(u => u.lawyer_id === userId);
+        const assistants = unfiltered_data.profiles.filter(u => u.lawyer_id === userId);
         const assistantIds = assistants.map(a => a.id);
         const allUserIds = [userId, ...assistantIds];
 
         return {
-            version: "1.1",
+            version: "1.2",
             export_date: new Date().toISOString(),
             lawyer_profile: targetUser,
             assistants_profiles: assistants,
-            clients: clients.filter(c => allUserIds.includes(c.user_id)),
-            admin_tasks: admin_tasks.filter(t => allUserIds.includes(t.user_id)),
-            appointments: appointments.filter(a => allUserIds.includes(a.user_id)),
-            accounting_entries: accounting_entries.filter(e => allUserIds.includes(e.user_id)),
-            invoices: invoices.filter(i => allUserIds.includes(i.user_id)),
-            documents: documents.filter(d => allUserIds.includes(d.user_id)),
-            site_finances: site_finances.filter(f => allUserIds.includes(f.user_id))
+            clients: unfiltered_data.clients.filter(c => allUserIds.includes(c.user_id)),
+            admin_tasks: unfiltered_data.admin_tasks.filter(t => allUserIds.includes(t.user_id)),
+            appointments: unfiltered_data.appointments.filter(a => allUserIds.includes(a.user_id)),
+            accounting_entries: unfiltered_data.accounting_entries.filter(e => allUserIds.includes(e.user_id)),
+            invoices: unfiltered_data.invoices.filter(i => allUserIds.includes(i.user_id)),
+            documents: unfiltered_data.documents.filter(d => allUserIds.includes(d.user_id)),
+            site_finances: unfiltered_data.site_finances.filter(f => allUserIds.includes(f.user_id))
         };
     };
 
@@ -404,7 +407,7 @@ const AdminPage: React.FC = () => {
             const dateStr = new Date().toISOString().split('T')[0];
             const folder = zip.folder(dateStr);
 
-            const lawyers = users.filter(u => u.role !== 'admin' && !u.lawyer_id);
+            const lawyers = unfiltered_data.profiles.filter(u => u.role !== 'admin' && !u.lawyer_id);
 
             lawyers.forEach(lawyer => {
                 const backup = get_user_backup_data(lawyer);
@@ -426,6 +429,34 @@ const AdminPage: React.FC = () => {
             alert("فشل إنشاء النسخة الاحتياطية المجمعة.");
         } finally {
             set_is_downloading(false);
+        }
+    };
+
+    const handle_full_system_backup = async () => {
+        set_is_full_backup_loading(true);
+        try {
+            const data = await fetch_data_from_supabase();
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const filename = `lawyer_system_full_backup_${timestamp}.json`;
+            
+            const jsonString = JSON.stringify(data, null, 2);
+            const blob = new Blob([jsonString], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            alert("تم تحميل النسخة الاحتياطية الشاملة للنظام بنجاح.");
+        } catch (error: any) {
+            console.error("Full system backup failed:", error);
+            alert("فشل تحميل النسخة الاحتياطية الشاملة: " + error.message);
+        } finally {
+            set_is_full_backup_loading(false);
         }
     };
 
@@ -491,6 +522,15 @@ const AdminPage: React.FC = () => {
                     <p className="text-slate-500 mt-1">إدارة حسابات المحامين والمساعدين والتحقق من هويتهم.</p>
                 </div>
                 <div className="flex items-center gap-2">
+                    <button 
+                        onClick={handle_full_system_backup}
+                        disabled={is_full_backup_loading}
+                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-bold text-sm transition-all shadow-sm disabled:opacity-50"
+                        title="تنزيل نسخة شاملة لكل النظام (الإدارة والمستخدمين)"
+                    >
+                        {is_full_backup_loading ? <ArrowPathIcon className="w-4 h-4 animate-spin" /> : <CloudArrowDownIcon className="w-4 h-4" />}
+                        نسخة شاملة للنظام
+                    </button>
                     <button 
                         onClick={handle_download_all_backups}
                         disabled={is_downloading}
@@ -562,6 +602,7 @@ const AdminPage: React.FC = () => {
                                         on_download_backup={handle_download_single_backup}
                                         generating_otp_for={generating_otp_for}
                                         current_admin_id={user_id}
+                                        unfiltered_data={unfiltered_data}
                                     />
                                     {/* Assistants Rows */}
                                     {assistants.length > 0 && assistants.map(assistant => (
@@ -580,6 +621,7 @@ const AdminPage: React.FC = () => {
                                             on_download_backup={handle_download_single_backup}
                                             generating_otp_for={generating_otp_for}
                                             current_admin_id={user_id}
+                                            unfiltered_data={unfiltered_data}
                                         />
                                     ))}
                                 </React.Fragment>

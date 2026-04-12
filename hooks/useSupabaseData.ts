@@ -10,6 +10,7 @@ import { RealtimeAlert } from '../components/RealtimeNotifier';
 import { get_db, DATA_STORE_NAME, DELETED_IDS_STORE_NAME, DOCS_FILES_STORE_NAME } from '../utils/db';
 
 export const APP_DATA_KEY_PREFIX = 'lawyerBusinessManagementData';
+export const APP_VERSION = '12-4-2026-5';
 export const get_app_data_key = (user_id: string | null) => user_id ? `${APP_DATA_KEY_PREFIX}_${user_id}` : APP_DATA_KEY_PREFIX;
 
 export type SyncStatus = SyncStatusType;
@@ -192,7 +193,14 @@ const migrate_data = (old_data: any): AppData => {
         appointments: (old_data.appointments || []).map(migrate_appointment),
         accounting_entries: (old_data.accounting_entries || old_data.accountingEntries || []).map(migrate_accounting),
         invoices: (old_data.invoices || []).map(migrate_invoice),
-        assistants: (old_data.assistants || [...default_assistants]).map((a: any) => typeof a === 'string' ? a : (a.name || 'بدون اسم')),
+        assistants: (old_data.assistants || [...default_assistants]).map((a: any) => {
+            if (typeof a === 'string') return a;
+            if (typeof a === 'object' && a !== null) {
+                // If it's an object from Supabase, keep it as is (it will have name and user_id)
+                return a;
+            }
+            return 'بدون اسم';
+        }),
         documents: (old_data.documents || []).map(migrate_document),
         profiles: (old_data.profiles || []).map(migrate_profile),
         site_finances: (old_data.site_finances || []).map(migrate_site_finance),
@@ -210,6 +218,7 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
     const [triggered_alerts, set_triggered_alerts] = React.useState<Appointment[]>([]);
     const [realtime_alerts, set_realtime_alerts] = React.useState<RealtimeAlert[]>([]);
     const [user_approval_alerts, set_user_approval_alerts] = React.useState<RealtimeAlert[]>([]);
+    const [is_update_available, set_is_update_available] = React.useState(false);
     const is_online = useOnlineStatus();
     
     const user_ref = React.useRef(user);
@@ -227,6 +236,21 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
     }, [is_data_loading]);
 
     const [admin_viewing_user_id, set_admin_viewing_user_id] = React.useState<string | null>(null);
+
+    // Reset admin viewing mode when user changes (e.g. logout)
+    React.useEffect(() => {
+        set_admin_viewing_user_id(null);
+    }, [user?.id]);
+
+    // Check for updates
+    React.useEffect(() => {
+        const stored_version = localStorage.getItem('app_version');
+        if (stored_version !== APP_VERSION) {
+            set_is_update_available(true);
+        } else {
+            set_is_update_available(false);
+        }
+    }, []);
 
     const effective_user_id = React.useMemo(() => {
         if (admin_viewing_user_id) return admin_viewing_user_id;
@@ -260,7 +284,15 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
             invoices: data.invoices.filter(i => i.user_id === target_user_id),
             documents: data.documents.filter(d => d.user_id === target_user_id),
             site_finances: data.site_finances.filter(f => f.user_id === target_user_id),
-            assistants: data.assistants, // Assistants are strings locally, cannot filter by user_id easily without changing AppData structure
+            assistants: data.assistants.filter((a: any) => {
+                // If assistants are objects with user_id, filter them.
+                // If they are strings, we assume they belong to the current data context
+                // which was already filtered during sync.
+                if (typeof a === 'object' && a !== null && 'user_id' in a) {
+                    return a.user_id === target_user_id;
+                }
+                return true;
+            }),
         };
     }, [data, is_admin, admin_viewing_user_id, user?.id]);
 
@@ -295,6 +327,16 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
         const load_local_data = async () => {
             if (is_auth_loading) return;
             
+            // If admin is viewing a specific user, we don't load local data for the admin.
+            // Instead, we let the sync fetch the remote data for that user.
+            if (admin_viewing_user_id) {
+                console.log("Admin is viewing user:", admin_viewing_user_id, " - skipping local load.");
+                set_data(get_initial_data());
+                set_deleted_ids(get_initial_deleted_ids());
+                set_is_data_loading(true); // Ensure sync is triggered
+                return;
+            }
+
             const storage_key = get_app_data_key(user?.id || null);
             console.log(`Loading local data for key: ${storage_key}`);
             
@@ -330,23 +372,28 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
             }
         };
         load_local_data();
-    }, [user?.id, is_online, is_auth_loading]);
+    }, [user?.id, is_online, is_auth_loading, admin_viewing_user_id]);
 
     const { manual_sync: manual_sync, fetch_and_refresh: fetch_and_refresh } = use_sync({
-        user: user ? { ...user, id: effective_user_id || user.id } as User : null,
+        user: user,
+        effective_user_id: effective_user_id,
         local_data: data, 
         deleted_ids: deleted_ids,
         on_data_synced: async (merged) => { 
             set_data(merged); 
             set_dirty(false); 
             set_is_data_loading(false); 
-            try {
-                const db = await get_db();
-                const storage_key = get_app_data_key(user_ref.current?.id || null);
-                await db.put(DATA_STORE_NAME, merged, storage_key);
-                console.log("Saved synced data to IndexedDB for key:", storage_key);
-            } catch (err) {
-                console.error("Failed to save synced data to IndexedDB:", err);
+            
+            // CRITICAL: Only save to local IndexedDB if we are NOT viewing another user
+            if (!admin_viewing_user_id) {
+                try {
+                    const db = await get_db();
+                    const storage_key = get_app_data_key(user_ref.current?.id || null);
+                    await db.put(DATA_STORE_NAME, merged, storage_key);
+                    console.log("Saved synced data to IndexedDB for key:", storage_key);
+                } catch (err) {
+                    console.error("Failed to save synced data to IndexedDB:", err);
+                }
             }
         },
         on_deletions_synced: (synced) => {
@@ -380,7 +427,10 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
                 timestamp: new Date()
             }, ...prev].slice(0, 50)); // Keep last 50 logs
         },
-        is_online: is_online, is_auth_loading: is_auth_loading, sync_status: sync_status
+        is_online: is_online, 
+        is_auth_loading: is_auth_loading, 
+        sync_status: sync_status,
+        is_dirty: is_dirty
     });
 
     // Auto-sync on mount/login
@@ -404,6 +454,73 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
         prev_is_online.current = is_online;
     }, [is_online, manual_sync, user, is_auth_loading, sync_status]); // Trigger when is_online changes from false to true
 
+    // Realtime Subscription for all data tables (Immediate sync across users)
+    React.useEffect(() => {
+        if (!user || !is_online || is_auth_loading || !effective_user_id) return;
+
+        const supabase = get_supabase_client();
+        if (!supabase) return;
+
+        const tables_with_user_id = [
+            'clients', 'cases', 'stages', 'sessions', 
+            'admin_tasks', 'appointments', 'accounting_entries', 
+            'assistants', 'invoices', 'invoice_items', 
+            'case_documents', 'sync_deletions', 'site_finances'
+        ];
+
+        console.log(`Setting up realtime subscription for lawyer context: ${effective_user_id}`);
+        
+        const channel = supabase.channel(`office-sync-${effective_user_id}`);
+
+        // Subscribe to all standard tables filtered by user_id (lawyer_id)
+        tables_with_user_id.forEach(table => {
+            channel.on(
+                'postgres_changes',
+                { 
+                    event: '*', 
+                    schema: 'public', 
+                    table: table,
+                    filter: `user_id=eq.${effective_user_id}`
+                },
+                (payload) => {
+                    console.log(`Realtime change in ${table}:`, payload);
+                    // Debounce/Throttle: use_sync already prevents overlapping syncs
+                    fetch_and_refresh();
+                }
+            );
+        });
+
+        // Special case for profiles (filtered by lawyer_id or id)
+        channel.on(
+            'postgres_changes',
+            { 
+                event: '*', 
+                schema: 'public', 
+                table: 'profiles'
+            },
+            (payload) => {
+                const new_data = payload.new as any;
+                const old_data = payload.old as any;
+                const lawyer_id = new_data?.lawyer_id || old_data?.lawyer_id;
+                const profile_id = new_data?.id || old_data?.id;
+
+                if (lawyer_id === effective_user_id || profile_id === user.id || profile_id === effective_user_id) {
+                    console.log('Realtime change in profiles:', payload);
+                    fetch_and_refresh();
+                }
+            }
+        );
+
+        channel.subscribe((status) => {
+            console.log(`Office Realtime subscription status: ${status}`);
+        });
+
+        return () => {
+            console.log("Cleaning up office realtime subscription...");
+            supabase.removeChannel(channel);
+        };
+    }, [user?.id, is_online, is_auth_loading, effective_user_id, fetch_and_refresh]);
+
 
     const [is_auto_sync_enabled, set_auto_sync_enabled] = React.useState(true);
     const [is_auto_backup_enabled, set_auto_backup_enabled] = React.useState(false);
@@ -423,7 +540,7 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
     // Persist data to IndexedDB whenever it changes
     React.useEffect(() => {
         const save_to_db = async () => {
-            if (is_data_loading) return; // Don't save while initial loading is in progress
+            if (is_data_loading || admin_viewing_user_id) return; // Don't save while initial loading is in progress or viewing another user
             try {
                 const db = await get_db();
                 const storage_key = get_app_data_key(user?.id || null);
@@ -433,12 +550,12 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
             }
         };
         save_to_db();
-    }, [data, user?.id, is_data_loading]);
+    }, [data, user?.id, is_data_loading, admin_viewing_user_id]);
 
     // Persist deleted_ids to IndexedDB whenever it changes
     React.useEffect(() => {
         const save_deleted_ids_to_db = async () => {
-            if (is_data_loading) return;
+            if (is_data_loading || admin_viewing_user_id) return; // Don't save while viewing another user
             try {
                 const db = await get_db();
                 const storage_key = get_app_data_key(user?.id || null);
@@ -448,7 +565,7 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
             }
         };
         save_deleted_ids_to_db();
-    }, [deleted_ids, user?.id, is_data_loading]);
+    }, [deleted_ids, user?.id, is_data_loading, admin_viewing_user_id]);
 
     // Auto-sync local changes to cloud
     React.useEffect(() => {
@@ -501,6 +618,7 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
         last_sync_error: last_sync_error, 
         is_dirty: is_dirty, 
         is_data_loading: is_data_loading,
+        is_update_available,
         sync_log: sync_log, 
         clear_sync_log: () => set_sync_log([]),
         is_local_empty: is_local_empty,
@@ -598,10 +716,17 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
             });
         },
         set_assistants: (assistants: any) => {
-            set_full_data(prev => ({ 
-                ...prev,
-                assistants: typeof assistants === 'function' ? assistants(prev.assistants) : assistants 
-            }));
+            set_full_data(prev => {
+                const next_assistants = typeof assistants === 'function' ? assistants(prev.assistants) : assistants;
+                // If we are adding a string, convert it to an object with user_id
+                const updated_assistants = next_assistants.map((a: any) => {
+                    if (typeof a === 'string') {
+                        return { name: a, user_id: effective_user_id || '' };
+                    }
+                    return a;
+                });
+                return { ...prev, assistants: updated_assistants };
+            });
         },
         set_profiles: (profiles: any) => {
             set_full_data(prev => ({ 
@@ -615,6 +740,7 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
                 site_finances: typeof finances === 'function' ? finances(prev.site_finances) : finances 
             }));
         },
+        unfiltered_data: data,
         all_sessions, 
         unpostponed_sessions, 
         export_data: () => {
@@ -719,8 +845,8 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
                 for (let i = 0; i < files.length; i++) {
                     const file = files[i];
                     const id = generateId('doc');
-                    const safe_filename = encodeURIComponent(file.name);
-                    const storage_path = `${effective_user_id}/${case_id}/${id}-${safe_filename}`;
+                    const extension = file.name.includes('.') ? file.name.split('.').pop() : '';
+                    const storage_path = `${effective_user_id}/${case_id}/${id}${extension ? '.' + extension : ''}`;
                     
                     const new_doc: CaseDocument = {
                         id,
@@ -745,6 +871,42 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
             } else {
                 set_full_data(prev => ({ ...prev, documents: [...prev.documents, ...files] }));
             }
+        },
+        download_document_file: async (doc: CaseDocument) => {
+            if (!doc.storage_path) return null;
+            const supabase = get_supabase_client();
+            if (!supabase) return null;
+
+            try {
+                // Set state to downloading
+                set_full_data(prev => ({
+                    ...prev,
+                    documents: prev.documents.map(d => d.id === doc.id ? { ...d, local_state: 'downloading' } : d)
+                }));
+
+                const { data, error } = await supabase.storage.from('documents').download(doc.storage_path);
+                if (error) throw error;
+                if (data) {
+                    const db = await get_db();
+                    // Convert Blob to File if needed or just store Blob
+                    const file = new File([data], doc.name, { type: doc.type });
+                    await db.put(DOCS_FILES_STORE_NAME, file, doc.id);
+                    
+                    // Update local state to synced
+                    set_full_data(prev => ({
+                        ...prev,
+                        documents: prev.documents.map(d => d.id === doc.id ? { ...d, local_state: 'synced' } : d)
+                    }));
+                    return file;
+                }
+            } catch (e) {
+                console.error("Error downloading document:", e);
+                set_full_data(prev => ({
+                    ...prev,
+                    documents: prev.documents.map(d => d.id === doc.id ? { ...d, local_state: 'error' } : d)
+                }));
+            }
+            return null;
         },
         get_document_file: async (id: string) => {
             const db = await get_db();

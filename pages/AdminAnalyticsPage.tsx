@@ -36,7 +36,8 @@ const CustomTooltip = ({ active, payload, label, formatter }: any) => {
 };
 
 const AdminAnalyticsPage: React.FC = () => {
-    const { profiles, clients, admin_tasks, is_data_loading: loading, set_admin_viewing_user_id } = useData();
+    const { unfiltered_data, is_data_loading: loading, set_admin_viewing_user_id } = useData();
+    const { profiles, clients, admin_tasks } = unfiltered_data;
     const [stats, setStats] = React.useState<any>(null);
     const [error, setError] = React.useState<string | null>(null);
 
@@ -80,19 +81,26 @@ const AdminAnalyticsPage: React.FC = () => {
                 return { id: p.id, name: p.full_name, "عدد الإدخالات": clientCount + caseCount + taskCount };
             }).sort((a, b) => b["عدد الإدخالات"] - a["عدد الإدخالات"]).slice(0, 10);
 
+            const totalSessions = clients.flatMap(c => c.cases.flatMap(cs => cs.stages.flatMap(st => st.sessions))).length;
+            const totalDocuments = unfiltered_data.documents?.length || 0;
+
             setStats({
                 totalUsers: profiles.length,
                 activeSubscriptions,
                 pendingApprovals,
                 caseStatusData,
                 userSignupsData,
-                activityByUser
+                activityByUser,
+                totalClients: clients.length,
+                activeCases: allCases.filter(c => c.status === 'active').length,
+                totalSessions,
+                totalDocuments
             });
 
         } catch (err: any) {
             setError(err.message);
         }
-    }, [loading, profiles, clients, admin_tasks]);
+    }, [loading, profiles, clients, admin_tasks, unfiltered_data.documents]);
 
     if (loading) return <div className="text-center p-8">جاري تحميل التحليلات...</div>;
     if (error) return <div className="p-4 text-red-700 bg-red-100 rounded-md">{error}</div>;
@@ -118,6 +126,25 @@ const AdminAnalyticsPage: React.FC = () => {
                 <StatCard title="إجمالي المستخدمين" value={stats.totalUsers} icon={<UserGroupIcon className="w-7 h-7" />} color="bg-blue-100 text-blue-600" />
                 <StatCard title="الاشتراكات النشطة" value={stats.activeSubscriptions} icon={<ChartBarIcon className="w-7 h-7" />} color="bg-green-100 text-green-600" />
                 <StatCard title="الطلبات المعلقة" value={stats.pendingApprovals} icon={<ClockIcon className="w-7 h-7" />} color="bg-amber-100 text-amber-600" />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">إجمالي الموكلين</p>
+                    <p className="text-2xl font-black text-slate-900">{stats.totalClients}</p>
+                </div>
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">القضايا النشطة</p>
+                    <p className="text-2xl font-black text-blue-600">{stats.activeCases}</p>
+                </div>
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">الجلسات المسجلة</p>
+                    <p className="text-2xl font-black text-green-600">{stats.totalSessions}</p>
+                </div>
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">الوثائق المرفوعة</p>
+                    <p className="text-2xl font-black text-purple-600">{stats.totalDocuments}</p>
+                </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">

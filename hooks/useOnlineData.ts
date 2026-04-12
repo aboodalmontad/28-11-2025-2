@@ -18,6 +18,7 @@ export type FlatData = {
     case_documents: CaseDocument[];
     profiles: Profile[];
     site_finances: SiteFinancialEntry[];
+    sync_deletions: SyncDeletion[];
 };
 
 export const check_supabase_schema = async () => {
@@ -70,57 +71,110 @@ export const fetch_data_from_supabase = async (user_id?: string): Promise<Partia
     const supabase = get_supabase_client();
     if (!supabase) throw new Error('Supabase client not available.');
 
-    // 1. Check if the current user is an admin first
+    // 1. Determine if the REQUESTER is an admin
+    const { data: { user: currentUser } } = await supabase.auth.getUser();
     let is_admin_user = false;
-    if (user_id) {
-        const { data: profile } = await supabase.from('profiles').select('role').eq('id', user_id).maybeSingle();
+    
+    if (currentUser) {
+        const { data: profile } = await supabase.from('profiles').select('role').eq('id', currentUser.id).maybeSingle();
         is_admin_user = profile?.role === 'admin';
         
-        // Robust check: if not admin in profile, check email (in case role sync hasn't happened yet)
-        if (!is_admin_user) {
-            const { data: { user } } = await supabase.auth.getUser();
-            const adminEmails = ['nahwiabdo@gmail.com', 'avocat.nahwi@gmail.com', 'sy963958932922@email.com'];
-            if (user && adminEmails.includes(user.email || '')) {
-                is_admin_user = true;
-            }
+        const adminEmails = ['nahwiabdo@gmail.com', 'avocat.nahwi@gmail.com', 'sy963958932922@email.com'];
+        if (!is_admin_user && currentUser.email && adminEmails.includes(currentUser.email)) {
+            is_admin_user = true;
         }
     }
 
-    const query = (table: string) => {
+    // If a user_id is provided AND it's different from the requester, 
+    // it's likely a specific backup request (e.g. from AdminPage).
+    // If it's the same as the requester or missing, it's a normal sync.
+    const is_specific_user_request = !!(user_id && user_id !== currentUser?.id);
+    
+    // We should fetch everything IF the requester is admin AND it's NOT a specific user backup request.
+    const should_fetch_everything = is_admin_user && !is_specific_user_request;
+
+    // For the query logic below, we'll use is_admin_user to mean "should fetch everything"
+    const effective_is_admin = should_fetch_everything;
+    
+    const query = (table: string, all_user_ids?: string[]) => {
         let q = supabase.from(table).select('*');
-        // If not admin, filter by user_id. If admin, fetch everything.
-        if (!is_admin_user && user_id && table !== 'profiles' && table !== 'assistants') {
-            q = q.eq('user_id', user_id);
-        }
-        // Assistants table also needs filtering for regular users
-        if (!is_admin_user && user_id && table === 'assistants') {
-            q = q.eq('user_id', user_id);
+        
+        if (all_user_ids && all_user_ids.length > 0) {
+            // Specific user backup (including assistants if applicable)
+            if (table !== 'profiles' && table !== 'assistants') {
+                q = q.in('user_id', all_user_ids);
+            }
+            if (table === 'assistants') {
+                q = q.in('user_id', all_user_ids);
+            }
+            if (table === 'profiles') {
+                q = q.in('id', all_user_ids);
+            }
+        } else if (!effective_is_admin) {
+            // Not admin and no user_id? Should probably only see their own data anyway via RLS, 
+            // but let's be explicit if we have a currentUser
+            if (currentUser?.id) {
+                if (table !== 'profiles' && table !== 'assistants') {
+                    q = q.eq('user_id', currentUser.id);
+                }
+                if (table === 'assistants') {
+                    q = q.eq('user_id', currentUser.id);
+                }
+            }
         }
         return q;
     };
 
-    const fetch_table = async (table: string) => {
-        let table_attempt = 0;
-        const table_max_retries = 3;
-        while (table_attempt < table_max_retries) {
-            try {
-                const res = await query(table);
-                if (res.error) throw res.error;
-                return res.data || [];
-            } catch (err: any) {
-                table_attempt++;
-                const message = String(err.message || '').toLowerCase();
-                const is_network_error = message.includes('failed to fetch') || message.includes('abort') || message.includes('lock') || message.includes('network');
-                
-                if (is_network_error && table_attempt < table_max_retries) {
-                    console.warn(`Fetch table ${table} attempt ${table_attempt} failed: ${message}. Retrying...`);
-                    await new Promise(resolve => setTimeout(resolve, 300 * table_attempt + Math.random() * 300));
-                    continue;
+    const fetch_table = async (table: string, all_user_ids?: string[]) => {
+        let all_data: any[] = [];
+        let from = 0;
+        const PAGE_SIZE = 1000;
+        let has_more = true;
+
+        console.log(`Starting fetch for table: ${table}...`);
+
+        while (has_more) {
+            let table_attempt = 0;
+            const table_max_retries = 3;
+            let chunk: any[] = [];
+
+            while (table_attempt < table_max_retries) {
+                try {
+                    const res = await query(table, all_user_ids).range(from, from + PAGE_SIZE - 1);
+                    if (res.error) throw res.error;
+                    chunk = res.data || [];
+                    break;
+                } catch (err: any) {
+                    table_attempt++;
+                    const message = String(err.message || '').toLowerCase();
+                    const is_network_error = message.includes('failed to fetch') || message.includes('abort') || message.includes('lock') || message.includes('network');
+                    
+                    if (is_network_error && table_attempt < table_max_retries) {
+                        console.warn(`Fetch table ${table} attempt ${table_attempt} failed: ${message}. Retrying...`);
+                        await new Promise(resolve => setTimeout(resolve, 300 * table_attempt + Math.random() * 300));
+                        continue;
+                    }
+                    throw err;
                 }
-                throw err;
+            }
+
+            all_data = [...all_data, ...chunk];
+            console.log(`Fetched ${chunk.length} records from ${table} (Total: ${all_data.length})`);
+            
+            if (chunk.length < PAGE_SIZE) {
+                has_more = false;
+            } else {
+                from += PAGE_SIZE;
             }
         }
-        throw new Error(`Failed to fetch table ${table} after ${table_max_retries} attempts.`);
+        
+        if (all_data.length === 0 && from > 0) {
+             // This case should be handled by the throw inside the loop, 
+             // but as a safety check:
+             throw new Error(`Failed to fetch data from ${table} after multiple attempts.`);
+        }
+
+        return all_data;
     };
 
     const max_retries = 2;
@@ -131,39 +185,54 @@ export const fetch_data_from_supabase = async (user_id?: string): Promise<Partia
             // Ensure session is fresh before parallel calls to avoid lock stealing
             await supabase.auth.getSession();
 
+            // Determine all relevant user IDs if a specific user_id is provided
+            let all_user_ids: string[] | undefined = undefined;
+            let all_profile_ids: string[] | undefined = undefined;
+            if (user_id && !should_fetch_everything) {
+                const { data: assistants } = await supabase.from('profiles').select('id').eq('lawyer_id', user_id);
+                all_user_ids = [user_id, ...(assistants?.map(a => a.id) || [])];
+                all_profile_ids = [...all_user_ids];
+                if (currentUser?.id && !all_profile_ids.includes(currentUser.id)) {
+                    all_profile_ids.push(currentUser.id);
+                }
+            }
+
             // Sequentialize these calls to avoid concurrent auth token refresh attempts and network congestion
-            const clients = await fetch_table('clients');
+            const clients = await fetch_table('clients', all_user_ids);
             await new Promise(resolve => setTimeout(resolve, 50));
-            const admin_tasks = await fetch_table('admin_tasks');
+            const admin_tasks = await fetch_table('admin_tasks', all_user_ids);
             await new Promise(resolve => setTimeout(resolve, 50));
-            const appointments = await fetch_table('appointments');
+            const appointments = await fetch_table('appointments', all_user_ids);
             await new Promise(resolve => setTimeout(resolve, 50));
-            const accounting_entries = await fetch_table('accounting_entries');
+            const accounting_entries = await fetch_table('accounting_entries', all_user_ids);
             await new Promise(resolve => setTimeout(resolve, 50));
-            const assistants = await fetch_table('assistants');
+            const assistants = await fetch_table('assistants', all_user_ids);
             await new Promise(resolve => setTimeout(resolve, 50));
-            const invoices = await fetch_table('invoices');
+            const invoices = await fetch_table('invoices', all_user_ids);
             await new Promise(resolve => setTimeout(resolve, 50));
-            const cases = await fetch_table('cases');
+            const cases = await fetch_table('cases', all_user_ids);
             await new Promise(resolve => setTimeout(resolve, 50));
-            const stages = await fetch_table('stages');
+            const stages = await fetch_table('stages', all_user_ids);
             await new Promise(resolve => setTimeout(resolve, 50));
-            const sessions = await fetch_table('sessions');
+            const sessions = await fetch_table('sessions', all_user_ids);
             await new Promise(resolve => setTimeout(resolve, 50));
-            const invoice_items = await fetch_table('invoice_items');
+            const invoice_items = await fetch_table('invoice_items', all_user_ids);
             await new Promise(resolve => setTimeout(resolve, 50));
-            const case_documents = await fetch_table('case_documents');
+            const case_documents = await fetch_table('case_documents', all_user_ids);
             await new Promise(resolve => setTimeout(resolve, 50));
 
-            // Profiles logic: If admin, fetch all. If regular user, fetch only theirs.
+            // Profiles logic: If admin and no specific user request, fetch all.
             let profiles;
-            if (is_admin_user) {
+            if (all_profile_ids) {
+                profiles = await fetch_table('profiles', all_profile_ids);
+            } else if (should_fetch_everything) {
                 profiles = await fetch_table('profiles');
-            } else if (user_id) {
+            } else if (currentUser?.id) {
                 let p_attempt = 0;
+                const target_id = user_id || currentUser.id;
                 while (p_attempt < 3) {
                     try {
-                        const res = await supabase.from('profiles').select('*').or(`id.eq.${user_id},lawyer_id.eq.${user_id}`);
+                        const res = await supabase.from('profiles').select('*').or(`id.eq.${target_id},lawyer_id.eq.${target_id}`);
                         if (res.error) throw res.error;
                         profiles = res.data || [];
                         break;
@@ -180,7 +249,9 @@ export const fetch_data_from_supabase = async (user_id?: string): Promise<Partia
                 profiles = await fetch_table('profiles');
             }
 
-            const site_finances = await fetch_table('site_finances');
+            const site_finances = await fetch_table('site_finances', all_user_ids);
+            await new Promise(resolve => setTimeout(resolve, 50));
+            const sync_deletions = await fetch_table('sync_deletions', all_user_ids);
 
             return {
                 clients,
@@ -196,6 +267,7 @@ export const fetch_data_from_supabase = async (user_id?: string): Promise<Partia
                 case_documents,
                 profiles: profiles || [],
                 site_finances,
+                sync_deletions,
             };
         } catch (err: any) {
             attempt++;
@@ -254,7 +326,7 @@ export const fetch_deletions_from_supabase = async (): Promise<SyncDeletion[]> =
     return [];
 };
 
-export const delete_data_from_supabase = async (deletions: Partial<FlatData>, user: User) => {
+export const delete_data_from_supabase = async (deletions: Partial<FlatData>, user: User, effective_user_id?: string) => {
     const supabase = get_supabase_client();
     if (!supabase) throw new Error('Supabase client not available.');
     
@@ -264,6 +336,8 @@ export const delete_data_from_supabase = async (deletions: Partial<FlatData>, us
         'admin_tasks', 'appointments', 'accounting_entries', 'assistants', 'clients',
         'site_finances', 'profiles',
     ];
+
+    const user_id_to_use = effective_user_id || user.id;
 
     for (const table of deletion_order) {
         const items_to_delete = (deletions as any)[table];
@@ -275,7 +349,7 @@ export const delete_data_from_supabase = async (deletions: Partial<FlatData>, us
             while (attempt < max_retries) {
                 try {
                     if (table !== 'profiles') {
-                        const deletions_log = ids.map((id: string) => ({ table_name: table, record_id: id, user_id: user.id }));
+                        const deletions_log = ids.map((id: string) => ({ table_name: table, record_id: id, user_id: user_id_to_use }));
                         const { error: log_error } = await supabase.from('sync_deletions').insert(deletions_log);
                         if (log_error) throw log_error;
                     }
@@ -297,7 +371,7 @@ export const delete_data_from_supabase = async (deletions: Partial<FlatData>, us
     }
 };
 
-export const upsert_data_to_supabase = async (data: Partial<FlatData>, user: User) => {
+export const upsert_data_to_supabase = async (data: Partial<FlatData>, user: User, effective_user_id?: string) => {
     const supabase = get_supabase_client();
     if (!supabase) throw new Error('Supabase client not available.');
 
@@ -309,7 +383,8 @@ export const upsert_data_to_supabase = async (data: Partial<FlatData>, user: Use
         .maybeSingle();
     if (profile_error) throw profile_error;
     
-    const user_id_to_use = profile?.lawyer_id || user.id; // Use lawyer_id if assistant, else user.id
+    // Priority: 1. effective_user_id (passed from context, e.g. admin viewing user), 2. lawyer_id (if assistant), 3. user.id
+    const user_id_to_use = effective_user_id || profile?.lawyer_id || user.id; 
 
     const data_to_upsert = {
         clients: data.clients?.map(client => ({ 
@@ -532,5 +607,6 @@ export const transform_remote_to_local = (remote: any): Partial<FlatData> => {
         case_documents: remote.case_documents || [],
         profiles: remote.profiles || [],
         site_finances: remote.site_finances || [],
+        sync_deletions: remote.sync_deletions || [],
     };
 };
