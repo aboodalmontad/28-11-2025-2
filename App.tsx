@@ -426,70 +426,62 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
         // Automatically try to open config if profile is missing in the cloud
         return (
             <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 text-center p-6" dir="rtl">
-                <ExclamationTriangleIcon className="w-16 h-16 text-amber-500 mb-4"/>
-                <h2 className="text-xl font-bold">لم يتم العثور على ملفك الشخصي</h2>
-                <p className="text-gray-600 mt-2">يبدو أن حسابك مسجل في النظام ولكن لم نتمكن من العثور على بيانات ملفك الشخصي في قاعدة البيانات.</p>
+                <ArrowPathIcon className="w-16 h-16 text-blue-600 animate-spin mb-4"/>
+                <h2 className="text-2xl font-bold text-slate-900 mb-2">جاري تحميل بيانات مكتبك الرجاء الانتظار</h2>
+                <p className="text-gray-500 mt-2">يتم الآن تهيئة ومزامنة التخزين المحلي السحابي...</p>
                 
-                <div className="mt-4 p-4 bg-white rounded-lg border border-gray-200 shadow-sm max-w-md w-full text-right">
-                    <div className="bg-slate-50 rounded p-3 mb-4 text-xs font-mono overflow-auto text-left">
-                        <div className="text-slate-500 mb-1">معلومات التشخيص:</div>
-                        <div className="text-slate-700">User ID: {session.user.id}</div>
-                        <div className="text-slate-700">Sync Status: {data.sync_status}</div>
-                        <div className="text-slate-700">Profiles Count: {data.profiles.length}</div>
-                        {data.last_sync_error && <div className="text-red-500 mt-2">Error: {data.last_sync_error}</div>}
-                    </div>
+                <details className="mt-8 text-right bg-white p-4 rounded-lg border shadow-sm max-w-md w-full opacity-50 hover:opacity-100 transition-opacity">
+                    <summary className="text-sm font-bold text-gray-500 cursor-pointer outline-none">إظهار الدعم الفني وأدوات الإصلاح (في حال طال الانتظار)</summary>
+                    <div className="mt-4 p-4 bg-white rounded-lg border border-gray-200 shadow-sm max-w-md w-full text-right">
+                        <div className="bg-slate-50 rounded p-3 mb-4 text-xs font-mono overflow-auto text-left">
+                            <div className="text-slate-500 mb-1">معلومات التشخيص:</div>
+                            <div className="text-slate-700">User ID: {session.user.id}</div>
+                            <div className="text-slate-700">Sync Status: {data.sync_status}</div>
+                            <div className="text-slate-700">Profiles Count: {data.profiles.length}</div>
+                            {data.last_sync_error && <div className="text-red-500 mt-2">Error: {data.last_sync_error}</div>}
+                        </div>
 
-                    <div className="flex flex-col gap-2">
-                        <button 
-                            onClick={() => data.manual_sync({ force: true })} 
-                            disabled={(data.sync_status as string) === 'syncing'}
-                            className="w-full py-2 bg-blue-600 text-white rounded-lg font-medium disabled:opacity-50 flex items-center justify-center gap-2"
-                        >
-                            {(data.sync_status as string) === 'syncing' ? <ArrowPathIcon className="w-4 h-4 animate-spin"/> : null}
-                            {(data.sync_status as string) === 'syncing' ? 'جاري المزامنة...' : 'إعادة محاولة المزامنة'}
-                        </button>
-                        <button 
-                            onClick={() => setShowConfigModal(true)} 
-                            className="w-full py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200"
-                        >
-                            إصلاح قاعدة البيانات
-                        </button>
+                        <div className="flex flex-col gap-2">
+                            <button 
+                                onClick={() => data.manual_sync({ force: true })} 
+                                disabled={(data.sync_status as string) === 'syncing'}
+                                className="w-full py-2 bg-blue-600 text-white rounded-lg font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+                            >
+                                {(data.sync_status as string) === 'syncing' ? <ArrowPathIcon className="w-4 h-4 animate-spin"/> : null}
+                                {(data.sync_status as string) === 'syncing' ? 'جاري المزامنة...' : 'إعادة محاولة المزامنة'}
+                            </button>
+                            <button 
+                                onClick={() => setShowConfigModal(true)} 
+                                className="w-full py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200"
+                            >
+                                إصلاح قاعدة البيانات
+                            </button>
+                        </div>
                     </div>
-                </div>
-                
-                <div className="mt-6 flex flex-col gap-2 w-full max-w-md">
-                    <p className="text-xs text-gray-400">إذا كنت متأكداً من وجود بياناتك، يرجى التحقق من أنك سجلت الدخول بالحساب الصحيح.</p>
-                    <button 
-                        onClick={createMissingProfile} 
-                        disabled={isCreatingProfile}
-                        className="px-6 py-2 bg-green-600 text-white rounded-lg disabled:opacity-50"
-                    >
-                        {isCreatingProfile ? 'جاري الإنشاء...' : 'إنشاء ملف شخصي جديد'}
-                    </button>
-                    <button onClick={handleLogout} className="px-6 py-2 text-red-600 hover:bg-red-50 rounded-lg">تسجيل الخروج</button>
-                </div>
+                    
+                    <div className="mt-6 flex flex-col gap-2 w-full max-w-md">
+                        <p className="text-xs text-gray-400">إذا كنت متأكداً من وجود بياناتك، يرجى التحقق من أنك سجلت الدخول بالحساب الصحيح.</p>
+                        <button 
+                            onClick={createMissingProfile} 
+                            disabled={isCreatingProfile}
+                            className="px-6 py-2 bg-green-600 text-white rounded-lg disabled:opacity-50"
+                        >
+                            {isCreatingProfile ? 'جاري الإنشاء...' : 'إنشاء ملف شخصي جديد (إجباري)'}
+                        </button>
+                        <button onClick={handleLogout} className="px-6 py-2 text-red-600 hover:bg-red-50 rounded-lg">تسجيل الخروج</button>
+                    </div>
+                </details>
             </div>
         );
     }
 
     if (session && !profile) {
-        if (data.is_data_loading) {
-            return (
-                <div className="flex flex-col items-center justify-center h-screen bg-slate-50">
-                    <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
-                    <p className="text-slate-600 font-bold">جاري تحميل الملف الشخصي...</p>
-                </div>
-            );
-        }
-        // If data finished loading but profile is still missing, we might need to create it or logout
         return (
             <div className="flex flex-col items-center justify-center h-screen bg-slate-50 p-6 text-center">
-                <ExclamationTriangleIcon className="w-16 h-16 text-amber-500 mb-4" />
-                <h2 className="text-2xl font-bold text-slate-900 mb-2">لم يتم العثور على ملفك الشخصي</h2>
-                <p className="text-slate-600 mb-6">يبدو أن هناك مشكلة في مزامنة بيانات حسابك. يرجى المحاولة مرة أخرى أو تسجيل الخروج.</p>
-                <div className="flex gap-4">
-                    <button onClick={() => data.fetch_and_refresh()} className="px-6 py-2 bg-blue-600 text-white rounded-lg font-bold">إعادة المحاولة</button>
-                    <button onClick={handleLogout} className="px-6 py-2 bg-slate-200 text-slate-700 rounded-lg font-bold">تسجيل الخروج</button>
+                <ArrowPathIcon className="w-12 h-12 text-blue-600 animate-spin mb-4" />
+                <h2 className="text-2xl font-bold text-slate-900 mb-2">جاري تحميل بيانات مكتبك الرجاء الانتظار</h2>
+                <div className="mt-8 opacity-0 hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                    <button onClick={handleLogout} className="text-sm text-slate-400 hover:text-red-500">مشكلة بالتحميل؟ تسجيل الخروج</button>
                 </div>
             </div>
         );

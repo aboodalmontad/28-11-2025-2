@@ -149,8 +149,8 @@ CREATE TABLE IF NOT EXISTS public.invoice_items (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 12. Documents Table
-CREATE TABLE IF NOT EXISTS public.documents (
+-- 12. Case Documents Table
+CREATE TABLE IF NOT EXISTS public.case_documents (
     id TEXT PRIMARY KEY,
     case_id TEXT,
     user_id UUID REFERENCES auth.users NOT NULL,
@@ -230,7 +230,7 @@ ALTER TABLE public.appointments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.accounting_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.invoices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.invoice_items ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.documents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.case_documents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.assistants ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.site_finances ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sync_deletions ENABLE ROW LEVEL SECURITY;
@@ -262,7 +262,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 DO $$ 
 DECLARE 
     t TEXT;
-    tables TEXT[] := ARRAY['clients', 'cases', 'stages', 'sessions', 'admin_tasks', 'appointments', 'accounting_entries', 'invoices', 'invoice_items', 'documents', 'assistants', 'sync_deletions'];
+    tables TEXT[] := ARRAY['clients', 'cases', 'stages', 'sessions', 'admin_tasks', 'appointments', 'accounting_entries', 'invoices', 'invoice_items', 'case_documents', 'assistants', 'sync_deletions'];
 BEGIN
     FOREACH t IN ARRAY tables LOOP
         EXECUTE format('DROP POLICY IF EXISTS "Users can access their office data" ON public.%I', t);
@@ -286,8 +286,8 @@ END $$;
 CREATE POLICY "Profiles are viewable by everyone" ON public.profiles
     FOR SELECT USING (true);
 
-CREATE POLICY "Users can update their own profile" ON public.profiles
-    FOR UPDATE USING (id = auth.uid() OR public.is_admin());
+CREATE POLICY "Users can update their own profile or their assistants" ON public.profiles
+    FOR UPDATE USING (id = auth.uid() OR public.is_admin() OR lawyer_id = auth.uid());
 
 CREATE POLICY "Admins can manage site finances" ON public.site_finances
     FOR ALL USING (public.is_admin());
@@ -309,7 +309,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 DO $$ 
 DECLARE 
     t TEXT;
-    tables TEXT[] := ARRAY['clients', 'cases', 'stages', 'sessions', 'admin_tasks', 'appointments', 'accounting_entries', 'invoices', 'documents'];
+    tables TEXT[] := ARRAY['clients', 'cases', 'stages', 'sessions', 'admin_tasks', 'appointments', 'accounting_entries', 'invoices', 'case_documents'];
 BEGIN
     FOREACH t IN ARRAY tables LOOP
         EXECUTE format('DROP TRIGGER IF EXISTS %I_deletion_trigger ON public.%I', t, t);

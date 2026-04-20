@@ -724,7 +724,7 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
                             <span className={`w-2 h-2 rounded-full ${db_status === 'connected' ? 'bg-green-500' : db_status === 'failed' ? 'bg-red-500' : 'bg-yellow-500'}`}></span>
                             {db_status === 'connected' ? 'متصل بقاعدة البيانات' : db_status === 'failed' ? 'فشل الاتصال بقاعدة البيانات' : 'جاري فحص الاتصال...'}
                         </div>
-                        {is_update_available && (
+                        {is_update_available ? (
                             <button 
                                 onClick={handle_hard_refresh}
                                 className="flex items-center gap-2 px-4 py-2 text-xs font-black text-white bg-blue-600 hover:bg-blue-700 rounded-full shadow-md transition-all active:scale-95 animate-pulse"
@@ -733,6 +733,11 @@ const LoginPage: React.FC<auth_page_props> = ({ on_force_setup, on_login_success
                                 <ArrowPathIcon className="w-4 h-4" />
                                 تحديث النظام (إصدار 12-4-2026-5)
                             </button>
+                        ) : (
+                            <div className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-green-700 bg-green-50 border border-green-200 rounded-full shadow-sm">
+                                <CheckCircleIcon className="w-4 h-4" />
+                                التطبيق محدث لآخر إصدار
+                            </div>
                         )}
                     </div>
                 </div>

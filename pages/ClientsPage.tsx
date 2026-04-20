@@ -11,6 +11,7 @@ import { printElement } from '../utils/printUtils';
 import { MenuItem } from '../components/ContextMenu';
 import { useDebounce } from '../hooks/useDebounce';
 import { useData } from '../context/DataContext';
+import { useFeedback } from '../context/FeedbackContext';
 
 interface ClientsPageProps {
     on_open_admin_task_modal: (initialData?: any) => void;
@@ -34,6 +35,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ show_context_menu, on_open_ad
         permissions, // Destructure permissions
         effective_user_id // Use effective_user_id instead of user_id
     } = useData();
+    const { showFeedback } = useFeedback();
     const [modal, set_modal] = React.useState<{ type: 'client' | 'case' | 'stage' | 'session' | null, context?: any, is_editing: boolean }>({ type: null, is_editing: false });
     const [form_data, set_form_data] = React.useState<any>({});
     const [search_query, set_search_query] = React.useState('');
@@ -192,7 +194,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ show_context_menu, on_open_ad
     const handle_postpone_session = (session_id: string, new_date: Date, reason: string) => {
         const warning = postpone_session(session_id, to_input_date_string(new_date), reason);
         if (warning) {
-            alert(warning);
+            showFeedback(warning, "warning");
         }
     };
 
@@ -203,7 +205,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ show_context_menu, on_open_ad
         if (type === 'client') {
             const client_name = form_data.name?.trim();
             if (!client_name) {
-                alert("اسم الموكل مطلوب.");
+                showFeedback("اسم الموكل مطلوب.", "error");
                 return;
             }
             
@@ -212,11 +214,11 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ show_context_menu, on_open_ad
 
             if (found_client) {
                 if (!is_editing) {
-                    alert(`تنبيه: الموكل "${client_name}" موجود بالفعل.`);
+                    showFeedback(`تنبيه: الموكل "${client_name}" موجود بالفعل.`, "warning");
                     return;
                 }
                 if (is_editing && context?.item?.id !== found_client.id) {
-                     alert(`تنبيه: الموكل "${client_name}" موجود بالفعل.`);
+                     showFeedback(`تنبيه: الموكل "${client_name}" موجود بالفعل.`, "warning");
                      return;
                 }
             }
@@ -356,7 +358,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ show_context_menu, on_open_ad
                  const session_data = { ...form_data };
                  const parsed_date = parse_input_date_string(session_data.date);
                  if (!parsed_date) {
-                     alert("تاريخ الجلسة غير صالح.");
+                     showFeedback("تاريخ الجلسة غير صالح.", "error");
                      return;
                  }
                  session_data.date = to_input_date_string(parsed_date);
@@ -379,7 +381,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ show_context_menu, on_open_ad
             } else {
                 const parsed_date = parse_input_date_string(form_data.date);
                 if (!parsed_date) {
-                    alert("تاريخ الجلسة غير صالح.");
+                    showFeedback("تاريخ الجلسة غير صالح.", "error");
                     return;
                 }
                 const client = clients.find(c => c.id === context.client_id);
@@ -737,7 +739,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ show_context_menu, on_open_ad
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[100] no-print" onClick={() => set_is_print_modal_open(false)}>
                     <div className="bg-white p-2 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
                         <div className="overflow-y-auto" ref={print_client_report_ref}><PrintableClientReport client={print_data.client} caseData={print_data.caseData} entries={print_data.entries} totals={print_data.totals} /></div>
-                        <div className="mt-4 flex justify-end gap-4 border-t p-4"><button onClick={() => set_is_print_modal_open(false)} className="px-6 py-2 bg-gray-200 rounded-lg">إغلاق</button><button onClick={() => printElement(print_client_report_ref.current)} className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg"><PrintIcon className="w-5 h-5"/>طباعة</button></div>
+                        <div className="mt-4 flex justify-end gap-4 border-t p-4"><button onClick={() => set_is_print_modal_open(false)} className="px-6 py-2 bg-gray-200 rounded-lg">إغلاق</button><button onClick={() => printElement(print_client_report_ref.current, showFeedback)} className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg"><PrintIcon className="w-5 h-5"/>طباعة</button></div>
                     </div>
                 </div>
             )}

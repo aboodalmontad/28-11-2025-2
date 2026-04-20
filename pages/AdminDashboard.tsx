@@ -9,6 +9,7 @@ import AdminTestsPage from './AdminTestsPage';
 import AdminSettingsPage from './AdminSettingsPage';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { fetch_data_from_supabase } from '../hooks/useOnlineData';
+import { useFeedback } from '../context/FeedbackContext';
 
 interface AdminDashboardProps {
     on_logout: () => void;
@@ -47,6 +48,7 @@ const NavLink: React.FC<{
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ on_logout, on_open_config }) => {
     const { profiles, is_data_loading: loading, admin_viewing_user_id, set_admin_viewing_user_id, unfiltered_data, is_update_available } = useData();
+    const { showFeedback, confirm } = useFeedback();
     const [view, set_view] = React.useState<AdminView>('users');
     const [is_mobile_menu_open, set_is_mobile_menu_open] = React.useState(false);
     const [is_backing_up, set_is_backing_up] = React.useState(false);
@@ -94,36 +96,44 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ on_logout, on_open_conf
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
-            alert('تم تحميل نسخة بيانات لوحة التحكم بنجاح.');
+            showFeedback('تم تحميل نسخة بيانات لوحة التحكم بنجاح.', "success");
         } catch (error: any) {
             console.error('Admin backup failed:', error);
-            alert(`فشل النسخ الاحتياطي: ${error.message}`);
+            showFeedback(`فشل النسخ الاحتياطي: ${error.message}`, "error");
         } finally {
             set_is_backing_up(false);
         }
     };
 
-    const handle_hard_refresh = async () => {
-        if (!confirm('هل تريد مسح الذاكرة المؤقتة وتحديث النظام؟ سيتم إعادة تحميل الصفحة.')) return;
-        try {
-            if ('serviceWorker' in navigator) {
-                const registrations = await navigator.serviceWorker.getRegistrations();
-                for (let registration of registrations) {
-                    await registration.unregister();
+    const handle_hard_refresh = () => {
+        confirm({
+            title: 'تحديث النظام',
+            message: 'هل تريد مسح الذاكرة المؤقتة وتحديث النظام؟ سيتم إعادة تحميل الصفحة.',
+            confirmText: 'تحديث ومسح الكاش',
+            cancelText: 'إلغاء',
+            variant: 'danger',
+            onConfirm: async () => {
+                try {
+                    if ('serviceWorker' in navigator) {
+                        const registrations = await navigator.serviceWorker.getRegistrations();
+                        for (let registration of registrations) {
+                            await registration.unregister();
+                        }
+                    }
+                    if ('caches' in window) {
+                        const cacheNames = await caches.keys();
+                        for (let name of cacheNames) {
+                            await caches.delete(name);
+                        }
+                    }
+                    localStorage.setItem('app_version', '12-4-2026-5');
+                    window.location.reload();
+                } catch (error) {
+                    console.error('Error clearing cache:', error);
+                    window.location.reload();
                 }
             }
-            if ('caches' in window) {
-                const cacheNames = await caches.keys();
-                for (let name of cacheNames) {
-                    await caches.delete(name);
-                }
-            }
-            localStorage.setItem('app_version', '12-4-2026-5');
-            window.location.reload();
-        } catch (error) {
-            console.error('Error clearing cache:', error);
-            window.location.reload();
-        }
+        });
     };
 
     // Automatically unlock audio and vibration on component mount.

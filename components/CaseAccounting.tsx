@@ -5,6 +5,7 @@ import { Case, Client, AccountingEntry } from '../types';
 import { format_date, to_input_date_string, safe_revive_date } from '../utils/dateUtils';
 import { PlusIcon, PencilIcon, TrashIcon, ExclamationCircleIcon } from './icons';
 import { useData } from '../context/DataContext';
+import { useFeedback } from '../context/FeedbackContext';
 
 interface CaseAccountingProps {
     case_data: Case;
@@ -16,6 +17,7 @@ interface CaseAccountingProps {
 
 const CaseAccounting: React.FC<CaseAccountingProps> = ({ case_data, client, case_accounting_entries, set_accounting_entries, on_fee_agreement_change }) => {
     const { permissions, effective_user_id } = useData();
+    const { confirm } = useFeedback();
     const [is_editing_fee, set_is_editing_fee] = React.useState(false);
     const [fee_agreement, set_fee_agreement] = React.useState(case_data.fee_agreement || '');
     const [modal, set_modal] = React.useState<{ is_open: boolean; data?: AccountingEntry, type: 'income' | 'expense' }>({ is_open: false, type: 'income' });
@@ -85,10 +87,17 @@ const CaseAccounting: React.FC<CaseAccountingProps> = ({ case_data, client, case
         handle_close_modal();
     };
 
-    const handle_delete = (id: string) => {
-        if (window.confirm('هل أنت متأكد من حذف هذا القيد؟')) {
-            set_accounting_entries(prev => prev.filter(item => item.id !== id));
-        }
+    const handle_delete = async (id: string) => {
+        confirm({
+            title: 'حذف قيد مالي',
+            message: 'هل أنت متأكد من حذف هذا القيد المالي؟ لا يمكن التراجع عن هذه العملية.',
+            confirmText: 'نعم، حذف',
+            cancelText: 'إلغاء',
+            variant: 'danger',
+            onConfirm: () => {
+                set_accounting_entries(prev => prev.filter(item => item.id !== id));
+            }
+        });
     };
 
     return (

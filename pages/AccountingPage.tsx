@@ -5,6 +5,7 @@ import { AccountingEntry, Client, Invoice, InvoiceItem, Case, Stage, Session } f
 import { format_date, to_input_date_string, parse_input_date_string, safe_revive_date } from '../utils/dateUtils';
 import { PlusIcon, PencilIcon, TrashIcon, SearchIcon, ExclamationTriangleIcon, PrintIcon, DocumentTextIcon, CalculatorIcon, ChartPieIcon } from '../components/icons';
 import { useData } from '../context/DataContext';
+import { useFeedback } from '../context/FeedbackContext';
 import PrintableInvoice from '../components/PrintableInvoice';
 import { printElement } from '../utils/printUtils';
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -12,11 +13,10 @@ import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Toolti
 // --- TAB: ENTRIES ---
 const EntriesTab: React.FC = () => {
     const { accounting_entries, set_accounting_entries, clients, delete_accounting_entry, permissions, effective_user_id } = useData();
+    const { confirm } = useFeedback();
     const [modal, set_modal] = React.useState<{ is_open: boolean; data?: AccountingEntry }>({ is_open: false });
     const [form_data, set_form_data] = React.useState<Partial<AccountingEntry>>({});
     const [search_query, set_search_query] = React.useState('');
-    const [is_delete_modal_open, set_is_delete_modal_open] = React.useState(false);
-    const [entry_to_delete, set_entry_to_delete] = React.useState<AccountingEntry | null>(null);
 
     const financial_summary = React.useMemo(() => {
         const total_income = accounting_entries.filter(e => e.type === 'income').reduce((sum, e) => sum + e.amount, 0);
@@ -85,19 +85,6 @@ const EntriesTab: React.FC = () => {
         handle_close_modal();
     };
 
-    const confirm_delete = (entry: AccountingEntry) => {
-        set_entry_to_delete(entry);
-        set_is_delete_modal_open(true);
-    };
-
-    const handle_delete = () => {
-        if (entry_to_delete) {
-            delete_accounting_entry(entry_to_delete.id);
-            set_is_delete_modal_open(false);
-            set_entry_to_delete(null);
-        }
-    };
-
     return (
         <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -154,7 +141,7 @@ const EntriesTab: React.FC = () => {
                                     </td>
                                     <td className="px-4 py-3 flex gap-2">
                                         <button onClick={() => handle_open_modal(entry)} className="p-1 text-gray-500 hover:text-blue-600"><PencilIcon className="w-4 h-4" /></button>
-                                        {permissions.can_delete_financial_entry && <button onClick={() => confirm_delete(entry)} className="p-1 text-gray-500 hover:text-red-600"><TrashIcon className="w-4 h-4" /></button>}
+                                        {permissions.can_delete_financial_entry && <button onClick={() => confirm({ title: 'تأكيد الحذف', message: `هل أنت متأكد من حذف القيد "${entry.description}"؟`, confirmText: 'حذف', cancelText: 'إلغاء', variant: 'danger', onConfirm: () => delete_accounting_entry(entry.id) })} className="p-1 text-gray-500 hover:text-red-600"><TrashIcon className="w-4 h-4" /></button>}
                                     </td>
                                 </tr>
                             ))}
@@ -189,22 +176,6 @@ const EntriesTab: React.FC = () => {
                     </div>
                 </div>
             )}
-            
-            {is_delete_modal_open && entry_to_delete && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => set_is_delete_modal_open(false)}>
-                    <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
-                        <div className="text-center">
-                            <ExclamationTriangleIcon className="w-12 h-12 text-red-500 mx-auto mb-4" />
-                            <h3 className="text-lg font-bold mb-2">تأكيد الحذف</h3>
-                            <p className="text-gray-600 mb-6">هل أنت متأكد من حذف القيد "{entry_to_delete.description}"؟</p>
-                            <div className="flex justify-center gap-4">
-                                <button onClick={() => set_is_delete_modal_open(false)} className="px-4 py-2 bg-gray-200 rounded">إلغاء</button>
-                                <button onClick={handle_delete} className="px-4 py-2 bg-red-600 text-white rounded">حذف</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 };
@@ -212,6 +183,7 @@ const EntriesTab: React.FC = () => {
 // --- TAB: INVOICES ---
 const InvoicesTab: React.FC<{ initial_invoice_data?: { client_id: string, case_id?: string }, clear_initial_invoice_data: () => void }> = ({ initial_invoice_data, clear_initial_invoice_data }) => {
     const { invoices, set_invoices, clients, delete_invoice, permissions } = useData();
+    const { confirm, showFeedback } = useFeedback();
     const [modal, set_modal] = React.useState<{ is_open: boolean; data?: Invoice }>({ is_open: false });
     const [is_print_modal_open, set_is_print_modal_open] = React.useState(false);
     const [invoice_to_print, set_invoice_to_print] = React.useState<Invoice | null>(null);
@@ -249,9 +221,16 @@ const InvoicesTab: React.FC<{ initial_invoice_data?: { client_id: string, case_i
     };
 
     const handle_delete_invoice = (id: string) => {
-        if (window.confirm('هل أنت متأكد من حذف هذه الفاتورة؟')) {
-            delete_invoice(id);
-        }
+        confirm({
+            title: 'حذف الفاتورة',
+            message: 'هل أنت متأكد من حذف هذه الفاتورة؟',
+            confirmText: 'حذف',
+            cancelText: 'إلغاء',
+            variant: 'danger',
+            onConfirm: () => {
+                delete_invoice(id);
+            }
+        });
     };
 
     const handle_print_invoice = (invoice: Invoice) => {
@@ -317,7 +296,7 @@ const InvoicesTab: React.FC<{ initial_invoice_data?: { client_id: string, case_i
                         </div>
                         <div className="mt-4 pt-4 border-t flex justify-end gap-4">
                             <button onClick={() => set_is_print_modal_open(false)} className="px-6 py-2 bg-gray-200 rounded-lg">إغلاق</button>
-                            <button onClick={() => printElement(invoice_print_ref.current)} className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg"><PrintIcon className="w-5 h-5"/> طباعة</button>
+                            <button onClick={() => printElement(invoice_print_ref.current, showFeedback)} className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg"><PrintIcon className="w-5 h-5"/> طباعة</button>
                         </div>
                     </div>
                 </div>

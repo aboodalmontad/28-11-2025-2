@@ -242,14 +242,42 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
         set_admin_viewing_user_id(null);
     }, [user?.id]);
 
-    // Check for updates
+    // Check for updates by fetching version.json from server
     React.useEffect(() => {
-        const stored_version = localStorage.getItem('app_version');
-        if (stored_version !== APP_VERSION) {
-            set_is_update_available(true);
-        } else {
-            set_is_update_available(false);
-        }
+        const check_for_updates = async () => {
+            try {
+                // Fetch version.json with a timestamp to bypass browser cache
+                const response = await fetch(`/version.json?t=${Date.now()}`);
+                if (!response.ok) throw new Error('Failed to fetch version');
+                const server_data = await response.json();
+                
+                const stored_version = localStorage.getItem('app_version');
+                
+                // Update is available if:
+                // 1. Current hardcoded APP_VERSION is not equal to server version
+                // 2. OR stored local version is not equal to server version
+                if (server_data.version !== APP_VERSION || (stored_version && stored_version !== server_data.version)) {
+                    console.log(`Update available: Server(${server_data.version}) vs App(${APP_VERSION})`);
+                    set_is_update_available(true);
+                } else {
+                    set_is_update_available(false);
+                }
+            } catch (error) {
+                console.error('Error checking for updates:', error);
+                
+                // Fallback to basic local check if fetch fails
+                const stored_version = localStorage.getItem('app_version');
+                if (stored_version && stored_version !== APP_VERSION) {
+                    set_is_update_available(true);
+                }
+            }
+        };
+
+        check_for_updates();
+        
+        // Optionally check every 30 minutes
+        const interval = setInterval(check_for_updates, 30 * 60 * 1000);
+        return () => clearInterval(interval);
     }, []);
 
     const effective_user_id = React.useMemo(() => {
@@ -610,6 +638,212 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
         return all_sessions.filter(s => !s.is_postponed && !s.stage_decision_date && !s.next_session_date);
     }, [all_sessions]);
 
+    const download_document_file = React.useCallback(async (doc: CaseDocument) => {
+        if (!doc.storage_path) return null;
+        const supabase = get_supabase_client();
+        if (!supabase) return null;
+
+        try {
+            // Set state to downloading
+            set_full_data(prev => ({
+                ...prev,
+                documents: prev.documents.map(d => d.id === doc.id ? { ...d, local_state: 'downloading' } : d)
+            }));
+
+            const { data, error } = await supabase.storage.from('documents').download(doc.storage_path);
+            if (error) throw error;
+            if (data) {
+                if (data.size === 0) {
+                    throw new Error("تنزيل الملف تفريغ (0-byte)");
+                }
+                if (data.type === 'application/json' || data.type === 'text/plain') {
+                    const text = await data.text();
+                    if (text.includes('error') || text.includes('not found')) {
+                        throw new Error(text);
+                    }
+                }
+                const db = await get_db();
+                // Convert Blob to File if needed or just store Blob
+                const file = new File([data], doc.name, { type: doc.type });
+                await db.put(DOCS_FILES_STORE_NAME, file, doc.id);
+                
+                // Update local state to synced
+                set_full_data(prev => ({
+                    ...prev,
+                    documents: prev.documents.map(d => d.id === doc.id ? { ...d, local_state: 'synced' } : d)
+                }));
+                return file;
+            }
+        } catch (e: any) {
+            const errStr = String(e?.message || e?.error || e).toLowerCase();
+            const isNotFound = errStr.includes('object not found') || errStr.includes('storageapierror') || e?.statusCode === '404';
+            if (!isNotFound) {
+                console.error("Error downloading document:", e);
+            }
+            set_full_data(prev => ({
+                ...prev,
+                documents: prev.documents.map(d => d.id === doc.id ? { ...d, local_state: 'error' } : d)
+            }));
+        }
+        return null;
+    }, [set_full_data]);
+
+    // Background downloader for remote documents
+    React.useEffect(() => {
+        if (!is_online || is_data_loading) return;
+
+        // Find documents that are pending download
+        const pending_docs = data.documents.filter(d => d.local_state === 'pending_download');
+        
+        if (pending_docs.length > 0) {
+            const next_doc = pending_docs[0];
+            
+            // Short delay to not interfere with main sync
+            const timer = setTimeout(() => {
+                download_document_file(next_doc);
+            }, 3000);
+
+            return () => clearTimeout(timer);
+        }
+    }, [data.documents, is_online, is_data_loading, download_document_file]);
+
+    const get_document_file = React.useCallback(async (id: string) => {
+        const db = await get_db();
+        return await db.get(DOCS_FILES_STORE_NAME, id);
+    }, []);
+
+    const delete_document = React.useCallback(async (doc: CaseDocument | string) => {
+        const id = typeof doc === 'string' ? doc : doc.id;
+        
+        // Delete from local IndexedDB immediately
+        try {
+            const db = await get_db();
+            await db.delete(DOCS_FILES_STORE_NAME, id);
+        } catch (e) {
+            console.error("Failed to delete local document file:", e);
+        }
+
+        set_full_data(prev => {
+            const document = prev.documents.find(d => d.id === id);
+            if (document) {
+                set_deleted_ids(p => ({ 
+                    ...p, 
+                    documents: [...p.documents, id],
+                    document_paths: [...p.document_paths, document.storage_path]
+                }));
+            }
+            return { ...prev, documents: prev.documents.filter(d => d.id !== id) };
+        });
+    }, [set_full_data]);
+
+    const add_documents = React.useCallback(async (case_id: string, files: FileList | CaseDocument[]) => {
+        if (files instanceof FileList) {
+            const new_docs: CaseDocument[] = [];
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const id = generateId('doc');
+                const extension = file.name.includes('.') ? file.name.split('.').pop() : '';
+                const storage_path = `${effective_user_id}/${case_id}/${id}${extension ? '.' + extension : ''}`;
+                
+                const new_doc: CaseDocument = {
+                    id,
+                    case_id,
+                    user_id: effective_user_id || '',
+                    name: file.name,
+                    type: file.type,
+                    size: file.size,
+                    added_at: new Date().toISOString(),
+                    storage_path,
+                    local_state: 'pending_upload',
+                    updated_at: new Date().toISOString()
+                };
+                
+                // Save file to IndexedDB for later upload
+                const db = await get_db();
+                await db.put(DOCS_FILES_STORE_NAME, file, id);
+                
+                new_docs.push(new_doc);
+            }
+            set_full_data(prev => ({ ...prev, documents: [...prev.documents, ...new_docs] }));
+        } else {
+            set_full_data(prev => ({ ...prev, documents: [...prev.documents, ...files] }));
+        }
+    }, [effective_user_id, set_full_data]);
+
+    const postpone_session = React.useCallback((session_id: string, next_date: string, reason: string): string | null => {
+        if (is_holiday(safe_revive_date(next_date))) {
+            return 'تحذير: التاريخ المختار يصادف عطلة رسمية أو نهاية أسبوع.';
+        }
+        
+        // Ensure next_date is just YYYY-MM-DD to avoid timezone shifts
+        const normalized_next_date = to_input_date_string(next_date);
+
+        set_full_data(prev => {
+            // Find the session and its context
+            let found_client_id = '';
+            let found_case_id = '';
+            let found_stage_id = '';
+            let found_session: Session | null = null;
+
+            for (const client of prev.clients) {
+                for (const case_item of client.cases) {
+                    for (const stage of case_item.stages) {
+                        const session = stage.sessions.find(s => s.id === session_id);
+                        if (session) {
+                            found_client_id = client.id;
+                            found_case_id = case_item.id;
+                            found_stage_id = stage.id;
+                            found_session = session;
+                            break;
+                        }
+                    }
+                    if (found_session) break;
+                }
+                if (found_session) break;
+            }
+
+            if (!found_session) return prev;
+
+            const now = new Date().toISOString();
+
+            return {
+                ...prev,
+                clients: prev.clients.map(c => c.id === found_client_id ? {
+                    ...c,
+                    updated_at: now,
+                    cases: c.cases.map(cs => cs.id === found_case_id ? {
+                        ...cs,
+                        updated_at: now,
+                        stages: cs.stages.map(st => st.id === found_stage_id ? {
+                           ...st,
+                            updated_at: now,
+                            sessions: [
+                                ...st.sessions.map(s => s.id === session_id ? {
+                                    ...s,
+                                    is_postponed: true,
+                                    next_session_date: normalized_next_date,
+                                    next_postponement_reason: reason,
+                                    updated_at: now
+                                } : s),
+                                {
+                                    ...found_session!,
+                                    id: generateId('session'),
+                                    date: normalized_next_date,
+                                    is_postponed: false,
+                                    postponement_reason: reason,
+                                    next_session_date: undefined,
+                                    next_postponement_reason: undefined,
+                                    updated_at: now
+                                } as Session
+                            ]
+                        } : st)
+                    } : cs)
+                } : c)
+            };
+        });
+        return null;
+    }, [set_full_data]);
+
     return {
         ...filtered_data,
         clients: filtered_clients,
@@ -824,166 +1058,10 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
             set_deleted_ids(prev => ({ ...prev, assistants: [...prev.assistants, name] }));
             set_full_data(prev => ({ ...prev, assistants: prev.assistants.filter(a => a !== name) }));
         },
-        delete_document: (doc: CaseDocument | string) => {
-            const id = typeof doc === 'string' ? doc : doc.id;
-            
-            set_full_data(prev => {
-                const document = prev.documents.find(d => d.id === id);
-                if (document) {
-                    set_deleted_ids(p => ({ 
-                        ...p, 
-                        documents: [...p.documents, id],
-                        document_paths: [...p.document_paths, document.storage_path]
-                    }));
-                }
-                return { ...prev, documents: prev.documents.filter(d => d.id !== id) };
-            });
-        },
-        add_documents: async (case_id: string, files: FileList | CaseDocument[]) => {
-            if (files instanceof FileList) {
-                const new_docs: CaseDocument[] = [];
-                for (let i = 0; i < files.length; i++) {
-                    const file = files[i];
-                    const id = generateId('doc');
-                    const extension = file.name.includes('.') ? file.name.split('.').pop() : '';
-                    const storage_path = `${effective_user_id}/${case_id}/${id}${extension ? '.' + extension : ''}`;
-                    
-                    const new_doc: CaseDocument = {
-                        id,
-                        case_id,
-                        user_id: effective_user_id || '',
-                        name: file.name,
-                        type: file.type,
-                        size: file.size,
-                        added_at: new Date().toISOString(),
-                        storage_path,
-                        local_state: 'pending_upload',
-                        updated_at: new Date().toISOString()
-                    };
-                    
-                    // Save file to IndexedDB for later upload
-                    const db = await get_db();
-                    await db.put(DOCS_FILES_STORE_NAME, file, id);
-                    
-                    new_docs.push(new_doc);
-                }
-                set_full_data(prev => ({ ...prev, documents: [...prev.documents, ...new_docs] }));
-            } else {
-                set_full_data(prev => ({ ...prev, documents: [...prev.documents, ...files] }));
-            }
-        },
-        download_document_file: async (doc: CaseDocument) => {
-            if (!doc.storage_path) return null;
-            const supabase = get_supabase_client();
-            if (!supabase) return null;
-
-            try {
-                // Set state to downloading
-                set_full_data(prev => ({
-                    ...prev,
-                    documents: prev.documents.map(d => d.id === doc.id ? { ...d, local_state: 'downloading' } : d)
-                }));
-
-                const { data, error } = await supabase.storage.from('documents').download(doc.storage_path);
-                if (error) throw error;
-                if (data) {
-                    const db = await get_db();
-                    // Convert Blob to File if needed or just store Blob
-                    const file = new File([data], doc.name, { type: doc.type });
-                    await db.put(DOCS_FILES_STORE_NAME, file, doc.id);
-                    
-                    // Update local state to synced
-                    set_full_data(prev => ({
-                        ...prev,
-                        documents: prev.documents.map(d => d.id === doc.id ? { ...d, local_state: 'synced' } : d)
-                    }));
-                    return file;
-                }
-            } catch (e) {
-                console.error("Error downloading document:", e);
-                set_full_data(prev => ({
-                    ...prev,
-                    documents: prev.documents.map(d => d.id === doc.id ? { ...d, local_state: 'error' } : d)
-                }));
-            }
-            return null;
-        },
-        get_document_file: async (id: string) => {
-            const db = await get_db();
-            return await db.get(DOCS_FILES_STORE_NAME, id);
-        },
-        postpone_session: (session_id: string, next_date: string, reason: string): string | null => {
-            if (is_holiday(safe_revive_date(next_date))) {
-                return 'تحذير: التاريخ المختار يصادف عطلة رسمية أو نهاية أسبوع.';
-            }
-            
-            // Ensure next_date is just YYYY-MM-DD to avoid timezone shifts
-            const normalized_next_date = to_input_date_string(next_date);
-
-            set_full_data(prev => {
-                // Find the session and its context
-                let found_client_id = '';
-                let found_case_id = '';
-                let found_stage_id = '';
-                let found_session: Session | null = null;
-
-                for (const client of prev.clients) {
-                    for (const case_item of client.cases) {
-                        for (const stage of case_item.stages) {
-                            const session = stage.sessions.find(s => s.id === session_id);
-                            if (session) {
-                                found_client_id = client.id;
-                                found_case_id = case_item.id;
-                                found_stage_id = stage.id;
-                                found_session = session;
-                                break;
-                            }
-                        }
-                        if (found_session) break;
-                    }
-                    if (found_session) break;
-                }
-
-                if (!found_session) return prev;
-
-                const now = new Date().toISOString();
-
-                return {
-                    ...prev,
-                    clients: prev.clients.map(c => c.id === found_client_id ? {
-                        ...c,
-                        updated_at: now,
-                        cases: c.cases.map(cs => cs.id === found_case_id ? {
-                            ...cs,
-                            updated_at: now,
-                            stages: cs.stages.map(st => st.id === found_stage_id ? {
-                               ...st,
-                                updated_at: now,
-                                sessions: [
-                                    ...st.sessions.map(s => s.id === session_id ? {
-                                        ...s,
-                                        is_postponed: true,
-                                        next_session_date: normalized_next_date,
-                                        next_postponement_reason: reason,
-                                        updated_at: now
-                                    } : s),
-                                    {
-                                        ...found_session!,
-                                        id: generateId('session'),
-                                        date: normalized_next_date,
-                                        is_postponed: false,
-                                        postponement_reason: reason,
-                                        next_session_date: undefined,
-                                        next_postponement_reason: undefined,
-                                        updated_at: now
-                                    } as Session
-                                ]
-                            } : st)
-                        } : cs)
-                    } : c)
-                };
-            });
-            return null;
-        }
+        delete_document,
+        add_documents,
+        download_document_file,
+        get_document_file,
+        postpone_session
     };
 };

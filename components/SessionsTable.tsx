@@ -4,6 +4,7 @@ import DatePicker from './DatePicker';
 import { Session, Stage } from '../types';
 import { format_date, is_before_today, is_today, is_weekend, get_public_holiday, parse_input_date_string, safe_revive_date } from '../utils/dateUtils';
 import { PencilIcon, TrashIcon, ScaleIcon, GavelIcon } from './icons';
+import { useFeedback } from '../context/FeedbackContext';
 
 interface SessionsTableProps {
     sessions: Session[];
@@ -20,6 +21,7 @@ interface SessionsTableProps {
 }
 
 const SessionsTable: React.FC<SessionsTableProps> = ({ sessions, onPostpone, onEdit, onDelete, onDecide, showSessionDate = false, onUpdate, assistants, allowPostponingPastSessions = false, stage, onContextMenu }) => {
+    const { confirm } = useFeedback();
     const [postponeData, setPostponeData] = React.useState<Record<string, { date: string; reason: string }>>({});
     const [errors, setErrors] = React.useState<Record<string, string>>({});
     const [editingCell, setEditingCell] = React.useState<{ sessionId: string; field: keyof Session } | null>(null);
@@ -79,7 +81,6 @@ const SessionsTable: React.FC<SessionsTableProps> = ({ sessions, onPostpone, onE
                 return;
             }
             
-            // Normalize dates to the beginning of the day for accurate comparison
             const newDateStart = new Date(newDate.getFullYear(), newDate.getMonth(), newDate.getDate());
             const sessionDate = safe_revive_date(session.date);
             const sessionDateStart = new Date(sessionDate.getFullYear(), sessionDate.getMonth(), sessionDate.getDate());
@@ -92,6 +93,21 @@ const SessionsTable: React.FC<SessionsTableProps> = ({ sessions, onPostpone, onE
             const holidayName = get_public_holiday(newDate);
             const isWknd = is_weekend(newDate);
 
+            const performPostpone = () => {
+                setErrors(prev => {
+                    const newErrors = { ...prev };
+                    delete newErrors[sessionId];
+                    return newErrors;
+                });
+
+                onPostpone(sessionId, newDate, data.reason);
+                setPostponeData(prev => {
+                    const newState = {...prev};
+                    delete newState[sessionId];
+                    return newState;
+                });
+            };
+
             if (holidayName || isWknd) {
                 let warningMessage = `تنبيه: التاريخ الذي اخترته هو يوم عطلة`;
                 if (holidayName) {
@@ -102,24 +118,16 @@ const SessionsTable: React.FC<SessionsTableProps> = ({ sessions, onPostpone, onE
                 }
                 warningMessage += `\nهل أنت متأكد من ترحيل الجلسة إلى هذا اليوم؟`;
     
-                if (!window.confirm(warningMessage)) {
-                    return; // User cancelled
-                }
+                confirm({
+                    title: 'تنبيه عطلة',
+                    message: warningMessage,
+                    confirmText: 'نعم، ترحيل',
+                    cancelText: 'إلغاء',
+                    onConfirm: performPostpone
+                });
+            } else {
+                performPostpone();
             }
-
-            // If we reach here, data is valid. Clear any existing error for this session.
-            setErrors(prev => {
-                const newErrors = { ...prev };
-                delete newErrors[sessionId];
-                return newErrors;
-            });
-
-            onPostpone(sessionId, newDate, data.reason);
-            setPostponeData(prev => {
-                const newState = {...prev};
-                delete newState[sessionId];
-                return newState;
-            });
         } else {
             setErrors(prev => ({ ...prev, [sessionId]: "يرجى إدخال تاريخ وسبب التأجيل." }));
         }
@@ -293,7 +301,8 @@ const SessionsTable: React.FC<SessionsTableProps> = ({ sessions, onPostpone, onE
                                 </>
                             )}
                         </tr>
-                    )})}
+                    );
+                })}
                 </tbody>
             </table>
         </div>

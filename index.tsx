@@ -2,6 +2,8 @@
 import * as React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import { FeedbackProvider } from './context/FeedbackContext';
+import { GlobalFeedback } from './components/GlobalFeedback';
 
 // Explicit interfaces for Props and State
 interface ErrorBoundaryProps {
@@ -123,9 +125,12 @@ const AppWrapper: React.FC = () => {
     };
 
     return (
-        <ErrorBoundary>
-            <App key={appKey} onRefresh={handleRefresh} />
-        </ErrorBoundary>
+        <FeedbackProvider>
+            <ErrorBoundary>
+                <App key={appKey} onRefresh={handleRefresh} />
+                <GlobalFeedback />
+            </ErrorBoundary>
+        </FeedbackProvider>
     );
 };
 

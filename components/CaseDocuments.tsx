@@ -1,6 +1,7 @@
 
 import * as React from 'react';
 import { useData } from '../context/DataContext';
+import { useFeedback } from '../context/FeedbackContext';
 import { CaseDocument } from '../types';
 import { format_date, safe_revive_date } from '../utils/dateUtils';
 import { DocumentArrowUpIcon, TrashIcon, DocumentTextIcon, XMarkIcon, ExclamationTriangleIcon, ArrowPathIcon, CameraIcon, CloudArrowUpIcon, CloudArrowDownIcon, CheckCircleIcon, ExclamationCircleIcon, ArrowDownTrayIcon, MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon, ArrowsPointingOutIcon, ArrowTopRightOnSquareIcon } from './icons';
@@ -242,12 +243,12 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
             try {
                 let retrievedFile = await get_document_file(doc.id);
                 
-                // If not found locally, try to download
-                if (!retrievedFile && (doc.local_state === 'synced' || doc.local_state === 'pending_download' || doc.local_state === 'error')) {
+                // If not found locally or is corrupted (0 bytes), try to download
+                if (!retrievedFile || retrievedFile.size === 0 || (retrievedFile && doc.local_state === 'pending_download')) {
                     retrievedFile = await download_document_file(doc);
                 }
 
-                if (retrievedFile) {
+                if (retrievedFile && retrievedFile.size > 0) {
                     setFile(retrievedFile);
                     url = URL.createObjectURL(retrievedFile);
                     setObjectUrl(url);
@@ -534,8 +535,7 @@ const DocumentScannerModal: React.FC<{ onClose: () => void; onCapture: (file: Fi
 
 const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
     const { documents, add_documents, delete_document, get_document_file } = useData();
-    const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false);
-    const [docToDelete, setDocToDelete] = React.useState<CaseDocument | null>(null);
+    const { showFeedback, confirm } = useFeedback();
     const [previewDoc, setPreviewDoc] = React.useState<CaseDocument | null>(null);
     const [isDragging, setIsDragging] = React.useState(false);
     const [isCameraOpen, setIsCameraOpen] = React.useState(false);
@@ -554,7 +554,7 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
                     fileInputRef.current.value = '';
                 }
             } catch (err: any) {
-                alert(`فشل في إضافة الوثائق: ${err.message}`);
+                showFeedback(`فشل في إضافة الوثائق: ${err.message}`, "error");
             }
         }
     };
@@ -579,20 +579,20 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
     };
 
     const openDeleteModal = (doc: CaseDocument) => {
-        setDocToDelete(doc);
-        setIsDeleteModalOpen(true);
-    };
-
-    const confirmDelete = async () => {
-        if (docToDelete) {
-            try {
-                await delete_document(docToDelete);
-            } catch (err: any) {
-                alert(`فشل في حذف الوثيقة: ${err.message}`);
+        confirm({
+            title: 'تأكيد حذف الوثيقة',
+            message: `هل أنت متأكد من حذف وثيقة "${doc.name}"؟`,
+            confirmText: 'نعم، قم بالحذف',
+            cancelText: 'إلغاء',
+            variant: 'danger',
+            onConfirm: async () => {
+                try {
+                    await delete_document(doc);
+                } catch (err: any) {
+                    showFeedback(`فشل في حذف الوثيقة: ${err.message}`, "error");
+                }
             }
-        }
-        setIsDeleteModalOpen(false);
-        setDocToDelete(null);
+        });
     };
 
     const handlePhotoCapture = async (file: File) => {
@@ -601,7 +601,7 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
         try {
             await add_documents(caseId, fileList.files);
         } catch (err: any) {
-            alert(`فشل في إضافة الوثيقة الملتقطة: ${err.message}`);
+            showFeedback(`فشل في إضافة الوثيقة الملتقطة: ${err.message}`, "error");
         }
         setIsCameraOpen(false);
     };
@@ -656,22 +656,6 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
             ) : (
                 <div className="text-center py-8 text-gray-500">
                     <p>لا توجد وثائق لهذه القضية بعد.</p>
-                </div>
-            )}
-
-            {isDeleteModalOpen && docToDelete && (
-                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setIsDeleteModalOpen(false)}>
-                    <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
-                        <div className="text-center">
-                            <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-red-100 mb-4"><ExclamationTriangleIcon className="h-8 w-8 text-red-600" /></div>
-                            <h3 className="text-2xl font-bold">تأكيد حذف الوثيقة</h3>
-                            <p className="my-4">هل أنت متأكد من حذف وثيقة "{docToDelete.name}"؟</p>
-                        </div>
-                        <div className="mt-6 flex justify-center gap-4">
-                            <button className="px-6 py-2 bg-gray-200 rounded-lg" onClick={() => setIsDeleteModalOpen(false)}>إلغاء</button>
-                            <button className="px-6 py-2 bg-red-600 text-white rounded-lg" onClick={confirmDelete}>نعم، قم بالحذف</button>
-                        </div>
-                    </div>
                 </div>
             )}
             

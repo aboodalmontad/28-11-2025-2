@@ -1,4 +1,4 @@
-export const printElement = (element: HTMLElement | null) => {
+export const printElement = (element: HTMLElement | null, showFeedback?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void) => {
     if (!element) {
         console.error("Print Error: Provided element is null.");
         return;
@@ -8,7 +8,9 @@ export const printElement = (element: HTMLElement | null) => {
         const printWindow = window.open('', '_blank', 'height=800,width=1000');
         
         if (!printWindow) {
-            alert("يرجى السماح بالنوافذ المنبثقة في متصفحك لتمكين الطباعة.");
+            if (showFeedback) {
+                showFeedback("يرجى السماح بالنوافذ المنبثقة في متصفحك لتمكين الطباعة.", "warning");
+            }
             return;
         }
 
@@ -46,6 +48,8 @@ export const printElement = (element: HTMLElement | null) => {
         }, 1000);
     } catch (error) {
         console.error("Print Error:", error);
-        alert("حدث خطأ أثناء الطباعة. يرجى المحاولة مرة أخرى.");
+        if (showFeedback) {
+            showFeedback("حدث خطأ أثناء الطباعة. يرجى المحاولة مرة أخرى.", "error");
+        }
     }
 };

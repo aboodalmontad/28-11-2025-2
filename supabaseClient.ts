@@ -10,12 +10,16 @@ const supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
  * A robust fetch wrapper that handles common network errors with retries and exponential backoff.
  * This helps mitigate "Failed to fetch" errors in unstable network environments.
  */
-async function robustFetch(url: string, options?: RequestInit, retries = 3, backoff = 300): Promise<Response> {
+async function robustFetch(url: string | URL | Request, options?: RequestInit, retries = 3, backoff = 300): Promise<Response> {
+    const urlStr = typeof url === 'string' ? url : (url instanceof URL ? url.toString() : url.url);
+    const isAuthEndpoint = urlStr && urlStr.includes('/auth/v1/');
+
     try {
         const response = await fetch(url, options);
         
+        // Do not retry auth requests to avoid token replay which causes 'invalid_grant' and signs out the user
         // Retry on common server-side transient errors (502, 503, 504)
-        if (!response.ok && [502, 503, 504].includes(response.status) && retries > 0) {
+        if (!response.ok && [502, 503, 504].includes(response.status) && retries > 0 && !isAuthEndpoint) {
             throw new Error(`HTTP ${response.status}`);
         }
         
@@ -29,8 +33,8 @@ async function robustFetch(url: string, options?: RequestInit, retries = 3, back
             message.includes('timeout') ||
             message.includes('connection');
 
-        if (isNetworkError && retries > 0) {
-            console.warn(`robustFetch: Retrying ${url} due to network error: ${message}. Retries left: ${retries}`);
+        if (isNetworkError && retries > 0 && !isAuthEndpoint) {
+            console.warn(`robustFetch: Retrying ${urlStr} due to network error: ${message}. Retries left: ${retries}`);
             // Exponential backoff with jitter
             const delay = backoff + Math.random() * backoff;
             await new Promise(resolve => setTimeout(resolve, delay));

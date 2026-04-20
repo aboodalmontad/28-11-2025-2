@@ -1,80 +1,99 @@
 
-// This version number is incremented to trigger the 'install' event and update the cache.
-const CACHE_NAME = 'lawyer-app-cache-v2026-04-12-10-57'; // Updated for version 12-4-2026-5 (Force Refresh)
+const CACHE_NAME = 'lawyer-app-cache-v2026-04-18'; // Force Refresh
 
-// The list of URLs to cache explicitly (App Shell)
 const urlsToCache = [
   './',
   './index.html',
   './manifest.json',
-  './icon.svg'
+  './icon.svg',
+  'https://cdn.tailwindcss.com'
 ];
 
 self.addEventListener('install', event => {
-  self.skipWaiting(); 
+  self.skipWaiting();
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => {
-        return cache.addAll(urlsToCache);
-      })
+    caches.open(CACHE_NAME).then(async cache => {
+      const cachePromises = urlsToCache.map(async url => {
+          try {
+              const req = new Request(url, { mode: url.startsWith('http') ? 'cors' : 'no-cors' });
+              const response = await fetch(req);
+              if (response.ok || response.type === 'opaque') {
+                  return cache.put(url, response);
+              }
+          } catch (error) {
+              console.warn(`Failed to precache ${url}:`, error);
+          }
+      });
+      await Promise.all(cachePromises);
+    })
   );
 });
 
 self.addEventListener('activate', event => {
-  const cacheWhitelist = [CACHE_NAME];
   event.waitUntil(
-    caches.keys().then(cacheNames => {
-      return Promise.all(
-        cacheNames.map(cacheName => {
-          if (cacheWhitelist.indexOf(cacheName) === -1) {
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    }).then(() => self.clients.claim())
+    caches.keys().then(cacheNames => Promise.all(
+      cacheNames.map(cacheName => {
+        if (cacheName !== CACHE_NAME) return caches.delete(cacheName);
+      })
+    )).then(() => self.clients.claim().then(() => {
+      return self.clients.matchAll().then(clients => {
+        clients.forEach(client => client.postMessage({ type: 'RELOAD_PAGE_NOW' }));
+      });
+    }))
   );
 });
+
+// Helper for fetch with timeout
+const fetchWithTimeout = (request, timeoutMs) => {
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => reject(new Error('Fetch timeout')), timeoutMs);
+    fetch(request).then(response => {
+      clearTimeout(timeoutId);
+      resolve(response);
+    }).catch(err => {
+      clearTimeout(timeoutId);
+      reject(err);
+    });
+  });
+};
 
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   
-  // BYPASS CACHE for all API calls and external modules
-  if (
-    url.hostname.includes('supabase.co') || 
-    url.hostname.includes('googleapis.com') ||
-    url.hostname.includes('esm.sh')
-  ) {
-    return;
-  }
+  if (url.hostname.includes('supabase.co') || url.pathname.startsWith('/api/')) return;
+  if (event.request.method !== 'GET') return;
 
-  // Strategy: Network First for modules and HTML, Cache First for local static assets
-  if (event.request.mode === 'navigate' || url.pathname.endsWith('.js') || url.pathname.includes('/index.js')) {
+  const isNavigation = event.request.mode === 'navigate';
+  const isHtml = url.pathname === '/' || url.pathname.endsWith('.html');
+  const isViteHmr = url.pathname.includes('@vite') || url.pathname.includes('?import') || url.pathname.includes('.ts') || url.pathname.includes('.tsx');
+
+  // Network First with Timeout for HTML and core scripts (to catch updates)
+  if (isNavigation || isHtml || isViteHmr) {
     event.respondWith(
-      fetch(event.request)
+      fetchWithTimeout(event.request, 2000)
         .then(response => {
-          if (!response || response.status !== 200 || response.type !== 'basic') {
-            return response;
-          }
+          if (!response || (response.status !== 200 && response.type !== 'opaque')) return response;
           const resClone = response.clone();
           caches.open(CACHE_NAME).then(cache => cache.put(event.request, resClone));
           return response;
         })
-        .catch(() => caches.match(event.request))
+        .catch(() => caches.match(event.request).then(res => res || new Response('Offline', { status: 503 })))
     );
-  } else {
-    event.respondWith(
-      caches.match(event.request).then(response => {
-        return response || fetch(event.request).then(netRes => {
-          if (netRes && netRes.status === 200) {
-            const resClone = netRes.clone();
-            caches.open(CACHE_NAME).then(cache => cache.put(event.request, resClone));
-          }
-          return netRes;
-        }).catch(() => {
-            // Return empty response or specific error if offline and not cached
-            return new Response('Network error occurred', { status: 408 });
-        });
-      })
-    );
+    return;
   }
+
+  // Stale-While-Revalidate for everything else (CSS, Fonts, Images, Tailwind CDN)
+  event.respondWith(
+    caches.match(event.request).then(cachedResponse => {
+      const networkFetch = fetch(event.request).then(response => {
+        if (response && (response.status === 200 || response.type === 'opaque')) {
+          const resClone = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, resClone));
+        }
+        return response;
+      }).catch(e => console.warn('Background fetch failed:', e));
+
+      return cachedResponse || networkFetch;
+    })
+  );
 });

@@ -3,6 +3,7 @@ import * as React from 'react';
 import { Profile, Permissions, default_permissions } from '../types';
 import { useData } from '../context/DataContext';
 import { get_supabase_client } from '../supabaseClient';
+import { useFeedback } from '../context/FeedbackContext';
 import { UserIcon, CheckCircleIcon, NoSymbolIcon, PencilIcon, TrashIcon, ExclamationTriangleIcon } from './icons';
 
 interface AssistantsManagerProps {
@@ -116,6 +117,7 @@ const PermissionsEditor: React.FC<{
 
 const AssistantsManager: React.FC<AssistantsManagerProps> = ({ onClose }) => {
     const { profiles, set_profiles, user_id } = useData();
+    const { showFeedback, confirm } = useFeedback();
     const [assistants, setAssistants] = React.useState<Profile[]>([]);
     const [editingAssistant, setEditingAssistant] = React.useState<Profile | null>(null);
     const [tempPermissions, setTempPermissions] = React.useState<Permissions>(default_permissions);
@@ -138,7 +140,7 @@ const AssistantsManager: React.FC<AssistantsManagerProps> = ({ onClose }) => {
             set_profiles(prev => prev.map(p => p.id === assistant.id ? { ...p, ...updates } : p));
             if (editingAssistant?.id === assistant.id) setEditingAssistant(null);
         } catch (err: any) {
-            alert("فشل تحديث بيانات المساعد: " + err.message);
+            showFeedback("فشل تحديث بيانات المساعد: " + err.message, "error");
         }
     };
 
@@ -155,16 +157,24 @@ const AssistantsManager: React.FC<AssistantsManagerProps> = ({ onClose }) => {
     };
 
     const handle_delete = async (id: string) => {
-        if (window.confirm("هل أنت متأكد من حذف هذا المساعد؟ سيتم إلغاء ارتباطه بحسابك.")) {
-             if (!supabase) return;
-             try {
-                 const { error } = await supabase.from('profiles').update({ lawyer_id: null, permissions: null }).eq('id', id);
-                 if (error) throw error;
-                 set_profiles(prev => prev.filter(p => p.id !== id)); // Remove from local view immediately
-             } catch (err: any) {
-                 alert("فشل حذف المساعد: " + err.message);
-             }
-        }
+        confirm({
+            title: 'حذف مساعد',
+            message: 'هل أنت متأكد من حذف هذا المساعد؟ سيتم إلغاء ارتباطه بحسابك ولن يتمكن من الوصول إلى البيانات.',
+            confirmText: 'نعم، حذف',
+            cancelText: 'إلغاء',
+            variant: 'danger',
+            onConfirm: async () => {
+                 if (!supabase) return;
+                 try {
+                     const { error } = await supabase.from('profiles').update({ lawyer_id: null, permissions: null }).eq('id', id);
+                     if (error) throw error;
+                     set_profiles(prev => prev.filter(p => p.id !== id)); // Remove from local view immediately
+                     showFeedback("تم حذف المساعد بنجاح", "success");
+                 } catch (err: any) {
+                     showFeedback("فشل حذف المساعد: " + err.message, "error");
+                 }
+            }
+        });
     };
 
     return (

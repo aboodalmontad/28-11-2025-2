@@ -5,6 +5,7 @@ import { MusicalNoteIcon, PlayCircleIcon, TrashIcon, ArrowUpTrayIcon, ServerIcon
 import { defaultUserApprovalSoundBase64 } from '../components/RealtimeNotifier';
 import { fetch_data_from_supabase, FlatData } from '../hooks/useOnlineData'; // Import fetcher
 import { get_supabase_client } from '../supabaseClient'; // Import client
+import { useFeedback } from '../context/FeedbackContext';
 
 const USER_APPROVAL_SOUND_KEY = 'customUserApprovalSound';
 
@@ -13,6 +14,7 @@ interface AdminSettingsPageProps {
 }
 
 const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ on_open_config }) => {
+    const { showFeedback: showGlobalFeedback, confirm } = useFeedback();
     const [customSound, setCustomSound] = useLocalStorage<string | null>(USER_APPROVAL_SOUND_KEY, null);
     const [feedback, setFeedback] = React.useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
     const [isProcessing, setIsProcessing] = React.useState(false);
@@ -111,31 +113,38 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ on_open_config })
         const file = event.target.files?.[0];
         if (!file) return;
 
-        if (!window.confirm("تحذير: ستقوم هذه العملية باستبدال/تحديث البيانات الموجودة في السحابة بالبيانات الموجودة في الملف. هل أنت متأكد تماماً؟")) {
-            event.target.value = ''; // Reset input
-            return;
-        }
-
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-            try {
-                const text = e.target?.result;
-                if (typeof text !== 'string') throw new Error("Could not read file");
-                const data = JSON.parse(text) as Partial<FlatData>;
-                await restoreDataToSupabase(data);
-            } catch (error: any) {
-                console.error("Restore failed:", error);
-                let errorMessage = error.message;
-                if (errorMessage.toLowerCase().includes('failed to fetch')) {
-                    errorMessage = "تعذر الاتصال بالخادم. يرجى التحقق من اتصالك بالإنترنت، أو التأكد من أن مشروع Supabase الخاص بك يعمل (غير متوقف).";
-                }
-                showFeedback(`فشل الاستعادة: ${errorMessage}`, 'error');
-                setIsProcessing(false);
-                setProgress(null);
+        confirm({
+            title: 'تأكيد استعادة البيانات',
+            message: "تحذير: ستقوم هذه العملية باستبدال/تحديث البيانات الموجودة في السحابة بالبيانات الموجودة في الملف. هل أنت متأكد تماماً؟",
+            confirmText: 'نعم، استعادة',
+            cancelText: 'إلغاء',
+            variant: 'danger',
+            onConfirm: () => {
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                    try {
+                        const text = e.target?.result;
+                        if (typeof text !== 'string') throw new Error("Could not read file");
+                        const data = JSON.parse(text) as Partial<FlatData>;
+                        await restoreDataToSupabase(data);
+                    } catch (error: any) {
+                        console.error("Restore failed:", error);
+                        let errorMessage = error.message;
+                        if (errorMessage.toLowerCase().includes('failed to fetch')) {
+                            errorMessage = "تعذر الاتصال بالخادم. يرجى التحقق من اتصالك بالإنترنت، أو التأكد من أن مشروع Supabase الخاص بك يعمل (غير متوقف).";
+                        }
+                        showFeedback(`فشل الاستعادة: ${errorMessage}`, 'error');
+                        setIsProcessing(false);
+                        setProgress(null);
+                    }
+                    event.target.value = ''; // Reset input for next time
+                };
+                reader.readAsText(file);
+            },
+            onCancel: () => {
+                event.target.value = ''; // Reset input
             }
-            event.target.value = ''; // Reset input for next time
-        };
-        reader.readAsText(file);
+        });
     };
 
     const restoreDataToSupabase = async (data: Partial<FlatData>) => {

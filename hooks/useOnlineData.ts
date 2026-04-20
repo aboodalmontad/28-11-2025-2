@@ -74,10 +74,12 @@ export const fetch_data_from_supabase = async (user_id?: string): Promise<Partia
     // 1. Determine if the REQUESTER is an admin
     const { data: { user: currentUser } } = await supabase.auth.getUser();
     let is_admin_user = false;
+    let lawyer_id: string | null = null;
     
     if (currentUser) {
-        const { data: profile } = await supabase.from('profiles').select('role').eq('id', currentUser.id).maybeSingle();
+        const { data: profile } = await supabase.from('profiles').select('role, lawyer_id').eq('id', currentUser.id).maybeSingle();
         is_admin_user = profile?.role === 'admin';
+        lawyer_id = profile?.lawyer_id;
         
         const adminEmails = ['nahwiabdo@gmail.com', 'avocat.nahwi@gmail.com', 'sy963958932922@email.com'];
         if (!is_admin_user && currentUser.email && adminEmails.includes(currentUser.email)) {
@@ -111,14 +113,17 @@ export const fetch_data_from_supabase = async (user_id?: string): Promise<Partia
                 q = q.in('id', all_user_ids);
             }
         } else if (!effective_is_admin) {
-            // Not admin and no user_id? Should probably only see their own data anyway via RLS, 
-            // but let's be explicit if we have a currentUser
-            if (currentUser?.id) {
+            // Not admin and no user_id? Use passed user_id, or lawyer_id if available (for assistants), otherwise currentUser.id
+            const user_id_to_query = user_id || lawyer_id || currentUser?.id;
+            if (user_id_to_query) {
                 if (table !== 'profiles' && table !== 'assistants') {
-                    q = q.eq('user_id', currentUser.id);
+                    q = q.eq('user_id', user_id_to_query);
                 }
                 if (table === 'assistants') {
-                    q = q.eq('user_id', currentUser.id);
+                    q = q.eq('user_id', user_id_to_query);
+                }
+                if (table === 'profiles') {
+                    q = q.or(`id.eq.${user_id_to_query},lawyer_id.eq.${user_id_to_query}`);
                 }
             }
         }
@@ -375,16 +380,20 @@ export const upsert_data_to_supabase = async (data: Partial<FlatData>, user: Use
     const supabase = get_supabase_client();
     if (!supabase) throw new Error('Supabase client not available.');
 
-    // Fetch profile to determine the correct user_id (lawyer_id if assistant)
+    // Fetch profile to determine the correct user_id (lawyer_id if assistant) and role
     const { data: profile, error: profile_error } = await supabase
         .from('profiles')
-        .select('lawyer_id')
+        .select('lawyer_id, role')
         .eq('id', user.id)
         .maybeSingle();
     if (profile_error) throw profile_error;
     
     // Priority: 1. effective_user_id (passed from context, e.g. admin viewing user), 2. lawyer_id (if assistant), 3. user.id
     const user_id_to_use = effective_user_id || profile?.lawyer_id || user.id; 
+    const is_admin_user = profile?.role === 'admin';
+
+    const DESIGNATED_ADMIN_EMAILS = ['nahwiabdo@gmail.com', 'avocat.nahwi@gmail.com', 'sy963958932922@email.com'];
+    const is_admin_frontend = DESIGNATED_ADMIN_EMAILS.includes(user.email || '') || is_admin_user;
 
     const data_to_upsert = {
         clients: data.clients?.map(client => ({ 
@@ -516,7 +525,7 @@ export const upsert_data_to_supabase = async (data: Partial<FlatData>, user: Use
             mobile_verified: profile.mobile_verified,
             subscription_start_date: profile.subscription_start_date,
             subscription_end_date: profile.subscription_end_date,
-            role: profile.role,
+            role: (DESIGNATED_ADMIN_EMAILS.includes(user.email || '') && profile.id === user.id) ? 'admin' : profile.role,
             permissions: profile.permissions,
             lawyer_id: profile.lawyer_id,
             admin_tasks_layout: profile.admin_tasks_layout,
@@ -572,7 +581,8 @@ export const upsert_data_to_supabase = async (data: Partial<FlatData>, user: Use
     };
     
     const results: Partial<Record<keyof FlatData, any[]>> = {};
-    results.profiles = await upsert_table('profiles', data_to_upsert.profiles);
+    const profiles_to_upsert = (data_to_upsert.profiles || []).filter(p => p.id === user.id || is_admin_user);
+    results.profiles = await upsert_table('profiles', profiles_to_upsert);
     results.assistants = await upsert_table('assistants', data_to_upsert.assistants, 'user_id,name');
     results.clients = await upsert_table('clients', data_to_upsert.clients);
     results.cases = await upsert_table('cases', data_to_upsert.cases);
@@ -586,7 +596,11 @@ export const upsert_data_to_supabase = async (data: Partial<FlatData>, user: Use
     results.admin_tasks = await upsert_table('admin_tasks', data_to_upsert.admin_tasks);
     results.appointments = await upsert_table('appointments', data_to_upsert.appointments);
     results.accounting_entries = await upsert_table('accounting_entries', data_to_upsert.accounting_entries);
-    results.site_finances = await upsert_table('site_finances', data_to_upsert.site_finances);
+    if (is_admin_frontend) {
+        results.site_finances = await upsert_table('site_finances', data_to_upsert.site_finances);
+    } else {
+        results.site_finances = [];
+    }
     
     return results;
 };

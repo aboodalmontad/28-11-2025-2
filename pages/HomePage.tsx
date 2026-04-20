@@ -11,6 +11,7 @@ import { printElement } from '../utils/printUtils';
 import { MenuItem } from '../components/ContextMenu';
 import { useDebounce } from '../hooks/useDebounce';
 import { useData } from '../context/DataContext';
+import { useFeedback } from '../context/FeedbackContext';
 
 // ... (Constants importanceMap, importanceMapAdminTasks, formatTime, and AppointmentsTable remain the same)
 const importance_map: { [key: string]: { text: string, className: string } } = {
@@ -151,6 +152,7 @@ const HomePage: React.FC<HomePageProps> = ({
         permissions, // Destructure permissions
         effective_user_id, // Use effective_user_id
     } = useData();
+    const { confirm } = useFeedback();
 
     // ... (State variables and effects remain the same)
     const [calendar_view_date, set_calendar_view_date] = React.useState(selected_date);
@@ -164,10 +166,6 @@ const HomePage: React.FC<HomePageProps> = ({
     const [active_task_tab, set_active_task_tab] = React.useState<'pending' | 'completed'>('pending');
     const [admin_task_search, set_admin_task_search] = React.useState('');
     const debounced_admin_task_search = useDebounce(admin_task_search, 300);
-    const [is_delete_appointment_modal_open, set_is_delete_appointment_modal_open] = React.useState(false);
-    const [appointment_to_delete, set_appointment_to_delete] = React.useState<Appointment | null>(null);
-    const [is_delete_task_modal_open, set_is_delete_task_modal_open] = React.useState(false);
-    const [task_to_delete, set_task_to_delete] = React.useState<AdminTask | null>(null);
     
     const dragged_task_id = React.useRef<string | null>(null);
     const [is_dragging, set_is_dragging] = React.useState(false);
@@ -277,37 +275,29 @@ const HomePage: React.FC<HomePageProps> = ({
     };
     
     const open_delete_appointment_modal = (appointment: Appointment) => {
-        set_appointment_to_delete(appointment);
-        set_is_delete_appointment_modal_open(true);
-    };
-
-    const close_delete_appointment_modal = () => {
-        set_appointment_to_delete(null);
-        set_is_delete_appointment_modal_open(false);
-    };
-
-    const handle_confirm_delete_appointment = () => {
-        if (appointment_to_delete) {
-            delete_appointment(appointment_to_delete.id);
-            close_delete_appointment_modal();
-        }
+        confirm({
+            title: 'تأكيد حذف الموعد',
+            message: `هل أنت متأكد من حذف موعد "${appointment.title}"؟\nهذا الإجراء لا يمكن التراجع عنه.`,
+            confirmText: 'نعم، قم بالحذف',
+            cancelText: 'إلغاء',
+            variant: 'danger',
+            onConfirm: () => {
+                delete_appointment(appointment.id);
+            }
+        });
     };
 
     const open_delete_task_modal = (task: AdminTask) => {
-        set_task_to_delete(task);
-        set_is_delete_task_modal_open(true);
-    };
-
-    const close_delete_task_modal = () => {
-        set_task_to_delete(null);
-        set_is_delete_task_modal_open(false);
-    };
-
-    const handle_confirm_delete_task = () => {
-        if (task_to_delete) {
-            delete_admin_task(task_to_delete.id);
-            close_delete_task_modal();
-        }
+        confirm({
+            title: 'تأكيد حذف المهمة',
+            message: `هل أنت متأكد من حذف مهمة "${task.task}"؟\nهذا الإجراء لا يمكن التراجع عنه.`,
+            confirmText: 'نعم، قم بالحذف',
+            cancelText: 'إلغاء',
+            variant: 'danger',
+            onConfirm: () => {
+                delete_admin_task(task.id);
+            }
+        });
     };
 
     const handle_toggle_task_complete = (id: string) => {
@@ -845,76 +835,6 @@ const HomePage: React.FC<HomePageProps> = ({
                 </div>
             )}
 
-            {is_delete_appointment_modal_open && appointment_to_delete && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50 no-print p-4 overflow-y-auto" onClick={close_delete_appointment_modal}>
-                    <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
-                        <div className="text-center">
-                            <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-red-100 mb-4">
-                                <ExclamationTriangleIcon className="h-8 w-8 text-red-600" aria-hidden="true" />
-                            </div>
-                            <h3 className="text-2xl font-bold text-gray-900">
-                                تأكيد حذف الموعد
-                            </h3>
-                            <p className="text-gray-600 my-4">
-                                هل أنت متأكد من حذف موعد "{appointment_to_delete.title}"؟<br />
-                                هذا الإجراء لا يمكن التراجع عنه.
-                            </p>
-                        </div>
-                        <div className="mt-6 flex justify-center gap-4">
-                            <button
-                                type="button"
-                                className="px-6 py-2 bg-gray-200 text-gray-800 font-semibold rounded-lg hover:bg-gray-300 transition-colors"
-                                onClick={close_delete_appointment_modal}
-                            >
-                                إلغاء
-                            </button>
-                            <button
-                                type="button"
-                                className="px-6 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors"
-                                onClick={handle_confirm_delete_appointment}
-                            >
-                                نعم، قم بالحذف
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {is_delete_task_modal_open && task_to_delete && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50 no-print p-4 overflow-y-auto" onClick={close_delete_task_modal}>
-                    <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
-                        <div className="text-center">
-                            <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-red-100 mb-4">
-                                <ExclamationTriangleIcon className="h-8 w-8 text-red-600" aria-hidden="true" />
-                            </div>
-                            <h3 className="text-2xl font-bold text-gray-900">
-                                تأكيد حذف المهمة
-                            </h3>
-                            <p className="text-gray-600 my-4">
-                                هل أنت متأكد من حذف مهمة "{task_to_delete.task}"؟<br />
-                                هذا الإجراء لا يمكن التراجع عنه.
-                            </p>
-                        </div>
-                        <div className="mt-6 flex justify-center gap-4">
-                            <button
-                                type="button"
-                                className="px-6 py-2 bg-gray-200 text-gray-800 font-semibold rounded-lg hover:bg-gray-300 transition-colors"
-                                onClick={close_delete_task_modal}
-                            >
-                                إلغاء
-                            </button>
-                            <button
-                                type="button"
-                                className="px-6 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors"
-                                onClick={handle_confirm_delete_task}
-                            >
-                                نعم، قم بالحذف
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-            
             {decide_modal.is_open && decide_modal.session && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50 no-print p-4 overflow-y-auto" onClick={handle_close_decide_modal}>
                     <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg" onClick={e => e.stopPropagation()}>

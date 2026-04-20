@@ -9,6 +9,7 @@ import { CheckCircleIcon, NoSymbolIcon, PencilIcon, TrashIcon, ExclamationTriang
 import { useData } from '../context/DataContext';
 import UserDetailsModal from '../components/UserDetailsModal';
 import { fetch_data_from_supabase } from '../hooks/useOnlineData';
+import { useFeedback } from '../context/FeedbackContext';
 
 const formatSubscriptionDateRange = (user: Profile): string => {
     const { subscription_start_date, subscription_end_date } = user;
@@ -230,6 +231,7 @@ const UserRow: React.FC<UserRowProps> = ({ user, lawyer, on_view, on_edit, on_de
 
 const AdminPage: React.FC = () => {
     const { profiles: users, clients, admin_tasks, appointments, accounting_entries, invoices, documents, site_finances, set_profiles: setUsers, is_data_loading: loading, user_id, fetch_and_refresh, set_admin_viewing_user_id, unfiltered_data } = useData();
+    const { showFeedback } = useFeedback();
     const [error, setError] = React.useState<string | null>(null);
     const [is_downloading, set_is_downloading] = React.useState(false);
     const [is_full_backup_loading, set_is_full_backup_loading] = React.useState(false);
@@ -269,7 +271,7 @@ const AdminPage: React.FC = () => {
                  fetch_and_refresh(); 
              } catch (err: any) {
                  console.error("Failed to update user in DB:", err);
-                 alert("فشل تحديث البيانات في قاعدة البيانات: " + err.message);
+                 showFeedback("فشل تحديث البيانات في قاعدة البيانات: " + err.message, "error");
                  // Revert optimistic update by refreshing
                  fetch_and_refresh();
              }
@@ -355,11 +357,11 @@ const AdminPage: React.FC = () => {
             if (code) {
                 // Update local state to show code immediately without refresh
                 setUsers(prev => prev.map(u => u.id === user.id ? { ...u, otp_code: code } : u));
-                alert(`تم توليد الكود بنجاح: ${code}`);
+                showFeedback(`تم توليد الكود بنجاح: ${code}`, "success");
             }
         } catch (err: any) {
             console.error("Error generating OTP:", err);
-            alert("فشل توليد كود التحقق: " + err.message);
+            showFeedback("فشل توليد كود التحقق: " + err.message, "error");
         } finally {
             set_generating_otp_for(null);
         }
@@ -426,7 +428,7 @@ const AdminPage: React.FC = () => {
             URL.revokeObjectURL(url);
         } catch (err) {
             console.error("Failed to generate ZIP backup:", err);
-            alert("فشل إنشاء النسخة الاحتياطية المجمعة.");
+            showFeedback("فشل إنشاء النسخة الاحتياطية المجمعة.", "error");
         } finally {
             set_is_downloading(false);
         }
@@ -451,10 +453,10 @@ const AdminPage: React.FC = () => {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
             
-            alert("تم تحميل النسخة الاحتياطية الشاملة للنظام بنجاح.");
+            showFeedback("تم تحميل النسخة الاحتياطية الشاملة للنظام بنجاح.", "success");
         } catch (error: any) {
             console.error("Full system backup failed:", error);
-            alert("فشل تحميل النسخة الاحتياطية الشاملة: " + error.message);
+            showFeedback("فشل تحميل النسخة الاحتياطية الشاملة: " + error.message, "error");
         } finally {
             set_is_full_backup_loading(false);
         }
