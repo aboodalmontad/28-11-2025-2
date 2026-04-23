@@ -1,6 +1,15 @@
 // supabaseClient.ts
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
+// Suppress specific harmless warnings/errors that spam the console
+const originalConsoleError = console.error;
+console.error = (...args: any[]) => {
+    const msg = args.join(' ').toLowerCase();
+    if (msg.includes('refresh token not found') || msg.includes('invalid refresh token')) return;
+    if (msg.includes('error checking for updates')) return;
+    originalConsoleError.apply(console, args);
+};
+
 // Hardcoded Supabase credentials. 
 // NOTE: Using service_role key on the client is insecure but used here as provided.
 const supabaseUrl = "https://gvafdhyudvdymletqjee.supabase.co";

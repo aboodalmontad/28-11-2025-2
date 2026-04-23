@@ -263,9 +263,7 @@ export const useSupabaseData = (user: User | null, is_auth_loading: boolean) => 
                     set_is_update_available(false);
                 }
             } catch (error) {
-                console.error('Error checking for updates:', error);
-                
-                // Fallback to basic local check if fetch fails
+                // Silently fallback to basic local check if fetch fails (common in dev mode or offline)
                 const stored_version = localStorage.getItem('app_version');
                 if (stored_version && stored_version !== APP_VERSION) {
                     set_is_update_available(true);
