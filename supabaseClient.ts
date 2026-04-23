@@ -26,10 +26,16 @@ async function robustFetch(url: string | URL | Request, options?: RequestInit, r
     try {
         const response = await fetch(url, options);
         
-        // Do not retry auth requests to avoid token replay which causes 'invalid_grant' and signs out the user
         // Retry on common server-side transient errors (502, 503, 504)
-        if (!response.ok && [502, 503, 504].includes(response.status) && retries > 0 && !isAuthEndpoint) {
-            throw new Error(`HTTP ${response.status}`);
+        if (!response.ok && [502, 503, 504].includes(response.status)) {
+            if (isAuthEndpoint) {
+                // VERY IMPORTANT: gotrue-js will instantly permanently destroy the user's session if a refresh token
+                // request returns a 5xx error. To prevent this silent forced logout on transient server issues,
+                // we throw a TypeError to trick gotrue-js into treating it as a retryable offline network error.
+                throw new TypeError('Failed to fetch');
+            } else if (retries > 0) {
+                throw new Error(`HTTP ${response.status}`);
+            }
         }
         
         return response;

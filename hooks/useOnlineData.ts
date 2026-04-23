@@ -72,7 +72,8 @@ export const fetch_data_from_supabase = async (user_id?: string): Promise<Partia
     if (!supabase) throw new Error('Supabase client not available.');
 
     // 1. Determine if the REQUESTER is an admin
-    const { data: { user: currentUser } } = await supabase.auth.getUser();
+    const { data: { session } } = await supabase.auth.getSession();
+    const currentUser = session?.user;
     let is_admin_user = false;
     let lawyer_id: string | null = null;
     
