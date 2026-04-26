@@ -24,6 +24,7 @@ import {
   PrintIcon,
   ShareIcon,
   DatabaseIcon,
+  XMarkIcon,
 } from "./components/icons";
 import ContextMenu, { MenuItem } from "./components/ContextMenu";
 import AdminTaskModal from "./components/AdminTaskModal";
@@ -447,10 +448,25 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
 
   // Show "Ready for Offline Use" message after first successful sync of the session
   useEffect(() => {
-    if (data.sync_status === "synced" && !hasShownReadyMessage && session && !data.is_data_loading) {
+    if (
+      data.sync_status === "synced" &&
+      !hasShownReadyMessage &&
+      session &&
+      !data.is_data_loading
+    ) {
       setHasShownReadyMessage(true);
     }
   }, [data.sync_status, session, data.is_data_loading, hasShownReadyMessage]);
+
+  // Auto-hide the "Database Ready" message after 5 seconds
+  useEffect(() => {
+    if (hasShownReadyMessage) {
+      const timer = setTimeout(() => {
+        setHasShownReadyMessage(false);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [hasShownReadyMessage]);
 
   const createMissingProfile = async () => {
     if (!session?.user || !supabase) return;
@@ -990,9 +1006,9 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
              </div>
              <button 
                 onClick={() => setHasShownReadyMessage(false)}
-                className="ms-auto text-slate-500 hover:text-white"
+                className="ms-auto text-slate-500 hover:text-white transition-colors"
              >
-                <PowerIcon className="w-4 h-4 rotate-45" />
+                <XMarkIcon className="w-4 h-4" />
              </button>
           </div>
         )}
