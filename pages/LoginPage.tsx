@@ -1358,6 +1358,20 @@ const LoginPage: React.FC<auth_page_props> = ({
           </p>
         </div>
       </div>
+      <div className="mt-8 border-t border-slate-100 pt-6">
+        <button
+          onClick={() => {
+            if (confirm("هل أنت متأكد من مسح كافة البيانات المحلية؟ سيتم إعادة تحميل التطبيق وقد يستغرق التحميل الأولي وقتاً أطول.")) {
+              localStorage.clear();
+              window.location.reload();
+            }
+          }}
+          className="flex items-center gap-2 mx-auto text-xs text-slate-400 hover:text-red-500 transition-colors"
+        >
+          <ArrowPathIcon className="w-3 h-3" />
+          <span>مسح الذاكرة المؤقتة وإعادة التحميل</span>
+        </button>
+      </div>
     </div>
   );
 };
