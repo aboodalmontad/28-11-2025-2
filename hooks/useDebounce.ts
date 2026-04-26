@@ -1,4 +1,4 @@
-import * as React from 'react';
+import * as React from "react";
 
 /**
  * A custom hook that delays updating a value until a certain amount of time has passed without that value changing.
@@ -25,7 +25,7 @@ export function useDebounce<T>(value: T, delay: number): T {
         clearTimeout(handler);
       };
     },
-    [value, delay] // Only re-call effect if value or delay changes
+    [value, delay], // Only re-call effect if value or delay changes
   );
 
   return debouncedValue;

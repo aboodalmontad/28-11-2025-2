@@ -1,5 +1,5 @@
 export interface RealtimeAlert {
-    id: number;
-    message: string;
-    type?: 'sync' | 'userApproval';
+  id: number;
+  message: string;
+  type?: "sync" | "userApproval";
 }

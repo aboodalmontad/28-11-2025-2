@@ -1,20 +1,34 @@
-import * as React from 'react';
-import { ClipboardDocumentCheckIcon, ClipboardDocumentIcon, ServerIcon, ExclamationTriangleIcon } from './icons';
+import * as React from "react";
+import {
+  ClipboardDocumentCheckIcon,
+  ClipboardDocumentIcon,
+  ServerIcon,
+  ExclamationTriangleIcon,
+} from "./icons";
 
 const CopyButton: React.FC<{ textToCopy: string }> = ({ textToCopy }) => {
-    const [copied, setCopied] = React.useState(false);
-    const handleCopy = () => {
-        navigator.clipboard.writeText(textToCopy).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-        });
-    };
-    return (
-        <button type="button" onClick={handleCopy} className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors shadow-sm" title="نسخ الكود">
-            {copied ? <ClipboardDocumentCheckIcon className="w-4 h-4 text-white" /> : <ClipboardDocumentIcon className="w-4 h-4" />}
-            {copied ? 'تم النسخ!' : 'نسخ كود SQL الشامل'}
-        </button>
-    );
+  const [copied, setCopied] = React.useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(textToCopy).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors shadow-sm"
+      title="نسخ الكود"
+    >
+      {copied ? (
+        <ClipboardDocumentCheckIcon className="w-4 h-4 text-white" />
+      ) : (
+        <ClipboardDocumentIcon className="w-4 h-4" />
+      )}
+      {copied ? "تم النسخ!" : "نسخ كود SQL الشامل"}
+    </button>
+  );
 };
 
 const unifiedScript = `
@@ -136,52 +150,77 @@ CREATE POLICY "Allow public read for admins" ON public.profiles FOR SELECT USING
 `;
 
 interface ConfigurationModalProps {
-    onRetry: () => void;
+  onRetry: () => void;
 }
 
 const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ onRetry }) => {
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[200]">
-            <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
-                <div className="flex items-center gap-3 mb-4 text-amber-600">
-                    <ServerIcon className="w-8 h-8" />
-                    <h2 className="text-2xl font-bold">إصلاح شامل لقاعدة البيانات</h2>
-                </div>
-                
-                <div className="overflow-y-auto flex-grow pr-2">
-                    <div className="bg-amber-50 border-s-4 border-amber-500 p-4 mb-4 rounded">
-                        <p className="text-amber-800 text-sm font-bold">سيقوم هذا السكربت بـ:</p>
-                        <ul className="text-xs text-amber-700 list-disc list-inside mt-1">
-                            <li>استعادة أسماء المستخدمين المفقودة.</li>
-                            <li>تجاوز تعليق "جاري التحميل" الناتج عن صلاحيات الجداول.</li>
-                            <li>منح الصلاحيات اللازمة فوراً.</li>
-                        </ul>
-                    </div>
-
-                    <div className="relative">
-                        <div className="flex justify-between items-center mb-2">
-                            <span className="text-xs font-bold text-gray-500">كود SQL للإصلاح:</span>
-                            <CopyButton textToCopy={unifiedScript} />
-                        </div>
-                        <pre className="bg-gray-900 text-green-400 p-3 rounded border border-gray-700 overflow-x-auto text-[10px] font-mono h-48" dir="ltr">
-                            {unifiedScript}
-                        </pre>
-                    </div>
-
-                    <div className="mt-4 text-sm text-gray-600">
-                        <p>1. انسخ الكود أعلاه.</p>
-                        <p>2. اذهب لـ <a href="https://supabase.com/dashboard" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">SQL Editor</a>.</p>
-                        <p>3. الصق الكود واضغط <strong>Run</strong>.</p>
-                        <p>4. عد هنا واضغط "بدء التشغيل".</p>
-                    </div>
-                </div>
-
-                <div className="mt-6 flex justify-end pt-4 border-t">
-                    <button onClick={onRetry} className="px-8 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-lg">بدء التشغيل وتجاوز التحميل</button>
-                </div>
-            </div>
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[200]">
+      <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        <div className="flex items-center gap-3 mb-4 text-amber-600">
+          <ServerIcon className="w-8 h-8" />
+          <h2 className="text-2xl font-bold">إصلاح شامل لقاعدة البيانات</h2>
         </div>
-    );
+
+        <div className="overflow-y-auto flex-grow pr-2">
+          <div className="bg-amber-50 border-s-4 border-amber-500 p-4 mb-4 rounded">
+            <p className="text-amber-800 text-sm font-bold">
+              سيقوم هذا السكربت بـ:
+            </p>
+            <ul className="text-xs text-amber-700 list-disc list-inside mt-1">
+              <li>استعادة أسماء المستخدمين المفقودة.</li>
+              <li>تجاوز تعليق "جاري التحميل" الناتج عن صلاحيات الجداول.</li>
+              <li>منح الصلاحيات اللازمة فوراً.</li>
+            </ul>
+          </div>
+
+          <div className="relative">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-xs font-bold text-gray-500">
+                كود SQL للإصلاح:
+              </span>
+              <CopyButton textToCopy={unifiedScript} />
+            </div>
+            <pre
+              className="bg-gray-900 text-green-400 p-3 rounded border border-gray-700 overflow-x-auto text-[10px] font-mono h-48"
+              dir="ltr"
+            >
+              {unifiedScript}
+            </pre>
+          </div>
+
+          <div className="mt-4 text-sm text-gray-600">
+            <p>1. انسخ الكود أعلاه.</p>
+            <p>
+              2. اذهب لـ{" "}
+              <a
+                href="https://supabase.com/dashboard"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 underline"
+              >
+                SQL Editor
+              </a>
+              .
+            </p>
+            <p>
+              3. الصق الكود واضغط <strong>Run</strong>.
+            </p>
+            <p>4. عد هنا واضغط "بدء التشغيل".</p>
+          </div>
+        </div>
+
+        <div className="mt-6 flex justify-end pt-4 border-t">
+          <button
+            onClick={onRetry}
+            className="px-8 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-lg"
+          >
+            بدء التشغيل وتجاوز التحميل
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 export default ConfigurationModal;

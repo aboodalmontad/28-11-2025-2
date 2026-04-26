@@ -1,91 +1,108 @@
 // supabaseClient.ts
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 // Suppress specific harmless warnings/errors that spam the console
 const originalConsoleError = console.error;
 console.error = (...args: any[]) => {
-    const msg = args.join(' ').toLowerCase();
-    if (msg.includes('refresh token not found') || msg.includes('invalid refresh token')) return;
-    if (msg.includes('error checking for updates')) return;
-    originalConsoleError.apply(console, args);
+  const msg = args.join(" ").toLowerCase();
+  if (
+    msg.includes("refresh token not found") ||
+    msg.includes("invalid refresh token")
+  )
+    return;
+  if (msg.includes("error checking for updates")) return;
+  originalConsoleError.apply(console, args);
 };
 
-// Hardcoded Supabase credentials. 
+// Hardcoded Supabase credentials.
 // NOTE: Using service_role key on the client is insecure but used here as provided.
 const supabaseUrl = "https://gvafdhyudvdymletqjee.supabase.co";
-const supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2YWZkaHl1ZHZkeW1sZXRxamVlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MTkzMDQ3NiwiZXhwIjoyMDc3NTA2NDc2fQ.y_D64FZILeOCFwAbZZaN0TqFVcpD3VSE9nJWPt_ypCc";
+const supabaseAnonKey =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2YWZkaHl1ZHZkeW1sZXRxamVlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MTkzMDQ3NiwiZXhwIjoyMDc3NTA2NDc2fQ.y_D64FZILeOCFwAbZZaN0TqFVcpD3VSE9nJWPt_ypCc";
 
 /**
  * A robust fetch wrapper that handles common network errors with retries and exponential backoff.
  * This helps mitigate "Failed to fetch" errors in unstable network environments.
  */
-async function robustFetch(url: string | URL | Request, options?: RequestInit, retries = 3, backoff = 300): Promise<Response> {
-    const urlStr = typeof url === 'string' ? url : (url instanceof URL ? url.toString() : url.url);
-    const isAuthEndpoint = urlStr && urlStr.includes('/auth/v1/');
+async function robustFetch(
+  url: string | URL | Request,
+  options?: RequestInit,
+  retries = 3,
+  backoff = 300,
+): Promise<Response> {
+  const urlStr =
+    typeof url === "string"
+      ? url
+      : url instanceof URL
+        ? url.toString()
+        : url.url;
+  const isAuthEndpoint = urlStr && urlStr.includes("/auth/v1/");
 
-    try {
-        const response = await fetch(url, options);
-        
-        // Retry on common server-side transient errors (502, 503, 504)
-        if (!response.ok && [502, 503, 504].includes(response.status)) {
-            if (isAuthEndpoint) {
-                // VERY IMPORTANT: gotrue-js will instantly permanently destroy the user's session if a refresh token
-                // request returns a 5xx error. To prevent this silent forced logout on transient server issues,
-                // we throw a TypeError to trick gotrue-js into treating it as a retryable offline network error.
-                throw new TypeError('Failed to fetch');
-            } else if (retries > 0) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-        }
-        
-        return response;
-    } catch (error) {
-        const message = String(error).toLowerCase();
-        const isNetworkError = 
-            message.includes('failed to fetch') || 
-            message.includes('network') || 
-            message.includes('aborted') ||
-            message.includes('timeout') ||
-            message.includes('connection');
+  try {
+    const response = await fetch(url, options);
 
-        if (isNetworkError && retries > 0 && !isAuthEndpoint) {
-            console.warn(`robustFetch: Retrying ${urlStr} due to network error: ${message}. Retries left: ${retries}`);
-            // Exponential backoff with jitter
-            const delay = backoff + Math.random() * backoff;
-            await new Promise(resolve => setTimeout(resolve, delay));
-            return robustFetch(url, options, retries - 1, backoff * 2);
-        }
-        
-        throw error;
+    // Retry on common server-side transient errors (502, 503, 504)
+    if (!response.ok && [502, 503, 504].includes(response.status)) {
+      if (isAuthEndpoint) {
+        // VERY IMPORTANT: gotrue-js will instantly permanently destroy the user's session if a refresh token
+        // request returns a 5xx error. To prevent this silent forced logout on transient server issues,
+        // we throw a TypeError to trick gotrue-js into treating it as a retryable offline network error.
+        throw new TypeError("Failed to fetch");
+      } else if (retries > 0) {
+        throw new Error(`HTTP ${response.status}`);
+      }
     }
+
+    return response;
+  } catch (error) {
+    const message = String(error).toLowerCase();
+    const isNetworkError =
+      message.includes("failed to fetch") ||
+      message.includes("network") ||
+      message.includes("aborted") ||
+      message.includes("timeout") ||
+      message.includes("connection");
+
+    if (isNetworkError && retries > 0 && !isAuthEndpoint) {
+      console.warn(
+        `robustFetch: Retrying ${urlStr} due to network error: ${message}. Retries left: ${retries}`,
+      );
+      // Exponential backoff with jitter
+      const delay = backoff + Math.random() * backoff;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      return robustFetch(url, options, retries - 1, backoff * 2);
+    }
+
+    throw error;
+  }
 }
 
 let supabase: SupabaseClient | null = null;
 
 export function get_supabase_client(): SupabaseClient | null {
-    if (supabase) return supabase;
-    
-    if (!supabaseUrl || !supabaseAnonKey) {
-        console.error("Supabase credentials missing.");
-        return null;
-    }
+  if (supabase) return supabase;
 
-    try {
-        supabase = createClient(supabaseUrl, supabaseAnonKey, {
-            auth: {
-                persistSession: true,
-                autoRefreshToken: true,
-                detectSessionInUrl: true,
-                lockAcquireTimeout: 60000 // Increase to 60 seconds to prevent lock stealing during retries
-            } as any,
-            global: {
-                // Use our robust fetch wrapper for all Supabase requests
-                fetch: robustFetch as any
-            }
-        });
-        return supabase;
-    } catch (error) {
-        console.error("Supabase init error:", error);
-        return null;
-    }
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error("Supabase credentials missing.");
+    return null;
+  }
+
+  try {
+    supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+        lockAcquireTimeout: 60000, // Increase to 60 seconds to prevent lock stealing during retries
+      } as any,
+      global: {
+        // Use our robust fetch wrapper for all Supabase requests
+        fetch: robustFetch as any,
+      },
+    });
+    return supabase;
+  } catch (error) {
+    console.error("Supabase init error:", error);
+    return null;
+  }
 }
