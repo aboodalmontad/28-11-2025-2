@@ -444,31 +444,6 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
   const isOnline = data.is_online; // Use isOnline from data instead of calling useOnlineStatus again
 
   const [isCreatingProfile, setIsCreatingProfile] = useState(false);
-  const [showReadyMessage, setShowReadyMessage] = useState(false);
-  const [messageWasShown, setMessageWasShown] = useState(false);
-
-  // Show "Ready for Offline Use" message after first successful sync of the session
-  useEffect(() => {
-    if (
-      data.sync_status === "synced" &&
-      !messageWasShown &&
-      session &&
-      !data.is_data_loading
-    ) {
-      setShowReadyMessage(true);
-      setMessageWasShown(true); // Mark it as shown so it never reappears
-    }
-  }, [data.sync_status, session, data.is_data_loading, messageWasShown]);
-
-  // Auto-hide the "Database Ready" message after 5 seconds
-  useEffect(() => {
-    if (showReadyMessage) {
-      const timer = setTimeout(() => {
-        setShowReadyMessage(false);
-      }, 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [showReadyMessage]);
 
   const createMissingProfile = async () => {
     if (!session?.user || !supabase) return;
@@ -996,24 +971,6 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
           onNavigate={setCurrentPage}
           permissions={data.permissions}
         />
-
-        {showReadyMessage && (
-          <div className="fixed bottom-24 md:bottom-10 left-6 right-6 md:left-auto md:w-80 bg-slate-900 border border-slate-700 text-white p-4 rounded-2xl shadow-2xl z-[100] animate-fade-in flex items-center gap-4">
-             <div className="bg-green-500/20 p-2 rounded-xl">
-                <DatabaseIcon className="w-6 h-6 text-green-400" />
-             </div>
-             <div>
-                <h4 className="text-sm font-bold">قاعدة البيانات جاهزة</h4>
-                <p className="text-[10px] text-slate-400">التطبيق يعمل الآن محلياً بالكامل وسيوفر لك سرعة فائقة حتى بدون إنترنت.</p>
-             </div>
-             <button 
-                onClick={() => setShowReadyMessage(false)}
-                className="ms-auto text-slate-500 hover:text-white transition-colors"
-             >
-                <XMarkIcon className="w-4 h-4" />
-             </button>
-          </div>
-        )}
       </div>
     </DataProvider>
   );
