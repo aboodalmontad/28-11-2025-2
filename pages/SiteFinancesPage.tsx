@@ -30,6 +30,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { useData } from "../context/DataContext";
+import { useFeedback } from "../context/FeedbackContext";
 
 const StatCard: React.FC<{
   title: string;
@@ -82,9 +83,11 @@ const SiteFinancesPage: React.FC = () => {
   const {
     unfiltered_data,
     set_site_finances,
+    delete_site_finance_entry,
     set_profiles,
     is_data_loading: loading,
   } = useData();
+  const { showFeedback } = useFeedback();
   const { site_finances: entries, profiles: users } = unfiltered_data;
   const [error, set_error] = React.useState<string | null>(null);
   const [modal, set_modal] = React.useState<{
@@ -202,19 +205,11 @@ const SiteFinancesPage: React.FC = () => {
   };
 
   const handle_confirm_delete = async () => {
-    if (!supabase || !entry_to_delete) return;
+    if (!entry_to_delete) return;
 
     try {
-      const { error: deleteError } = await supabase
-        .from("site_finances")
-        .delete()
-        .eq("id", entry_to_delete.id);
-
-      if (deleteError) throw deleteError;
-
-      set_site_finances((prev) =>
-        prev.filter((e) => e.id !== entry_to_delete.id),
-      );
+      delete_site_finance_entry(entry_to_delete.id);
+      showFeedback("تم حذف القيد المالي بنجاح", "success");
       set_entry_to_delete(null);
     } catch (err: any) {
       console.error("Delete financial entry failed:", err);

@@ -315,7 +315,20 @@ export const useSupabaseData = (
         // Fetch version.json with a timestamp to bypass browser cache
         const response = await fetch(`/version.json?t=${Date.now()}`);
         if (!response.ok) return;
-        const server_data = await response.json();
+        
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.includes("text/html")) {
+          return; // Avoid parsing HTML fallback
+        }
+
+        const text = await response.text();
+        let server_data;
+        try {
+          server_data = JSON.parse(text);
+        } catch (e) {
+          // If the response is not valid JSON, silently return
+          return;
+        }
 
         const stored_version = localStorage.getItem("app_version");
 
@@ -331,17 +344,39 @@ export const useSupabaseData = (
           );
           set_is_update_available(true);
           
-          // Proactively clear service worker caches to fetch the new version smoothly
-          try {
-            if ('caches' in window) {
-                const cacheNames = await caches.keys();
-                for (let name of cacheNames) {
-                    if (name !== 'lawyer-app-cache-v2026-04-12-10-57') {
-                        await caches.delete(name);
-                    }
+          // Auto Update Logic with infinite loop prevention
+          const lastAutoUpdateStr = sessionStorage.getItem('last_auto_update_time');
+          const lastAutoUpdate = lastAutoUpdateStr ? parseInt(lastAutoUpdateStr, 10) : 0;
+          const timeSinceLastUpdate = Date.now() - lastAutoUpdate;
+          
+          // Only auto-reload if we haven't tried in the last 60 seconds
+          if (timeSinceLastUpdate > 60000) {
+            sessionStorage.setItem('last_auto_update_time', Date.now().toString());
+            console.log("Automatically applying update...");
+            
+            try {
+              if ('serviceWorker' in navigator) {
+                const registrations = await navigator.serviceWorker.getRegistrations();
+                for (const registration of registrations) {
+                  await registration.unregister();
                 }
+              }
+              if ('caches' in window) {
+                  const cacheNames = await caches.keys();
+                  for (let name of cacheNames) {
+                      if (name !== 'lawyer-app-cache-v2026-04-12-10-57') { // Keep specific versions if needed, or clear all
+                          await caches.delete(name);
+                      }
+                  }
+              }
+            } catch(e) {
+                console.error("Cache clear failed during auto-update:", e);
             }
-          } catch(e) {}
+            
+            localStorage.setItem("app_version", server_data.version || APP_VERSION);
+            window.location.reload();
+            return;
+          }
         } else {
           set_is_update_available(false);
         }
@@ -400,12 +435,20 @@ export const useSupabaseData = (
         (f) => f.user_id === target_user_id,
       ),
       assistants: data.assistants.filter((a: any) => {
-        // If assistants are objects with user_id, filter them.
-        // If they are strings, we assume they belong to the current data context
-        // which was already filtered during sync.
+        // If they are strings, assume they are the default system dropdown items
+        if (typeof a === "string") {
+          return true; // default_assistants
+        }
+        // If assistants are objects with user_id, explicitly filter them.
         if (typeof a === "object" && a !== null && "user_id" in a) {
+          if (is_admin && !admin_viewing_user_id) {
+            // If admin is NOT viewing a specific user, they should only see their own assistants or system ones
+            // Otherwise the dropdown becomes a massive mess of all assistants across the app
+            return a.user_id === user?.id; 
+          }
           return a.user_id === target_user_id;
         }
+        // If it's some other weird object without user_id, keep it just in case
         return true;
       }),
     };
@@ -483,6 +526,7 @@ export const useSupabaseData = (
       try {
         const db = await get_db();
         const cached_data = await db.get(DATA_STORE_NAME, storage_key);
+        let has_local_data = false;
         if (cached_data) {
           console.log(
             "Loaded data from IndexedDB for user:",
@@ -492,6 +536,11 @@ export const useSupabaseData = (
           // Migration: Rename camelCase to snake_case and handle old structures
           const migrated = migrate_data(cached_data);
           set_data(migrated);
+          has_local_data = 
+            migrated.clients.length > 0 || 
+            migrated.admin_tasks.length > 0 || 
+            migrated.appointments.length > 0 || 
+            migrated.accounting_entries.length > 0;
         } else {
           // Reset to initial data if no cache for this specific user
           set_data(get_initial_data());
@@ -509,6 +558,11 @@ export const useSupabaseData = (
           set_deleted_ids(cached_deleted_ids);
         } else {
           set_deleted_ids(get_initial_deleted_ids());
+        }
+        
+        if (has_local_data) {
+          set_is_data_loading(false);
+          set_sync_status("synced");
         }
       } catch (err) {
         console.error("Failed to load local data:", err);
@@ -589,7 +643,7 @@ export const useSupabaseData = (
             },
             ...prev,
           ].slice(0, 50),
-        ); // Keep last 50 logs
+        );
       },
       is_online: is_online,
       is_auth_loading: is_auth_loading,
@@ -599,14 +653,16 @@ export const useSupabaseData = (
 
   // Auto-sync on mount/login
   React.useEffect(() => {
-    if (user && is_online && !is_auth_loading && sync_status === "loading") {
-      console.log("Triggering initial auto-sync in 500ms...");
+    if (user && is_online && !is_auth_loading) {
+      // If we are already synced, we might have set it forcefully to bypass the loader.
+      // So let's run a quiet background manual_sync once to pull any updates.
+      console.log("Triggering background auto-sync in 500ms...");
       const timer = setTimeout(() => {
         manual_sync();
       }, 500);
       return () => clearTimeout(timer);
     }
-  }, [user?.id, is_online, is_auth_loading, sync_status, manual_sync]);
+  }, [user?.id, is_online, is_auth_loading]); // removed sync_status from deps so it fires once on mount
 
   // Auto-sync when coming back online
   const prev_is_online = React.useRef(is_online);
@@ -1386,7 +1442,20 @@ export const useSupabaseData = (
       }));
       set_full_data((prev) => ({
         ...prev,
-        assistants: prev.assistants.filter((a) => a !== name),
+        assistants: prev.assistants.filter((a) => {
+          if (typeof a === "string") return a !== name;
+          return a.name !== name;
+        }),
+      }));
+    },
+    delete_site_finance_entry: (id: number) => {
+      set_deleted_ids((prev) => ({
+        ...prev,
+        site_finances: [...prev.site_finances, id.toString()],
+      }));
+      set_full_data((prev) => ({
+        ...prev,
+        site_finances: prev.site_finances.filter((f) => f.id !== id),
       }));
     },
     delete_document,

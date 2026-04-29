@@ -972,9 +972,20 @@ const LoginPage: React.FC<auth_page_props> = ({
                 تحديث النظام (إصدار 12-4-2026-5)
               </button>
             ) : (
-              <div className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-green-700 bg-green-50 border border-green-200 rounded-full shadow-sm">
-                <CheckCircleIcon className="w-4 h-4" />
-                التطبيق محدث لآخر إصدار
+              <div className="flex flex-col items-center gap-2 mt-1">
+                <div className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-green-700 bg-green-50 border border-green-200 rounded-full shadow-sm">
+                  <CheckCircleIcon className="w-4 h-4" />
+                  التطبيق محدث لآخر إصدار
+                </div>
+                <button
+                  onClick={handle_hard_refresh}
+                  className="flex items-center gap-1 text-[11px] px-3 py-1 bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-800 rounded-full transition-colors"
+                  title="مسح ذاكرة التخزين المؤقت وحل مشاكل الاتصال"
+                  type="button"
+                >
+                  <ArrowPathIcon className="w-3 h-3" />
+                  مسح الكاش
+                </button>
               </div>
             )}
           </div>

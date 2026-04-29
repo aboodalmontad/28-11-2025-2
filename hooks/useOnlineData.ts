@@ -809,7 +809,7 @@ export const upsert_data_to_supabase = async (
   results.assistants = await upsert_table(
     "assistants",
     data_to_upsert.assistants,
-    "user_id,name",
+    "name,user_id",
   );
   results.clients = await upsert_table("clients", data_to_upsert.clients);
   results.cases = await upsert_table("cases", data_to_upsert.cases);

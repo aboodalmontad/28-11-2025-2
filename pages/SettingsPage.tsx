@@ -106,9 +106,10 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
   };
   const handle_add_assistant = (e: React.FormEvent) => {
     e.preventDefault();
+    const assistantNames = assistants.map((a) => typeof a === "string" ? a : a.name);
     if (
       new_assistant &&
-      !assistants.includes(new_assistant) &&
+      !assistantNames.includes(new_assistant) &&
       new_assistant !== "بدون تخصيص"
     ) {
       set_assistants((prev) => [...prev, new_assistant.trim()]);

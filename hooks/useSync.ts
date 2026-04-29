@@ -916,92 +916,103 @@ export const use_sync = ({
     [is_online, is_auth_loading],
   );
 
+  const fetch_timeout_ref = React.useRef<NodeJS.Timeout | null>(null);
+
   const fetch_and_refresh = React.useCallback(async () => {
-    if (sync_status_ref.current === "syncing" || is_auth_loading) return;
-    const current_user = user_ref.current;
-    if (!is_online || !current_user) return;
-
-    set_status("syncing", "جاري تحديث البيانات...");
-
-    try {
-      // Fetch in parallel for better performance
-      const [remote_data_raw, remote_deletions] = await Promise.all([
-        fetch_data_from_supabase(effective_user_id_ref.current || current_user.id),
-        fetch_deletions_from_supabase()
-      ]);
-
-      const remote_flat_data_untyped =
-        transform_remote_to_local(remote_data_raw);
-
-      const deleted_ids_sets = {
-        clients: new Set(deleted_ids_ref.current.clients),
-        cases: new Set(deleted_ids_ref.current.cases),
-        stages: new Set(deleted_ids_ref.current.stages),
-        sessions: new Set(deleted_ids_ref.current.sessions),
-        admin_tasks: new Set(deleted_ids_ref.current.admin_tasks),
-        appointments: new Set(deleted_ids_ref.current.appointments),
-        accounting_entries: new Set(deleted_ids_ref.current.accounting_entries),
-        invoices: new Set(deleted_ids_ref.current.invoices),
-        invoice_items: new Set(deleted_ids_ref.current.invoice_items),
-        assistants: new Set(deleted_ids_ref.current.assistants),
-        documents: new Set(deleted_ids_ref.current.documents),
-        profiles: new Set(deleted_ids_ref.current.profiles),
-        site_finances: new Set(deleted_ids_ref.current.site_finances),
-      };
-
-      const remote_flat_data: Partial<FlatData> = {};
-      for (const key of Object.keys(
-        remote_flat_data_untyped,
-      ) as (keyof FlatData)[]) {
-        const deleted_set = (deleted_ids_sets as any)[key];
-        if (deleted_set && deleted_set.size > 0) {
-          (remote_flat_data as any)[key] = (
-            (remote_flat_data_untyped as any)[key] || []
-          ).filter((item: any) => !deleted_set.has(item.id ?? item.name));
-        } else {
-          (remote_flat_data as any)[key] = (remote_flat_data_untyped as any)[
-            key
-          ];
-        }
-      }
-
-      let local_flat_data = flatten_data(local_data_ref.current);
-      local_flat_data = apply_deletions_to_local(
-        local_flat_data,
-        remote_deletions,
-      );
-      await cleanup_local_files(remote_deletions);
-
-      const merged_flat_data: Partial<FlatData> = {};
-
-      for (const key of Object.keys(remote_flat_data) as (keyof FlatData)[]) {
-        const remote_items = (remote_flat_data as any)[key] || [];
-        const local_items = (local_flat_data as any)[key] || [];
-
-        const merged_items = merge_for_refresh(local_items, remote_items, key);
-        (merged_flat_data as any)[key] = merged_items;
-      }
-
-      const final_merged_data = construct_data(merged_flat_data as FlatData);
-      on_data_synced_ref.current(final_merged_data);
-      set_status("synced");
-    } catch (err: any) {
-      const error_message_raw = String(err.message || "").toLowerCase();
-      let error_message = err.message || "حدث خطأ غير متوقع.";
-      if (
-        error_message_raw.includes("failed to fetch") ||
-        error_message_raw.includes("abort") ||
-        error_message_raw.includes("lock") ||
-        error_message_raw.includes("network")
-      ) {
-        error_message =
-          "تعذر الاتصال بالخادم. يرجى التحقق من اتصالك بالإنترنت، أو التأكد من أن مشروع Supabase الخاص بك يعمل (غير متوقف).";
-      } else {
-        console.error("Fetch error:", err);
-      }
-      set_status("error", `فشل التحديث: ${error_message}`);
+    if (fetch_timeout_ref.current) {
+      clearTimeout(fetch_timeout_ref.current);
     }
+
+    fetch_timeout_ref.current = setTimeout(async () => {
+      if (sync_status_ref.current === "syncing" || is_auth_loading) return;
+      const current_user = user_ref.current;
+      if (!is_online || !current_user) return;
+
+      set_status("syncing", "جاري تحديث البيانات...");
+
+      try {
+        // Fetch in parallel for better performance
+        const [remote_data_raw, remote_deletions] = await Promise.all([
+          fetch_data_from_supabase(
+            effective_user_id_ref.current || current_user.id,
+          ),
+          fetch_deletions_from_supabase(),
+        ]);
+
+        const remote_flat_data_untyped =
+          transform_remote_to_local(remote_data_raw);
+
+        const deleted_ids_sets = {
+          clients: new Set(deleted_ids_ref.current.clients),
+          cases: new Set(deleted_ids_ref.current.cases),
+          stages: new Set(deleted_ids_ref.current.stages),
+          sessions: new Set(deleted_ids_ref.current.sessions),
+          admin_tasks: new Set(deleted_ids_ref.current.admin_tasks),
+          appointments: new Set(deleted_ids_ref.current.appointments),
+          accounting_entries: new Set(deleted_ids_ref.current.accounting_entries),
+          invoices: new Set(deleted_ids_ref.current.invoices),
+          invoice_items: new Set(deleted_ids_ref.current.invoice_items),
+          assistants: new Set(deleted_ids_ref.current.assistants),
+          documents: new Set(deleted_ids_ref.current.documents),
+          profiles: new Set(deleted_ids_ref.current.profiles),
+          site_finances: new Set(deleted_ids_ref.current.site_finances),
+        };
+
+        const remote_flat_data: Partial<FlatData> = {};
+        for (const key of Object.keys(
+          remote_flat_data_untyped,
+        ) as (keyof FlatData)[]) {
+          const deleted_set = (deleted_ids_sets as any)[key];
+          if (deleted_set && deleted_set.size > 0) {
+            (remote_flat_data as any)[key] = (
+              (remote_flat_data_untyped as any)[key] || []
+            ).filter((item: any) => !deleted_set.has(item.id ?? item.name));
+          } else {
+            (remote_flat_data as any)[key] = (remote_flat_data_untyped as any)[
+              key
+            ];
+          }
+        }
+
+        let local_flat_data = flatten_data(local_data_ref.current);
+        local_flat_data = apply_deletions_to_local(
+          local_flat_data,
+          remote_deletions,
+        );
+        await cleanup_local_files(remote_deletions);
+
+        const merged_flat_data: Partial<FlatData> = {};
+
+        for (const key of Object.keys(remote_flat_data) as (keyof FlatData)[]) {
+          const remote_items = (remote_flat_data as any)[key] || [];
+          const local_items = (local_flat_data as any)[key] || [];
+
+          const merged_items = merge_for_refresh(local_items, remote_items, key);
+          (merged_flat_data as any)[key] = merged_items;
+        }
+
+        const final_merged_data = construct_data(merged_flat_data as FlatData);
+        on_data_synced_ref.current(final_merged_data);
+        set_status("synced");
+      } catch (err: any) {
+        const error_message_raw = String(err.message || "").toLowerCase();
+        let error_message = err.message || "حدث خطأ غير متوقع.";
+        if (
+          error_message_raw.includes("failed to fetch") ||
+          error_message_raw.includes("abort") ||
+          error_message_raw.includes("lock") ||
+          error_message_raw.includes("network")
+        ) {
+          error_message =
+            "تعذر الاتصال بالخادم. يرجى التحقق من اتصالك بالإنترنت، أو التأكد من أن مشروع Supabase الخاص بك يعمل (غير متوقف).";
+        } else {
+          console.error("Fetch error:", err);
+        }
+        set_status("error", `فشل التحديث: ${error_message}`);
+      }
+    }, 500);
   }, [is_online, is_auth_loading]);
+
 
   return { manual_sync, fetch_and_refresh };
 };

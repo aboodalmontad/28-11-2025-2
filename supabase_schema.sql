@@ -164,10 +164,10 @@ CREATE TABLE IF NOT EXISTS public.case_documents (
 
 -- 13. Assistants List (Simple list for dropdowns)
 CREATE TABLE IF NOT EXISTS public.assistants (
-    id BIGSERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     user_id UUID REFERENCES auth.users NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (name, user_id)
 );
 
 -- 14. Site Finances (Admin/Global)
