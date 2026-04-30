@@ -153,7 +153,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               await caches.delete(name);
             }
           }
-          localStorage.setItem("app_version", "12-4-2026-5");
+          localStorage.setItem("app_version", "30-04-2026");
           window.location.reload();
         } catch (error) {
           console.error("Error clearing cache:", error);
@@ -310,7 +310,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   title="تحديث النظام ومسح الكاش"
                 >
                   <ArrowPathIcon className="w-3 h-3" />
-                  تحديث (12-4-2026-5)
+                  تحديث (30-04-2026)
                 </button>
               )}
               <div className="hidden sm:flex items-center gap-2 px-3 py-1 bg-green-50 text-green-700 rounded-full border border-green-100 text-xs font-bold">
@@ -455,7 +455,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* Footer / Info */}
       <footer className="bg-white border-t border-slate-200 py-3 px-6 text-center no-print">
         <p className="text-[10px] text-slate-400 font-medium">
-          نظام إدارة المحاماة - الإصدار: 12-4-2026-5
+          نظام إدارة المحاماة - الإصدار: 30-04-2026
         </p>
       </footer>
     </div>

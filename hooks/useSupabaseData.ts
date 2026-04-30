@@ -42,7 +42,7 @@ import {
 } from "../utils/db";
 
 export const APP_DATA_KEY_PREFIX = "lawyerBusinessManagementData";
-export const APP_VERSION = "12-4-2026-5";
+export const APP_VERSION = "30-04-2026";
 export const get_app_data_key = (user_id: string | null) =>
   user_id ? `${APP_DATA_KEY_PREFIX}_${user_id}` : APP_DATA_KEY_PREFIX;
 
@@ -364,7 +364,7 @@ export const useSupabaseData = (
               if ('caches' in window) {
                   const cacheNames = await caches.keys();
                   for (let name of cacheNames) {
-                      if (name !== 'lawyer-app-cache-v2026-04-12-10-57') { // Keep specific versions if needed, or clear all
+                      if (name !== 'lawyer-app-cache-v2026-04-30') { // Keep specific versions if needed, or clear all
                           await caches.delete(name);
                       }
                   }

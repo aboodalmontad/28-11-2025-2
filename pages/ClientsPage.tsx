@@ -61,6 +61,14 @@ const ClientsPage: React.FC<ClientsPageProps> = ({
   }>({ type: null, is_editing: false });
   const [form_data, set_form_data] = React.useState<any>({});
   const [search_query, set_search_query] = React.useState("");
+  const [sort_option, set_sort_option] = React.useState<
+    "name" | "most_active" | "date_added" | "last_modified"
+  >(() => (localStorage.getItem("clients_sort_option") as any) || "name");
+
+  React.useEffect(() => {
+    localStorage.setItem("clients_sort_option", sort_option);
+  }, [sort_option]);
+
   const debounced_search_query = useDebounce(search_query, 300);
   const [view_mode, set_view_mode] = React.useState<"tree" | "list">("tree");
   const [is_delete_session_modal_open, set_is_delete_session_modal_open] =
@@ -130,10 +138,9 @@ const ClientsPage: React.FC<ClientsPageProps> = ({
   });
 
   const filtered_clients = React.useMemo(() => {
-    if (!debounced_search_query) return clients;
     const lowercased_query = debounced_search_query.toLowerCase();
 
-    return clients
+    let result = clients
       .map((client) => {
         const matching_cases = client.cases.filter(
           (c) =>
@@ -175,7 +182,38 @@ const ClientsPage: React.FC<ClientsPageProps> = ({
         return null;
       })
       .filter((client): client is Client => client !== null);
-  }, [clients, debounced_search_query]);
+
+    return result.sort((a, b) => {
+      if (sort_option === "name") return a.name.localeCompare(b.name);
+      if (sort_option === "last_modified")
+        return (b.updated_at || "").localeCompare(a.updated_at || "");
+      if (sort_option === "date_added") {
+        const timeA = parseInt(a.id.split("-")[1] || "0");
+        const timeB = parseInt(b.id.split("-")[1] || "0");
+        return timeB - timeA;
+      }
+      if (sort_option === "most_active") {
+        const countA =
+          a.cases.length +
+          a.cases.reduce(
+            (acc, c) =>
+              acc +
+              c.stages.reduce((acc2, s) => acc2 + s.sessions.length, 0),
+            0,
+          );
+        const countB =
+          b.cases.length +
+          b.cases.reduce(
+            (acc, c) =>
+              acc +
+              c.stages.reduce((acc2, s) => acc2 + s.sessions.length, 0),
+            0,
+          );
+        return countB - countA;
+      }
+      return 0;
+    });
+  }, [clients, debounced_search_query, sort_option]);
 
   const handle_open_modal = (
     type: "client" | "case" | "stage" | "session",
@@ -913,6 +951,27 @@ const ClientsPage: React.FC<ClientsPageProps> = ({
               <ListBulletIcon className="w-5 h-5" />
             </button>
           </div>
+        </div>
+        <div className="flex items-center gap-2 pt-2 border-t overflow-x-auto">
+          <span className="text-xs text-gray-500 whitespace-nowrap">ترتيب حسب:</span>
+          {[
+            { value: "name", label: "الاسم" },
+            { value: "most_active", label: "الأكثر نشاطا" },
+            { value: "date_added", label: "تاريخ الإضافة" },
+            { value: "last_modified", label: "آخر تعديل" },
+          ].map((option) => (
+            <button
+              key={option.value}
+              onClick={() => set_sort_option(option.value as any)}
+              className={`px-3 py-1 text-xs rounded-full border transition-colors ${
+                sort_option === option.value
+                  ? "bg-blue-600 text-white border-blue-600"
+                  : "bg-white text-gray-600 border-gray-300 hover:border-blue-500"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
         </div>
       </div>
 
