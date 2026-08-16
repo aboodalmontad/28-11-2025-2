@@ -99,6 +99,24 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
         if (typeof text !== "string")
           throw new Error("File could not be read.");
         const data = JSON.parse(text);
+
+        if (user_id) {
+          let backupUserId = null;
+          if (data.lawyer_profile && data.lawyer_profile.id) {
+            backupUserId = data.lawyer_profile.id;
+          } else if (data.clients && data.clients.length > 0 && data.clients[0].user_id) {
+            backupUserId = data.clients[0].user_id;
+          } else if (data.profiles && data.profiles.length > 0) {
+            const mainProfile = data.profiles.find((p: any) => p.role !== "admin" && !p.lawyer_id);
+            if (mainProfile) backupUserId = mainProfile.id;
+          }
+
+          if (backupUserId && backupUserId !== user_id) {
+            show_feedback("لا يمكن استيراد نسخة احتياطية لمكتب آخر. هذه النسخة تخص مكتباً أو مستخدماً مختلفاً.", "error");
+            return;
+          }
+        }
+
         set_full_data(data);
         show_feedback("تم استيراد البيانات بنجاح.", "success");
       } catch (error) {

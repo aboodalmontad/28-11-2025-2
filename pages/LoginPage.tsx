@@ -507,61 +507,73 @@ const LoginPage: React.FC<auth_page_props> = ({
     set_error(null);
     try {
       if (!supabase) throw new Error("Client not initialized");
-      const normalized_mobile = normalize_mobile_for_db(form.mobile);
+      const normalized_mobile = normalize_mobile_for_db(form.mobile) || form.mobile;
+      const e164_phone = normalize_mobile_to_e164(form.mobile) || form.mobile;
       if (!normalized_mobile) throw new Error("رقم الجوال غير صالح.");
+
       const { data: is_verified, error: rpc_error } = await supabase.rpc(
         "verify_mobile_otp",
         { target_mobile: normalized_mobile, code_to_check: otp_code.trim() },
       );
       if (rpc_error) throw rpc_error;
       if (is_verified) {
-        // Fetch current profile to check if trial was already used
+        // Fetch current profile to check if trial was already used (search all mobile formats)
         const { data: profileData } = await supabase
           .from("profiles")
           .select("*")
-          .eq("mobile_number", normalized_mobile)
+          .or(`mobile_number.eq.${normalized_mobile},mobile_number.eq.${form.mobile},mobile_number.eq.${e164_phone}`)
           .maybeSingle();
 
         const hasUsedTrial = Boolean(
           profileData?.trial_used || profileData?.trialUsed
         );
 
-        if (!hasUsedTrial) {
-          // First-time activation: Automatically approve and activate for 45 days
-          const now = new Date();
-          const fortyFiveDaysLater = new Date(now);
-          fortyFiveDaysLater.setDate(now.getDate() + 45);
+        // Calculate exact 45 days trial duration from today
+        const now = new Date();
+        const fortyFiveDaysLater = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate() + 45
+        );
+        const startDateStr = to_input_date_string(now);
+        const endDateStr = to_input_date_string(fortyFiveDaysLater);
 
+        if (!hasUsedTrial) {
+          // First-time activation: Automatically approve and activate for 45 full days
           const updatePayload: any = {
             is_approved: true,
             is_active: true,
             mobile_verified: true,
             trial_used: true,
-            subscription_start_date: to_input_date_string(now),
-            subscription_end_date: to_input_date_string(fortyFiveDaysLater),
+            subscription_start_date: startDateStr,
+            subscription_end_date: endDateStr,
             updated_at: now.toISOString(),
           };
 
-          let { error: updateError } = await supabase
+          // 1. Update by profile ID if found
+          if (profileData?.id) {
+            let { error: updateError } = await supabase
+              .from("profiles")
+              .update(updatePayload)
+              .eq("id", profileData.id);
+
+            if (updateError && updateError.message?.toLowerCase().includes("trial_used")) {
+              const { trial_used, ...fallbackPayload } = updatePayload;
+              await supabase
+                .from("profiles")
+                .update(fallbackPayload)
+                .eq("id", profileData.id);
+            }
+          }
+
+          // 2. Also update by mobile numbers to be 100% resilient
+          await supabase
             .from("profiles")
             .update(updatePayload)
-            .eq("mobile_number", normalized_mobile);
-
-          if (updateError && updateError.message?.toLowerCase().includes("trial_used")) {
-            const { trial_used, ...fallbackPayload } = updatePayload;
-            const res = await supabase
-              .from("profiles")
-              .update(fallbackPayload)
-              .eq("mobile_number", normalized_mobile);
-            updateError = res.error;
-          }
-
-          if (updateError) {
-            console.error("Failed to auto-activate profile:", updateError);
-          }
+            .or(`mobile_number.eq.${normalized_mobile},mobile_number.eq.${form.mobile},mobile_number.eq.${e164_phone}`);
 
           set_message(
-            `تم تفعيل حسابك تلقائياً بنجاح لفترة تجريبية مجانية لمدة 45 يوماً (حتى ${to_input_date_string(fortyFiveDaysLater)}). جاري الدخول...`
+            `تم تفعيل حسابك تلقائياً بنجاح لفترة تجريبية مجانية لمدة 45 يوماً كاملة (حتى ${endDateStr}). جاري الدخول...`
           );
 
           if (on_verification_success) {
@@ -576,6 +588,12 @@ const LoginPage: React.FC<auth_page_props> = ({
                   password: form.password,
                 });
               if (sign_in_data.user) {
+                // Ensure profile updated by user.id as well
+                await supabase
+                  .from("profiles")
+                  .update(updatePayload)
+                  .eq("id", sign_in_data.user.id);
+
                 sessionStorage.setItem(`just_logged_in_user_${sign_in_data.user.id}`, "true");
                 on_login_success(sign_in_data.user);
               }
@@ -586,13 +604,24 @@ const LoginPage: React.FC<auth_page_props> = ({
           }
         } else {
           // Trial has already been used in the past -> Only admin can activate
-          await supabase
-            .from("profiles")
-            .update({
-              mobile_verified: true,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("mobile_number", normalized_mobile);
+          const phoneFilter = `mobile_number.eq.${normalized_mobile},mobile_number.eq.${form.mobile},mobile_number.eq.${e164_phone}`;
+          if (profileData?.id) {
+            await supabase
+              .from("profiles")
+              .update({
+                mobile_verified: true,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", profileData.id);
+          } else {
+            await supabase
+              .from("profiles")
+              .update({
+                mobile_verified: true,
+                updated_at: new Date().toISOString(),
+              })
+              .or(phoneFilter);
+          }
 
           if (profileData?.is_approved) {
             // Already approved by admin
@@ -842,16 +871,16 @@ const LoginPage: React.FC<auth_page_props> = ({
           if (standard_data.user) {
             // Create profile manually since trigger might be missing
             const now = new Date();
-            const oneYearLater = new Date(
-              now.getFullYear() + 1,
+            const fortyFiveDaysLater = new Date(
+              now.getFullYear(),
               now.getMonth(),
-              now.getDate(),
+              now.getDate() + 45
             );
             await supabase.from("profiles").upsert([
               {
                 id: standard_data.user.id,
                 full_name: form.full_name,
-                mobile_number: form.mobile,
+                mobile_number: normalized_mobile,
                 role: is_assistant_signup
                   ? "assistant"
                   : email === "nahwiabdo@gmail.com" ||
@@ -865,7 +894,7 @@ const LoginPage: React.FC<auth_page_props> = ({
                 trial_used: false,
                 lawyer_id: null,
                 subscription_start_date: to_input_date_string(now),
-                subscription_end_date: null,
+                subscription_end_date: to_input_date_string(fortyFiveDaysLater),
               },
             ]);
 
@@ -881,17 +910,17 @@ const LoginPage: React.FC<auth_page_props> = ({
           }
         } else if (data.user) {
           const now = new Date();
-          const oneYearLater = new Date(
-            now.getFullYear() + 1,
+          const fortyFiveDaysLater = new Date(
+            now.getFullYear(),
             now.getMonth(),
-            now.getDate(),
+            now.getDate() + 45
           );
           // Create profile manually for admin-created user
           await supabase.from("profiles").upsert([
             {
               id: data.user.id,
               full_name: form.full_name,
-              mobile_number: form.mobile,
+              mobile_number: normalized_mobile,
               role: is_assistant_signup
                 ? "assistant"
                 : email === "nahwiabdo@gmail.com" ||
@@ -905,7 +934,7 @@ const LoginPage: React.FC<auth_page_props> = ({
               trial_used: false,
               lawyer_id: null,
               subscription_start_date: to_input_date_string(now),
-              subscription_end_date: null,
+              subscription_end_date: to_input_date_string(fortyFiveDaysLater),
             },
           ]);
 

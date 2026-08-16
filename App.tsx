@@ -38,6 +38,7 @@ import {
   format_time,
   is_same_day,
   is_before_today,
+  to_input_date_string,
 } from "./utils/dateUtils";
 import { printElement } from "./utils/printUtils";
 import SyncStatusIndicator from "./components/SyncStatusIndicator";
@@ -457,6 +458,18 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
         user.email === "nahwiabdo@gmail.com" ||
         user.email === "avocat.nahwi@gmail.com" ||
         user.email === "sy963958932922@email.com";
+      const now = new Date();
+      const fortyFiveDaysLater = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() + 45
+      );
+      const oneYearLater = new Date(
+        now.getFullYear() + 1,
+        now.getMonth(),
+        now.getDate()
+      );
+
       const newProfile = {
         id: user.id,
         full_name: user.user_metadata?.full_name || "مستخدم جديد",
@@ -465,12 +478,11 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
         is_approved: is_admin,
         is_active: true,
         mobile_verified: is_admin,
-        subscription_start_date: new Date().toISOString(),
-        subscription_end_date: new Date(
-          new Date().getFullYear() + 1,
-          new Date().getMonth(),
-          new Date().getDate(),
-        ).toISOString(),
+        trial_used: !is_admin,
+        subscription_start_date: to_input_date_string(now),
+        subscription_end_date: is_admin
+          ? to_input_date_string(oneYearLater)
+          : to_input_date_string(fortyFiveDaysLater),
       };
 
       const { error } = await supabase.from("profiles").upsert([newProfile]);
