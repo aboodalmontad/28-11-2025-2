@@ -620,6 +620,54 @@ export const useSupabaseData = (
     load_local_data();
   }, [user?.id, is_online, is_auth_loading, admin_viewing_user_id]);
 
+  const [is_auto_sync_enabled, set_auto_sync_enabled_state] = React.useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem("is_auto_sync_enabled");
+      if (saved !== null) return JSON.parse(saved);
+    } catch (e) {}
+    return true;
+  });
+
+  const [is_auto_backup_enabled, set_auto_backup_enabled_state] = React.useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem("is_auto_backup_enabled");
+      if (saved !== null) return JSON.parse(saved);
+    } catch (e) {}
+    return false;
+  });
+
+  const [admin_tasks_layout, set_admin_tasks_layout_state] = React.useState<
+    "horizontal" | "vertical"
+  >(() => {
+    try {
+      const saved = localStorage.getItem("admin_tasks_layout");
+      if (saved === "horizontal" || saved === "vertical") return saved;
+    } catch (e) {}
+    return "vertical";
+  });
+
+  // Load user specific settings when user changes
+  React.useEffect(() => {
+    if (!user?.id) return;
+    try {
+      const syncKey = `is_auto_sync_enabled_${user.id}`;
+      const syncSaved = localStorage.getItem(syncKey);
+      if (syncSaved !== null) set_auto_sync_enabled_state(JSON.parse(syncSaved));
+
+      const backupKey = `is_auto_backup_enabled_${user.id}`;
+      const backupSaved = localStorage.getItem(backupKey);
+      if (backupSaved !== null) set_auto_backup_enabled_state(JSON.parse(backupSaved));
+
+      const layoutKey = `admin_tasks_layout_${user.id}`;
+      const layoutSaved = localStorage.getItem(layoutKey);
+      if (layoutSaved === "horizontal" || layoutSaved === "vertical") {
+        set_admin_tasks_layout_state(layoutSaved as "horizontal" | "vertical");
+      }
+    } catch (e) {
+      console.error("Error loading user settings from localStorage:", e);
+    }
+  }, [user?.id]);
+
   const { manual_sync: manual_sync, fetch_and_refresh: fetch_and_refresh } =
     use_sync({
       user: user,
@@ -697,17 +745,16 @@ export const useSupabaseData = (
   // Auto-sync on mount/login
   React.useEffect(() => {
     if (user && is_online && !is_auth_loading) {
-      // If we are already synced, we might have set it forcefully to bypass the loader.
-      // So let's run a quiet background manual_sync once to pull any updates.
-      console.log("Triggering background auto-sync in 500ms...");
+      // Run a quiet background sync once to pull any remote updates and push pending offline work
+      console.log("Triggering background auto-sync on startup in 500ms...");
       const timer = setTimeout(() => {
-        manual_sync();
+        manual_sync({ force: true });
       }, 500);
       return () => clearTimeout(timer);
     }
-  }, [user?.id, is_online, is_auth_loading]); // removed sync_status from deps so it fires once on mount
+  }, [user?.id, is_online, is_auth_loading]);
 
-  // Auto-sync when coming back online
+  // Auto-sync when coming back online or internet becomes available
   const prev_is_online = React.useRef(is_online);
   React.useEffect(() => {
     if (
@@ -717,11 +764,84 @@ export const useSupabaseData = (
       !is_auth_loading &&
       sync_status !== "syncing"
     ) {
-      console.log("Came back online, triggering auto-sync...");
-      manual_sync();
+      console.log("🌐 Internet restored, triggering full background auto-sync...");
+      manual_sync({ force: true });
     }
     prev_is_online.current = is_online;
-  }, [is_online, manual_sync, user, is_auth_loading, sync_status]); // Trigger when is_online changes from false to true
+  }, [is_online, manual_sync, user, is_auth_loading, sync_status]);
+
+  // Listen to custom online_restored event, window focus, tab visibility and Service Worker sync messages
+  React.useEffect(() => {
+    if (!user || is_auth_loading) return;
+
+    const handleOnlineRestored = () => {
+      console.log("⚡ app:online_restored event received. Executing background sync...");
+      if (sync_status !== "syncing") {
+        manual_sync({ force: true });
+      }
+    };
+
+    const handleVisibilityOrFocus = () => {
+      if (
+        document.visibilityState === "visible" &&
+        is_online &&
+        sync_status !== "syncing"
+      ) {
+        fetch_and_refresh();
+      }
+    };
+
+    const handleSWMessage = (event: MessageEvent) => {
+      if (
+        event.data &&
+        (event.data.type === "TRIGGER_BACKGROUND_SYNC" ||
+          event.data.type === "ONLINE_RESTORED")
+      ) {
+        console.log("Service Worker requested background sync:", event.data);
+        if (is_online && sync_status !== "syncing") {
+          manual_sync({ force: true });
+        }
+      }
+    };
+
+    window.addEventListener("app:online_restored", handleOnlineRestored);
+    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
+    window.addEventListener("focus", handleVisibilityOrFocus);
+
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.addEventListener("message", handleSWMessage);
+    }
+
+    return () => {
+      window.removeEventListener("app:online_restored", handleOnlineRestored);
+      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
+      window.removeEventListener("focus", handleVisibilityOrFocus);
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.removeEventListener("message", handleSWMessage);
+      }
+    };
+  }, [user?.id, is_online, is_auth_loading, sync_status, manual_sync, fetch_and_refresh]);
+
+  // Periodic background sync every 60 seconds while online
+  React.useEffect(() => {
+    if (!user || !is_online || is_auth_loading || !is_auto_sync_enabled) return;
+
+    const interval = setInterval(() => {
+      if (sync_status !== "syncing" && document.visibilityState === "visible") {
+        console.log("Running periodic background sync...");
+        fetch_and_refresh();
+      }
+    }, 60000);
+
+    return () => clearInterval(interval);
+  }, [
+    user?.id,
+    is_online,
+    is_auth_loading,
+    is_auto_sync_enabled,
+    sync_status,
+    fetch_and_refresh,
+  ]);
 
   // Realtime Subscription for all data tables (Immediate sync across users)
   React.useEffect(() => {
@@ -810,54 +930,6 @@ export const useSupabaseData = (
     effective_user_id,
     fetch_and_refresh,
   ]);
-
-  const [is_auto_sync_enabled, set_auto_sync_enabled_state] = React.useState<boolean>(() => {
-    try {
-      const saved = localStorage.getItem("is_auto_sync_enabled");
-      if (saved !== null) return JSON.parse(saved);
-    } catch (e) {}
-    return true;
-  });
-
-  const [is_auto_backup_enabled, set_auto_backup_enabled_state] = React.useState<boolean>(() => {
-    try {
-      const saved = localStorage.getItem("is_auto_backup_enabled");
-      if (saved !== null) return JSON.parse(saved);
-    } catch (e) {}
-    return false;
-  });
-
-  const [admin_tasks_layout, set_admin_tasks_layout_state] = React.useState<
-    "horizontal" | "vertical"
-  >(() => {
-    try {
-      const saved = localStorage.getItem("admin_tasks_layout");
-      if (saved === "horizontal" || saved === "vertical") return saved;
-    } catch (e) {}
-    return "vertical";
-  });
-
-  // Load user specific settings when user changes
-  React.useEffect(() => {
-    if (!user?.id) return;
-    try {
-      const syncKey = `is_auto_sync_enabled_${user.id}`;
-      const syncSaved = localStorage.getItem(syncKey);
-      if (syncSaved !== null) set_auto_sync_enabled_state(JSON.parse(syncSaved));
-
-      const backupKey = `is_auto_backup_enabled_${user.id}`;
-      const backupSaved = localStorage.getItem(backupKey);
-      if (backupSaved !== null) set_auto_backup_enabled_state(JSON.parse(backupSaved));
-
-      const layoutKey = `admin_tasks_layout_${user.id}`;
-      const layoutSaved = localStorage.getItem(layoutKey);
-      if (layoutSaved === "horizontal" || layoutSaved === "vertical") {
-        set_admin_tasks_layout_state(layoutSaved as "horizontal" | "vertical");
-      }
-    } catch (e) {
-      console.error("Error loading user settings from localStorage:", e);
-    }
-  }, [user?.id]);
 
   const set_auto_sync_enabled = React.useCallback(
     (enabled: boolean) => {

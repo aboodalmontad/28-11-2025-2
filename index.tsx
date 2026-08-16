@@ -96,7 +96,7 @@ window.addEventListener("storage", (event) => {
   }
 });
 
-// Resilient Service Worker Registration
+// Resilient Service Worker Registration & Background Sync
 if ("serviceWorker" in navigator) {
   // Listen for messages from the service worker
   navigator.serviceWorker.addEventListener("message", (event) => {
@@ -105,6 +105,28 @@ if ("serviceWorker" in navigator) {
       window.location.reload();
     }
   });
+
+  const registerBackgroundSync = async (reg: ServiceWorkerRegistration) => {
+    try {
+      if ("sync" in reg) {
+        await (reg as any).sync.register("sync-lawyer-data");
+        console.log("Background sync registered: sync-lawyer-data");
+      }
+      if ("periodicSync" in reg) {
+        const status = await (navigator as any).permissions?.query({
+          name: "periodic-background-sync",
+        });
+        if (status?.state === "granted" || !status) {
+          await (reg as any).periodicSync.register("periodic-sync-lawyer-data", {
+            minInterval: 10 * 60 * 1000, // 10 minutes
+          });
+          console.log("Periodic background sync registered");
+        }
+      }
+    } catch (e) {
+      console.debug("Background sync registration note:", e);
+    }
+  };
 
   const registerSW = async () => {
     try {
@@ -122,6 +144,11 @@ if ("serviceWorker" in navigator) {
       console.log("ServiceWorker registered");
 
       registration.update();
+      registerBackgroundSync(registration);
+
+      window.addEventListener("online", () => {
+        registerBackgroundSync(registration);
+      });
     } catch (error: any) {
       console.debug("ServiceWorker registration skipped:", error.message);
     }
