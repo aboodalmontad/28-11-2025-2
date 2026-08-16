@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     is_approved boolean DEFAULT true, -- تغيير الافتراضي للموافقة لتسهيل الدخول
     is_active boolean DEFAULT true,
     mobile_verified boolean DEFAULT true, -- تفعيل تلقائي لتجاوز تعليق OTP
+    trial_used boolean DEFAULT false, -- هل تم استهلاك فترة الـ 45 يوماً التجريبية التلقائية
     otp_code text,
     otp_expires_at timestamptz,
     subscription_start_date date DEFAULT CURRENT_DATE,

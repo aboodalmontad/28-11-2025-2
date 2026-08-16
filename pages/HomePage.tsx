@@ -36,6 +36,7 @@ import { MenuItem } from "../components/ContextMenu";
 import { useDebounce } from "../hooks/useDebounce";
 import { useData } from "../context/DataContext";
 import { useFeedback } from "../context/FeedbackContext";
+import TrialReminderBanner from "../components/TrialReminderBanner";
 
 // ... (Constants importanceMap, importanceMapAdminTasks, formatTime, and AppointmentsTable remain the same)
 const importance_map: { [key: string]: { text: string; className: string } } = {
@@ -233,6 +234,7 @@ const HomePage: React.FC<HomePageProps> = ({
     permissions, // Destructure permissions
     effective_user_id, // Use effective_user_id
     share_via_whatsapp,
+    current_user_profile,
   } = useData();
   const { confirm, showFeedback } = useFeedback();
 
@@ -1363,6 +1365,12 @@ const HomePage: React.FC<HomePageProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Gentle Trial Expiration Reminder Banner (10 days warning, repeats every 2 days) */}
+      <TrialReminderBanner
+        user_profile={current_user_profile}
+        on_contact_admin={(message, phone) => share_via_whatsapp(message, phone)}
+      />
+
       {main_view === "agenda" && (
         <div className="grid grid-cols-1 lg:grid-cols-3 print:block gap-6 animate-fade-in">
           <div className="lg:col-span-1 bg-white p-4 rounded-lg shadow space-y-4 no-print overflow-visible">

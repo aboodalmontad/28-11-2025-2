@@ -88,6 +88,7 @@ export interface Profile {
   is_approved: boolean;
   is_active: boolean;
   mobile_verified?: boolean;
+  trial_used?: boolean;
   subscription_start_date: string | null;
   subscription_end_date: string | null;
   role: "user" | "admin";

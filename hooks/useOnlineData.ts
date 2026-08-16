@@ -720,6 +720,7 @@ export const upsert_data_to_supabase = async (
       is_approved: profile.is_approved,
       is_active: profile.is_active,
       mobile_verified: profile.mobile_verified,
+      trial_used: profile.trial_used,
       subscription_start_date: profile.subscription_start_date,
       subscription_end_date: profile.subscription_end_date,
       role:

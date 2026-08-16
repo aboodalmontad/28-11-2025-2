@@ -204,6 +204,22 @@ const UserRow: React.FC<UserRowProps> = ({
                   المحامي غير نشط
                 </span>
               )}
+              {user.role !== "admin" && (
+                <span
+                  className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                    user.trial_used
+                      ? "text-slate-600 bg-slate-100"
+                      : "text-emerald-700 bg-emerald-50 border border-emerald-200"
+                  }`}
+                  title={
+                    user.trial_used
+                      ? "تم استهلاك فترة الـ 45 يوماً المجانية، والتفعيل القادم يتم من المدير حصراً"
+                      : "المستخدم مؤهل لتفعيل تلقائي لمرة واحدة لمدة 45 يوماً عند إدخال كود التحقق"
+                  }
+                >
+                  {user.trial_used ? "مستهلك للتجربة" : "فترة 45 يوم متاحة"}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -407,11 +423,15 @@ const AdminPage: React.FC = () => {
     is_data_loading: loading,
     user_id,
     fetch_and_refresh,
+    manual_sync,
+    sync_status,
+    is_online,
     set_admin_viewing_user_id,
     unfiltered_data,
   } = useData();
   const { showFeedback } = useFeedback();
   const [error, setError] = React.useState<string | null>(null);
+  const [is_syncing, set_is_syncing] = React.useState(false);
   const [is_downloading, set_is_downloading] = React.useState(false);
   const [is_full_backup_loading, set_is_full_backup_loading] =
     React.useState(false);
@@ -824,7 +844,34 @@ const AdminPage: React.FC = () => {
             إدارة حسابات المحامين والمساعدين والتحقق من هويتهم.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={async () => {
+              if (is_syncing || sync_status === "syncing") return;
+              if (!is_online) {
+                showFeedback("لا يوجد اتصال بالإنترنت لإجراء المزامنة.", "warning");
+                return;
+              }
+              set_is_syncing(true);
+              try {
+                showFeedback("جاري مزامنة وتحديث بيانات المستخدمين...", "info");
+                await manual_sync({ force: true });
+                showFeedback("تم تحديث ومزامنة البيانات بنجاح.", "success");
+              } catch (e: any) {
+                showFeedback(`فشل التحديث: ${e?.message || "خطأ غير متوقع"}`, "error");
+              } finally {
+                set_is_syncing(false);
+              }
+            }}
+            disabled={is_syncing || sync_status === "syncing" || !is_online}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 font-bold text-sm transition-all shadow-sm active:scale-95 disabled:opacity-50"
+            title="مزامنة وتحديث كافة بيانات المستخدمين واللوحة من السحابة"
+          >
+            <ArrowPathIcon
+              className={`w-4 h-4 ${is_syncing || sync_status === "syncing" ? "animate-spin" : ""}`}
+            />
+            {is_syncing || sync_status === "syncing" ? "جاري المزامنة..." : "مزامنة وتحديث"}
+          </button>
           <button
             onClick={handle_full_system_backup}
             disabled={is_full_backup_loading}

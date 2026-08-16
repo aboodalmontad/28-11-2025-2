@@ -260,6 +260,19 @@ const UserDetailsModal: React.FC<UserDetailsModalProps> = ({
                 >
                   {status.text}
                 </span>
+                {user.role !== "admin" && (
+                  <span
+                    className={`px-3 py-1 text-[10px] font-black rounded-full uppercase tracking-widest ${
+                      user.trial_used
+                        ? "bg-slate-100 text-slate-700 border border-slate-200"
+                        : "bg-emerald-100 text-emerald-700 border border-emerald-200"
+                    }`}
+                  >
+                    {user.trial_used
+                      ? "تم استهلاك فترة الـ 45 يوماً"
+                      : "فترة الـ 45 يوماً متاحة"}
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-6 mt-2">
                 <div className="flex items-center gap-2 text-sm font-bold text-slate-500">

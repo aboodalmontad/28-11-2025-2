@@ -65,12 +65,36 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     set_admin_viewing_user_id,
     unfiltered_data,
     is_update_available,
+    manual_sync,
+    sync_status,
   } = useData();
   const { showFeedback, confirm } = useFeedback();
   const [view, set_view] = React.useState<AdminView>("users");
   const [is_mobile_menu_open, set_is_mobile_menu_open] = React.useState(false);
   const [is_backing_up, set_is_backing_up] = React.useState(false);
+  const [is_syncing, set_is_syncing] = React.useState(false);
   const is_online = useOnlineStatus();
+
+  const isSyncActive = is_syncing || sync_status === "syncing";
+
+  const handle_admin_sync = async () => {
+    if (isSyncActive) return;
+    if (!is_online) {
+      showFeedback("لا يوجد اتصال بالإنترنت لإجراء المزامنة.", "warning");
+      return;
+    }
+    set_is_syncing(true);
+    try {
+      showFeedback("جاري مزامنة وتحديث كافة بيانات لوحة التحكم من السحابة...", "info");
+      await manual_sync({ force: true });
+      showFeedback("تمت مزامنة وتحديث جميع بيانات لوحة التحكم بنجاح.", "success");
+    } catch (error: any) {
+      console.error("Admin sync failed:", error);
+      showFeedback(`فشلت المزامنة: ${error?.message || "تعذر إكمال العملية"}`, "error");
+    } finally {
+      set_is_syncing(false);
+    }
+  };
 
   const viewing_user_stats = React.useMemo(() => {
     if (!admin_viewing_user_id || !unfiltered_data) return null;
@@ -291,6 +315,23 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             {/* User Actions */}
             <div className="flex items-center gap-2">
               <button
+                onClick={handle_admin_sync}
+                disabled={isSyncActive || !is_online}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 rounded-lg sm:rounded-full shadow-sm transition-all disabled:opacity-50"
+                title="مزامنة وتحديث كافة بيانات لوحة التحكم من السحابة"
+              >
+                <ArrowPathIcon
+                  className={`w-3.5 h-3.5 ${isSyncActive ? "animate-spin" : ""}`}
+                />
+                <span className="hidden sm:inline">
+                  {isSyncActive ? "جاري المزامنة..." : "مزامنة البيانات"}
+                </span>
+                <span className="sm:hidden">
+                  {isSyncActive ? "مزامنة..." : "مزامنة"}
+                </span>
+              </button>
+
+              <button
                 onClick={handle_admin_backup}
                 disabled={is_backing_up}
                 className="hidden lg:flex items-center gap-2 px-3 py-1.5 text-[10px] font-black text-white bg-indigo-600 hover:bg-indigo-700 rounded-full shadow-sm transition-all active:scale-95 disabled:opacity-50"
@@ -313,9 +354,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   تحديث (30-04-2026)
                 </button>
               )}
-              <div className="hidden sm:flex items-center gap-2 px-3 py-1 bg-green-50 text-green-700 rounded-full border border-green-100 text-xs font-bold">
-                <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
-                متصل
+              <div className={`hidden sm:flex items-center gap-2 px-3 py-1 rounded-full border text-xs font-bold ${is_online ? "bg-green-50 text-green-700 border-green-100" : "bg-red-50 text-red-700 border-red-100"}`}>
+                <div className={`w-1.5 h-1.5 rounded-full ${is_online ? "bg-green-500 animate-pulse" : "bg-red-500"}`}></div>
+                {is_online ? "متصل" : "غير متصل"}
               </div>
               <button
                 onClick={on_logout}
@@ -342,7 +383,25 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
         {/* Mobile Navigation Dropdown */}
         {is_mobile_menu_open && (
-          <div className="md:hidden bg-white border-t border-slate-100 p-2 space-y-1 shadow-lg animate-in slide-in-from-top-2 duration-200">
+          <div className="md:hidden bg-white border-t border-slate-100 p-2 space-y-2 shadow-lg animate-in slide-in-from-top-2 duration-200">
+            <button
+              onClick={() => {
+                handle_admin_sync();
+                set_is_mobile_menu_open(false);
+              }}
+              disabled={isSyncActive || !is_online}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold shadow-sm transition-colors disabled:opacity-50"
+            >
+              <ArrowPathIcon
+                className={`w-4 h-4 ${isSyncActive ? "animate-spin" : ""}`}
+              />
+              <span>
+                {isSyncActive
+                  ? "جاري المزامنة والتحديث..."
+                  : "مزامنة وتحديث كافة بيانات لوحة التحكم"}
+              </span>
+            </button>
+            <div className="border-t border-slate-100 my-1"></div>
             {nav_items.map((item) => (
               <button
                 key={item.id}

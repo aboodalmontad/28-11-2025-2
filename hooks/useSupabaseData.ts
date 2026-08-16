@@ -241,6 +241,7 @@ const migrate_data = (old_data: any): AppData => {
     is_approved: Boolean(p.is_approved ?? p.isApproved),
     is_active: Boolean(p.is_active ?? p.isActive),
     mobile_verified: Boolean(p.mobile_verified ?? p.mobileVerified),
+    trial_used: Boolean(p.trial_used ?? p.trialUsed),
     subscription_start_date:
       p.subscription_start_date || p.subscriptionStartDate,
     subscription_end_date: p.subscription_end_date || p.subscriptionEndDate,
@@ -497,9 +498,13 @@ export const useSupabaseData = (
     };
   }, [data, is_admin, admin_viewing_user_id, user?.id]);
 
+  const current_user_profile: Profile | null = React.useMemo(() => {
+    if (!user) return null;
+    return data.profiles.find((p) => p.id === user.id) || null;
+  }, [user, data.profiles]);
+
   const current_user_permissions: Permissions = React.useMemo(() => {
     if (!user) return default_permissions;
-    const current_user_profile = data.profiles.find((p) => p.id === user.id);
     if (current_user_profile?.lawyer_id) {
       const perms = current_user_profile.permissions;
       if (perms && typeof perms === "object") {
@@ -1571,6 +1576,7 @@ export const useSupabaseData = (
     set_admin_tasks_layout: set_admin_tasks_layout,
     location_order: location_order,
     set_location_order: set_location_order,
+    current_user_profile: current_user_profile,
     set_full_data: set_full_data,
     fetch_and_refresh: fetch_and_refresh,
     triggered_alerts: triggered_alerts,

@@ -515,53 +515,109 @@ const LoginPage: React.FC<auth_page_props> = ({
       );
       if (rpc_error) throw rpc_error;
       if (is_verified) {
-        // Automatically approve and activate the user with a 1-month free trial
-        const now = new Date();
-        const oneMonthLater = new Date(
-          now.getFullYear(),
-          now.getMonth() + 1,
-          now.getDate(),
+        // Fetch current profile to check if trial was already used
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("mobile_number", normalized_mobile)
+          .maybeSingle();
+
+        const hasUsedTrial = Boolean(
+          profileData?.trial_used || profileData?.trialUsed
         );
 
-        const { error: updateError } = await supabase
-          .from("profiles")
-          .update({
+        if (!hasUsedTrial) {
+          // First-time activation: Automatically approve and activate for 45 days
+          const now = new Date();
+          const fortyFiveDaysLater = new Date(now);
+          fortyFiveDaysLater.setDate(now.getDate() + 45);
+
+          const updatePayload: any = {
             is_approved: true,
             is_active: true,
+            mobile_verified: true,
+            trial_used: true,
             subscription_start_date: to_input_date_string(now),
-            subscription_end_date: to_input_date_string(oneMonthLater),
+            subscription_end_date: to_input_date_string(fortyFiveDaysLater),
             updated_at: now.toISOString(),
-          })
-          .eq("mobile_number", normalized_mobile);
+          };
 
-        if (updateError) {
-          console.error("Failed to auto-activate profile:", updateError);
-          // Even if update fails, we might want to show the waiting message as fallback
-          // but since the user specifically asked for immediate activation, we'll try to proceed
-        }
+          let { error: updateError } = await supabase
+            .from("profiles")
+            .update(updatePayload)
+            .eq("mobile_number", normalized_mobile);
 
-        set_message(
-          "تم تفعيل حسابك بنجاح ومنحك فترة تجريبية لمدة شهر مجاناً. جاري تسجيل الدخول...",
-        );
+          if (updateError && updateError.message?.toLowerCase().includes("trial_used")) {
+            const { trial_used, ...fallbackPayload } = updatePayload;
+            const res = await supabase
+              .from("profiles")
+              .update(fallbackPayload)
+              .eq("mobile_number", normalized_mobile);
+            updateError = res.error;
+          }
 
-        if (on_verification_success) {
-          on_verification_success();
+          if (updateError) {
+            console.error("Failed to auto-activate profile:", updateError);
+          }
+
+          set_message(
+            `تم تفعيل حسابك تلقائياً بنجاح لفترة تجريبية مجانية لمدة 45 يوماً (حتى ${to_input_date_string(fortyFiveDaysLater)}). جاري الدخول...`
+          );
+
+          if (on_verification_success) {
+            on_verification_success();
+          } else {
+            if (form.password) {
+              const phone = normalize_mobile_to_e164(form.mobile);
+              const email = `sy${phone!.substring(1)}@email.com`;
+              const { data: sign_in_data } =
+                await supabase.auth.signInWithPassword({
+                  email,
+                  password: form.password,
+                });
+              if (sign_in_data.user) {
+                sessionStorage.setItem(`just_logged_in_user_${sign_in_data.user.id}`, "true");
+                on_login_success(sign_in_data.user);
+              }
+            } else {
+              set_auth_step("login");
+              set_otp_code("");
+            }
+          }
         } else {
-          if (form.password) {
-            const phone = normalize_mobile_to_e164(form.mobile);
-            const email = `sy${phone!.substring(1)}@email.com`;
-            const { data: sign_in_data } =
-              await supabase.auth.signInWithPassword({
-                email,
-                password: form.password,
-              });
-            if (sign_in_data.user) {
-              sessionStorage.setItem(`just_logged_in_user_${sign_in_data.user.id}`, "true");
-              on_login_success(sign_in_data.user);
+          // Trial has already been used in the past -> Only admin can activate
+          await supabase
+            .from("profiles")
+            .update({
+              mobile_verified: true,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("mobile_number", normalized_mobile);
+
+          if (profileData?.is_approved) {
+            // Already approved by admin
+            set_message("تم تأكيد كود التحقق بنجاح. جاري تسجيل الدخول...");
+            if (on_verification_success) {
+              on_verification_success();
+            } else if (form.password) {
+              const phone = normalize_mobile_to_e164(form.mobile);
+              const email = `sy${phone!.substring(1)}@email.com`;
+              const { data: sign_in_data } =
+                await supabase.auth.signInWithPassword({
+                  email,
+                  password: form.password,
+                });
+              if (sign_in_data.user) {
+                sessionStorage.setItem(`just_logged_in_user_${sign_in_data.user.id}`, "true");
+                on_login_success(sign_in_data.user);
+              }
             }
           } else {
-            set_auth_step("login");
-            set_otp_code("");
+            // Needs admin approval
+            set_message(
+              "تم التحقق من رقم الجوال بنجاح. لقد تم استهلاك الفترة التجريبية (45 يوماً) مسبقاً لهذا الحساب. تفعيل الحساب أو التجديد يتم حصراً من قبل المدير."
+            );
+            set_waiting_approval(true);
           }
         }
       } else {
@@ -803,12 +859,13 @@ const LoginPage: React.FC<auth_page_props> = ({
                       email === "sy963958932922@email.com"
                     ? "admin"
                     : "user",
-                is_approved: false, // All new users must be approved by admin
+                is_approved: false, // All new users must enter verification code to activate
                 is_active: true,
                 mobile_verified: false,
+                trial_used: false,
                 lawyer_id: null,
                 subscription_start_date: to_input_date_string(now),
-                subscription_end_date: to_input_date_string(oneYearLater),
+                subscription_end_date: null,
               },
             ]);
 
@@ -842,12 +899,13 @@ const LoginPage: React.FC<auth_page_props> = ({
                     email === "sy963958932922@email.com"
                   ? "admin"
                   : "user",
-              is_approved: false, // All new users must be approved by admin
+              is_approved: false, // All new users must enter verification code to activate
               is_active: true,
               mobile_verified: false, // Set to false so they go through activation
+              trial_used: false,
               lawyer_id: null,
               subscription_start_date: to_input_date_string(now),
-              subscription_end_date: to_input_date_string(oneYearLater),
+              subscription_end_date: null,
             },
           ]);
 
@@ -1021,16 +1079,15 @@ const LoginPage: React.FC<auth_page_props> = ({
                   <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
                     <div className="flex items-center gap-2 mb-2">
                       <ExclamationCircleIcon className="w-5 h-5" />
-                      <p className="font-bold">تنبيه هام:</p>
+                      <p className="font-bold">تفعيل الحساب (فترة تجريبية 45 يوماً):</p>
                     </div>
                     <p className="mb-2">
-                      يجب عليك إدخال كود التفعيل الذي يزودك به المدير لتتمكن من
-                      استخدام التطبيق.
+                      عند إدخال كود التحقق الصحيح لأول مرة، سيتم تفعيل حسابك تلقائياً وبشكل مجاني لمدة 45 يوماً.
                     </p>
-                    <ol className="list-decimal list-inside space-y-1 font-medium">
-                      <li>اضغط على الزر الأخضر أدناه لطلب الكود من المدير.</li>
-                      <li>سيتم فتح واتساب لإرسال رسالة للمدير.</li>
-                      <li>بعد استلام الكود، أدخله في المربعات أدناه.</li>
+                    <ol className="list-decimal list-inside space-y-1 font-medium text-xs">
+                      <li>اضغط على الزر أدناه لطلب كود التحقق من المدير عبر واتساب.</li>
+                      <li>بعد استلام الكود، أدخله في المربع أدناه للتفعيل الفوري.</li>
+                      <li>بعد انتهاء فترة الـ 45 يوماً، يتم تجديد التفعيل حصراً من قبل المدير.</li>
                     </ol>
                   </div>
 
