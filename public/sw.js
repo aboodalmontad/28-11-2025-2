@@ -1,33 +1,45 @@
-// This version number is incremented to trigger the 'install' event and update the cache.
-const CACHE_NAME = "lawyer-app-cache-v2026-04-30"; // Updated cache name for version 30-04-2026
+// sw.js - Unified Service Worker for Offline-First Lawyer Management App
+const CACHE_NAME = "lawyer-app-cache-v2026-06-24";
 
-// The list of URLs to cache explicitly (App Shell)
-const urlsToCache = ["/", "/index.html", "/manifest.json", "/icon.svg"];
+// The list of URLs to cache (App Shell). Will be populated dynamically during build.
+const urlsToCache = [
+  "./",
+  "./index.html",
+  "./manifest.json",
+  "./icon.svg",
+  "https://cdn.tailwindcss.com",
+  "https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"
+];
 
 self.addEventListener("install", (event) => {
-  console.log("Service Worker: Installing...");
-  self.skipWaiting(); // Force the waiting service worker to become the active service worker.
+  console.log("Service Worker: Installing and caching app shell assets.");
+  self.skipWaiting(); // Force the waiting service worker to become active immediately.
 
   event.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
-      console.log("Service Worker: Caching app shell.");
-      // Try to cache all, but don't fail installation if non-critical assets fail
+      // Fetch and cache all assets, but handle failures gracefully per asset
       const cachePromises = urlsToCache.map(async (url) => {
         try {
-          const response = await fetch(url);
-          if (!response.ok) throw new Error(`Status ${response.status}`);
-          return cache.put(url, response);
+          const req = new Request(url, {
+            mode: url.startsWith("http") ? "cors" : "no-cors",
+          });
+          const response = await fetch(req);
+          if (response.ok || response.type === "opaque") {
+            return await cache.put(url, response);
+          }
+          throw new Error(`Invalid response status: ${response.status}`);
         } catch (error) {
-          console.warn(`Failed to cache ${url}:`, error);
+          console.warn(`Failed to precache ${url}:`, error);
         }
       });
       await Promise.all(cachePromises);
-    }),
+      console.log("Service Worker: Installation and caching completed.");
+    })
   );
 });
 
 self.addEventListener("activate", (event) => {
-  console.log("Service Worker: Activating...");
+  console.log("Service Worker: Activating and cleaning old caches.");
   event.waitUntil(
     caches
       .keys()
@@ -35,54 +47,73 @@ self.addEventListener("activate", (event) => {
         return Promise.all(
           cacheNames.map((cacheName) => {
             if (cacheName !== CACHE_NAME) {
-              console.log("Service Worker: Deleting old cache:", cacheName);
+              console.log("Service Worker: Deleting obsolete cache:", cacheName);
               return caches.delete(cacheName);
             }
-          }),
+          })
         );
       })
       .then(() => {
         console.log("Service Worker: Claiming clients.");
         return self.clients.claim().then(() => {
-          // Notify all clients to reload to get the latest version
+          // Notify all open client tabs to reload and use the updated Service Worker
           return self.clients.matchAll().then((clients) => {
             clients.forEach((client) => {
               client.postMessage({ type: "RELOAD_PAGE_NOW" });
             });
           });
         });
-      }),
+      })
   );
 });
 
 self.addEventListener("fetch", (event) => {
-  // Skip non-GET requests
+  // Skip non-GET requests (e.g. POST, PUT, DELETE should never be cached)
   if (event.request.method !== "GET") {
     return;
   }
 
   const url = new URL(event.request.url);
 
-  // Skip cross-origin requests (except for fonts/images if needed)
-  if (url.origin !== self.location.origin) {
-    // Special handling for Supabase or other known origins can go here
-    if (url.hostname.includes("supabase.co")) {
-      return; // Bypass SW for Supabase
-    }
+  // Bypass Service Worker completely for Supabase sync database calls & local APIs
+  if (url.hostname.includes("supabase.co") || url.pathname.startsWith("/api/")) {
     return;
   }
 
-  // Skip Service Worker script itself to avoid update loops
+  // Bypass Vite Hot Module Replacement (HMR) and development compilation assets
+  if (
+    url.pathname.includes("@vite") ||
+    url.pathname.includes("?import") ||
+    url.pathname.includes("__vite_ping") ||
+    url.pathname.endsWith(".ts") ||
+    url.pathname.endsWith(".tsx")
+  ) {
+    return;
+  }
+
+  // Bypass the Service Worker script itself to prevent updates loop
   if (url.pathname.endsWith("sw.js")) {
     return;
   }
 
-  // Navigation requests: Network first, fallback to cache (index.html)
+  // Handle Cross-Origin requests securely
+  const isCrossOrigin = url.origin !== self.location.origin;
+  const allowedOrigins = [
+    "cdn.tailwindcss.com",
+    "fonts.googleapis.com",
+    "fonts.gstatic.com"
+  ];
+  const isAllowedOrigin = allowedOrigins.some((origin) => url.hostname.includes(origin));
+
+  if (isCrossOrigin && !isAllowedOrigin) {
+    return;
+  }
+
+  // Navigation requests: Network first, then fallback to cached index.html
   if (event.request.mode === "navigate") {
     event.respondWith(
       fetch(event.request)
         .then((response) => {
-          // If valid response, cache it and return
           if (response && response.status === 200) {
             const responseToCache = response.clone();
             caches.open(CACHE_NAME).then((cache) => {
@@ -92,14 +123,13 @@ self.addEventListener("fetch", (event) => {
           return response;
         })
         .catch(() => {
-          // If network fails, try to return index.html from cache
-          return caches.match("/index.html");
-        }),
+          return caches.match("/index.html") || caches.match("./index.html") || caches.match("/");
+        })
     );
     return;
   }
 
-  // Other assets: Cache first, fallback to network
+  // Static Assets (JS, CSS, Images, Fonts, etc.): Cache-first with Network Fallback
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {
@@ -108,8 +138,11 @@ self.addEventListener("fetch", (event) => {
 
       return fetch(event.request)
         .then((networkResponse) => {
-          // Cache successful responses
-          if (networkResponse && networkResponse.status === 200) {
+          // Cache successful responses (status 200 or opaque cross-origin)
+          if (
+            networkResponse &&
+            (networkResponse.status === 200 || networkResponse.type === "opaque")
+          ) {
             const responseToCache = networkResponse.clone();
             caches.open(CACHE_NAME).then((cache) => {
               cache.put(event.request, responseToCache);
@@ -118,13 +151,13 @@ self.addEventListener("fetch", (event) => {
           return networkResponse;
         })
         .catch((error) => {
-          console.error("Fetch failed for:", event.request.url, error);
-          // Return a basic error response for failed fetches
-          return new Response("Network error", {
+          console.warn("Fetch failed for asset:", url.href, error);
+          // Return a basic offline fallback response for assets if they fail
+          return new Response("Offline Resource Unavailable", {
             status: 408,
             statusText: "Request Timeout",
           });
         });
-    }),
+    })
   );
 });

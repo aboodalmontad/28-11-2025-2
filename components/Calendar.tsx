@@ -6,6 +6,8 @@ import {
   is_today,
   is_weekend,
   get_public_holiday,
+  format_month_year,
+  is_before_today,
 } from "../utils/dateUtils";
 import { Session, Appointment } from "../types";
 import { ChevronLeftIcon } from "./icons";
@@ -33,7 +35,15 @@ const Calendar: React.FC<CalendarProps> = ({
   const daysInMonth = get_days_in_month(year, month);
   const firstDay = get_first_day_of_month(year, month);
 
-  const weekDays = ["ح", "ن", "ث", "ر", "خ", "ج", "س"];
+  const weekDays = [
+    "الأحد",
+    "الإثنين",
+    "الثلاثاء",
+    "الأربعاء",
+    "الخميس",
+    "الجمعة",
+    "السبت",
+  ];
 
   // Formatter for Syrian Arabic locale with English (Latin) numerals.
   const monthYearFormatter = new Intl.DateTimeFormat("ar-SY-u-nu-latn", {
@@ -52,13 +62,41 @@ const Calendar: React.FC<CalendarProps> = ({
   };
 
   const getEventsCountForDay = (day: Date) => {
-    const sessionCount = sessions.filter((s) =>
-      is_same_day(s.date, day),
-    ).length;
+    const daySessions = sessions.filter((s) => is_same_day(s.date, day));
+    const isPast = is_before_today(day);
+    const isCurrentDay = is_today(day);
+
+    let postponedCount = 0; // أخضر - جلسات مرحلة
+    let unpostponedCount = 0; // برتقالي داكن - جلسات غير مرحلة (فائتة)
+    let todayCount = 0; // برتقالي فاتح - جلسات اليوم
+    let futureCount = 0; // أزرق - جلسات قادمة
+
+    daySessions.forEach((s) => {
+      const isPostponed =
+        s.is_postponed || !!s.stage_decision_date || !!s.next_session_date;
+
+      if (isPostponed) {
+        postponedCount++;
+      } else if (isPast) {
+        unpostponedCount++;
+      } else if (isCurrentDay) {
+        todayCount++;
+      } else {
+        futureCount++;
+      }
+    });
+
     const appointmentCount = appointments.filter((a) =>
-      is_same_day(a.date, day),
+      is_same_day(a.date, day)
     ).length;
-    return { sessionCount, appointmentCount };
+
+    return {
+      postponedCount,
+      unpostponedCount,
+      todayCount,
+      futureCount,
+      appointmentCount,
+    };
   };
 
   return (
@@ -71,7 +109,7 @@ const Calendar: React.FC<CalendarProps> = ({
           <ChevronLeftIcon className="w-6 h-6 transform rotate-180" />
         </button>
         <h2 className="text-lg font-bold truncate">
-          {monthYearFormatter.format(currentDate)}
+          {format_month_year(currentDate)}
         </h2>
         <button
           onClick={() => changeMonth(1)}
@@ -80,9 +118,11 @@ const Calendar: React.FC<CalendarProps> = ({
           <ChevronLeftIcon className="w-6 h-6" />
         </button>
       </div>
-      <div className="grid grid-cols-7 gap-1 text-center text-sm text-gray-500 mb-2">
+      <div className="grid grid-cols-7 gap-1 text-center text-xs sm:text-sm font-semibold text-gray-600 mb-2 py-1.5 bg-gray-50 rounded-md">
         {weekDays.map((day) => (
-          <div key={day}>{day}</div>
+          <div key={day} className="truncate">
+            {day}
+          </div>
         ))}
       </div>
       <div className="grid grid-cols-7 gap-1">
@@ -90,7 +130,13 @@ const Calendar: React.FC<CalendarProps> = ({
           <div key={`empty-${i}`} />
         ))}
         {daysInMonth.map((day) => {
-          const { sessionCount, appointmentCount } = getEventsCountForDay(day);
+          const {
+            postponedCount,
+            unpostponedCount,
+            todayCount,
+            futureCount,
+            appointmentCount,
+          } = getEventsCountForDay(day);
           const isSelected = is_same_day(day, selectedDate);
           const isCurrentDay = is_today(day);
           const holidayName = get_public_holiday(day);
@@ -104,12 +150,13 @@ const Calendar: React.FC<CalendarProps> = ({
             dayClasses += " bg-blue-600 text-white shadow-md";
           } else if (holidayName) {
             dayClasses +=
-              " bg-red-50 text-red-800 font-semibold hover:bg-red-100";
+              " bg-red-500 text-white font-bold shadow-sm hover:bg-red-600";
           } else if (isCurrentDay) {
             dayClasses +=
-              " bg-blue-50 text-blue-700 font-bold ring-1 ring-blue-200";
+              " bg-orange-100/90 text-orange-900 font-bold ring-2 ring-orange-400/80 hover:bg-orange-200/90";
           } else if (isWknd) {
-            dayClasses += " bg-gray-50 text-gray-400";
+            dayClasses +=
+              " bg-pink-100/70 text-pink-800 hover:bg-pink-200/70";
           } else {
             dayClasses += " hover:bg-gray-100";
           }
@@ -122,13 +169,37 @@ const Calendar: React.FC<CalendarProps> = ({
               title={title}
             >
               <span className="text-sm">{dayFormatter.format(day)}</span>
-              <div className="mt-auto mb-1 flex w-full justify-center items-center gap-0.5 px-0.5">
-                {sessionCount > 0 && (
+              <div className="mt-auto mb-1 flex w-full flex-wrap justify-center items-center gap-0.5 px-0.5">
+                {postponedCount > 0 && (
                   <span
-                    className="flex items-center justify-center min-w-[1.25rem] h-5 px-1 text-[10px] font-bold text-white bg-green-500 rounded-full shadow-sm"
-                    title={`${numberFormatter.format(sessionCount)} جلسات`}
+                    className="flex items-center justify-center min-w-[1.25rem] h-5 px-1 text-[10px] font-bold text-white bg-green-600 rounded-full shadow-sm"
+                    title={`${numberFormatter.format(postponedCount)} جلسات مرحلة`}
                   >
-                    {numberFormatter.format(sessionCount)}
+                    {numberFormatter.format(postponedCount)}
+                  </span>
+                )}
+                {unpostponedCount > 0 && (
+                  <span
+                    className="flex items-center justify-center min-w-[1.25rem] h-5 px-1 text-[10px] font-bold text-white bg-orange-600 rounded-full shadow-sm"
+                    title={`${numberFormatter.format(unpostponedCount)} جلسات غير مرحلة`}
+                  >
+                    {numberFormatter.format(unpostponedCount)}
+                  </span>
+                )}
+                {todayCount > 0 && (
+                  <span
+                    className="flex items-center justify-center min-w-[1.25rem] h-5 px-1 text-[10px] font-bold text-white bg-orange-400 rounded-full shadow-sm"
+                    title={`${numberFormatter.format(todayCount)} جلسات اليوم`}
+                  >
+                    {numberFormatter.format(todayCount)}
+                  </span>
+                )}
+                {futureCount > 0 && (
+                  <span
+                    className="flex items-center justify-center min-w-[1.25rem] h-5 px-1 text-[10px] font-bold text-white bg-blue-600 rounded-full shadow-sm"
+                    title={`${numberFormatter.format(futureCount)} جلسات قادمة`}
+                  >
+                    {numberFormatter.format(futureCount)}
                   </span>
                 )}
                 {appointmentCount > 0 && (
@@ -143,23 +214,6 @@ const Calendar: React.FC<CalendarProps> = ({
             </div>
           );
         })}
-      </div>
-      <div className="mt-4 p-2 border-t flex flex-wrap justify-center items-center gap-x-4 gap-y-2 text-xs text-gray-600">
-        <div className="flex items-center">
-          <span className="w-3 h-3 bg-green-500 rounded-full me-2"></span> جلسات
-        </div>
-        <div className="flex items-center">
-          <span className="w-3 h-3 bg-purple-500 rounded-full me-2"></span>{" "}
-          مواعيد
-        </div>
-        <div className="flex items-center">
-          <span className="w-3 h-3 bg-gray-100 border border-gray-300 rounded-full me-2"></span>{" "}
-          عطلة أسبوعية
-        </div>
-        <div className="flex items-center">
-          <span className="w-3 h-3 bg-red-100 border border-red-200 rounded-full me-2"></span>{" "}
-          عطلة رسمية
-        </div>
       </div>
     </div>
   );

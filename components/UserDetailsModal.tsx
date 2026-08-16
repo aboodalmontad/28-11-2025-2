@@ -6,6 +6,7 @@ import {
   safe_revive_date,
   is_before_today,
   to_input_date_string,
+  get_month_name_with_number,
 } from "../utils/dateUtils";
 import {
   XMarkIcon,
@@ -117,7 +118,7 @@ const UserDetailsModal: React.FC<UserDetailsModalProps> = ({
     const last6Months = Array.from({ length: 6 }, (_, i) => {
       const d = new Date();
       d.setMonth(d.getMonth() - i);
-      return d.toLocaleString("ar-SA", { month: "long" });
+      return get_month_name_with_number(d);
     }).reverse();
 
     const monthlyActivityData = last6Months.map((month) => {

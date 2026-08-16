@@ -1,7 +1,7 @@
 import * as React from "react";
 import ReactDatePicker, { registerLocale } from "react-datepicker";
 import { ar } from "date-fns/locale/ar";
-import { safe_revive_date, to_input_date_string } from "../utils/dateUtils";
+import { safe_revive_date, to_input_date_string, format_month_year } from "../utils/dateUtils";
 import { CalendarDaysIcon } from "./icons";
 
 registerLocale("ar", ar);
@@ -52,6 +52,35 @@ const DatePicker: React.FC<DatePickerProps> = ({
         scrollableYearDropdown
         yearDropdownItemNumber={15}
         portalId="datepicker-portal"
+        renderCustomHeader={({
+          date,
+          decreaseMonth,
+          increaseMonth,
+          prevMonthButtonDisabled,
+          nextMonthButtonDisabled,
+        }) => (
+          <div className="flex items-center justify-between px-2 py-1 bg-gray-50 border-b">
+            <button
+              onClick={decreaseMonth}
+              disabled={prevMonthButtonDisabled}
+              type="button"
+              className="p-1 hover:bg-gray-200 rounded text-gray-700 disabled:opacity-30 text-xs font-bold"
+            >
+              {"<"}
+            </button>
+            <span className="font-bold text-gray-800 text-xs">
+              {format_month_year(date)}
+            </span>
+            <button
+              onClick={increaseMonth}
+              disabled={nextMonthButtonDisabled}
+              type="button"
+              className="p-1 hover:bg-gray-200 rounded text-gray-700 disabled:opacity-30 text-xs font-bold"
+            >
+              {">"}
+            </button>
+          </div>
+        )}
       />
       <CalendarDaysIcon className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
     </div>

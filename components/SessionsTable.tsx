@@ -297,7 +297,7 @@ const SessionsTable: React.FC<SessionsTableProps> = ({
                 onTouchStart={(e) => handleTouchStart(e, s)}
                 onTouchEnd={handleTouchEnd}
                 onTouchMove={handleTouchEnd}
-                className={`bg-white border-b hover:bg-gray-50 ${editingCell?.sessionId === s.id ? "bg-blue-50" : ""} ${isOverdue ? "bg-red-50/50" : ""}`}
+                className={`bg-white border-b hover:bg-gray-50 ${editingCell?.sessionId === s.id ? "bg-blue-50" : ""} ${isOverdue ? "bg-red-50/50" : ""} ${isTodaySession ? "bg-orange-50/60" : ""}`}
               >
                 <td
                   className={`px-2 sm:px-6 py-4 ${cellClasses}`}
@@ -326,8 +326,8 @@ const SessionsTable: React.FC<SessionsTableProps> = ({
                         </span>
                       )}
                       {isEffectivelyPostponed && (
-                        <span className="px-1.5 py-0.5 bg-orange-100 text-orange-700 text-[10px] rounded-md font-bold">
-                          مؤجلة
+                        <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] rounded-md font-bold border border-emerald-300">
+                          مرحلة (مؤجلة)
                         </span>
                       )}
                       {isOverdue && (
@@ -341,7 +341,7 @@ const SessionsTable: React.FC<SessionsTableProps> = ({
                         </span>
                       )}
                       {isTodaySession && (
-                        <span className="px-1.5 py-0.5 bg-green-100 text-green-700 text-[10px] rounded-md font-bold">
+                        <span className="px-1.5 py-0.5 bg-orange-100 text-orange-800 border border-orange-300 text-[10px] rounded-md font-bold">
                           جلسة اليوم
                         </span>
                       )}
@@ -366,11 +366,36 @@ const SessionsTable: React.FC<SessionsTableProps> = ({
                       autoFocus
                     />
                   ) : (
-                    s.case_number
+                    <span
+                      className={
+                        isEffectivelyPostponed
+                          ? "text-emerald-600 font-bold bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md inline-block"
+                          : ""
+                      }
+                    >
+                      {s.case_number}
+                    </span>
                   )}
                 </td>
                 {showSessionDate && (
-                  <td className="px-2 sm:px-6 py-4">{format_date(s.date)}</td>
+                  <td
+                    className={`px-2 sm:px-6 py-4 ${cellClasses}`}
+                    onClick={() =>
+                      !isEditing("date") && handleCellClick(s, "date")
+                    }
+                  >
+                    {isEditing("date") ? (
+                      <DatePicker
+                        value={edit_value as string}
+                        onChange={(date) => {
+                          onUpdate && onUpdate(s.id, { date: date });
+                          setEditingCell(null);
+                        }}
+                      />
+                    ) : (
+                      format_date(s.date)
+                    )}
+                  </td>
                 )}
                 <td
                   className={`px-2 sm:px-6 py-4 ${cellClasses}`}
@@ -542,10 +567,16 @@ const SessionsTable: React.FC<SessionsTableProps> = ({
                   </>
                 ) : (
                   <>
-                    <td className="px-2 sm:px-6 py-4 text-center no-print">
-                      {s.next_session_date
-                        ? format_date(s.next_session_date)
-                        : "-"}
+                    <td
+                      className={`px-2 sm:px-6 py-4 text-center no-print ${nextReasonCellClasses}`}
+                    >
+                      {s.next_session_date ? (
+                        <span className="text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                          {format_date(s.next_session_date)}
+                        </span>
+                      ) : (
+                        "-"
+                      )}
                     </td>
                     <td
                       className={`px-2 sm:px-6 py-4 no-print ${nextReasonCellClasses}`}

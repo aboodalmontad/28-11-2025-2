@@ -7,7 +7,9 @@ console.error = (...args: any[]) => {
   const msg = args.join(" ").toLowerCase();
   if (
     msg.includes("refresh token not found") ||
-    msg.includes("invalid refresh token")
+    msg.includes("invalid refresh token") ||
+    msg.includes("failed to fetch") ||
+    msg.includes("lock")
   )
     return;
   if (msg.includes("error checking for updates")) return;
@@ -22,24 +24,37 @@ const supabaseAnonKey =
 
 /**
  * A robust fetch wrapper that handles common network errors with retries and exponential backoff.
- * This helps mitigate "Failed to fetch" errors in unstable network environments.
+ * Handles Request object cloning safely for Android browsers and mobile WebViews.
  */
 async function robustFetch(
-  url: string | URL | Request,
-  options?: RequestInit,
+  input: string | URL | Request,
+  init?: RequestInit,
   retries = 3,
   backoff = 300,
 ): Promise<Response> {
-  const urlStr =
-    typeof url === "string"
-      ? url
-      : url instanceof URL
-        ? url.toString()
-        : url.url;
+  let urlStr = "";
+  let fetchInput: any = input;
+  let fetchInit: RequestInit | undefined = init;
+
+  if (typeof input === "string") {
+    urlStr = input;
+  } else if (input instanceof URL) {
+    urlStr = input.toString();
+  } else if (input && typeof input === "object" && "url" in input) {
+    urlStr = (input as Request).url;
+    try {
+      fetchInput = (input as Request).clone();
+    } catch (e) {
+      fetchInput = urlStr;
+    }
+  } else {
+    urlStr = String(input);
+  }
+
   const isAuthEndpoint = urlStr && urlStr.includes("/auth/v1/");
 
   try {
-    const response = await fetch(url, options);
+    const response = await fetch(fetchInput, fetchInit);
 
     // Retry on common server-side transient errors (502, 503, 504)
     if (!response.ok && [502, 503, 504].includes(response.status)) {
@@ -70,7 +85,7 @@ async function robustFetch(
       // Exponential backoff with jitter
       const delay = backoff + Math.random() * backoff;
       await new Promise((resolve) => setTimeout(resolve, delay));
-      return robustFetch(url, options, retries - 1, backoff * 2);
+      return robustFetch(input, init, retries - 1, backoff * 2);
     }
 
     throw error;
@@ -94,6 +109,10 @@ export function get_supabase_client(): SupabaseClient | null {
         autoRefreshToken: true,
         detectSessionInUrl: true,
         lockAcquireTimeout: 60000, // Increase to 60 seconds to prevent lock stealing during retries
+        // Custom immediate lock bypass to avoid navigator.locks inside iframe environments
+        lock: async (name: string, acquireTimeout: number, fn: () => Promise<any>) => {
+          return await fn();
+        },
       } as any,
       global: {
         // Use our robust fetch wrapper for all Supabase requests

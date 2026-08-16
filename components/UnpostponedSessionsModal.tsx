@@ -47,8 +47,11 @@ const SessionPostponeItem: React.FC<{
         <p className="font-semibold text-gray-800">
           {session.client_name} ضد {session.opponent_name}
         </p>
-        <p className="text-sm text-gray-600">
-          {session.court} - أساس: {session.case_number}
+        <p className="text-sm text-gray-600 flex items-center gap-1.5">
+          <span>{session.court} - أساس:</span>
+          <span className="text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+            {session.case_number}
+          </span>
         </p>
         <p className="text-sm text-red-600">
           تاريخ الجلسة الفائتة: {format_date(session.date)}

@@ -695,6 +695,27 @@ export const WifiIcon: React.FC<IconProps> = ({
   </svg>
 );
 
+export const WifiSlashIcon: React.FC<IconProps> = ({
+  className = "w-6 h-6",
+  ...props
+}) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    fill="none"
+    viewBox="0 0 24 24"
+    strokeWidth={1.5}
+    stroke="currentColor"
+    className={className}
+    {...props}
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M1 1l22 22M16.72 11.06a10.94 10.94 0 012.28 1.44M5 12.5a10.94 10.94 0 015.17-2.39M10.71 5.05a16 16 0 0111.87 3.95M1.42 9a15.91 15.91 0 014.7-2.88M8.53 16.11a6 6 0 016.95 0M12 20h.01"
+    />
+  </svg>
+);
+
 export const NoSymbolIcon: React.FC<IconProps> = ({
   className = "w-6 h-6",
   ...props

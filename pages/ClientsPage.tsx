@@ -303,15 +303,53 @@ const ClientsPage: React.FC<ClientsPageProps> = ({
               return stage;
             }
 
-            const updated_sessions = [...stage.sessions];
-            updated_sessions[session_index] = {
-              ...updated_sessions[session_index],
-              ...updated_fields,
-              updated_at: new Date().toISOString(),
-            };
+            const original_session = stage.sessions[session_index];
+            const original_date = original_session?.date;
+
+            const updated_sessions = stage.sessions.map((s, idx) => {
+              if (s.id === session_id) {
+                return {
+                  ...s,
+                  ...updated_fields,
+                  updated_at: new Date().toISOString(),
+                };
+              }
+
+              // Update the next session's date if next_session_date was changed
+              if (idx === session_index + 1 && updated_fields.next_session_date) {
+                return {
+                  ...s,
+                  date: updated_fields.next_session_date,
+                  updated_at: new Date().toISOString(),
+                };
+              }
+
+              const is_previous_by_index = idx === session_index - 1;
+              const is_previous_by_date = s.next_session_date === original_date;
+              if (is_previous_by_index || is_previous_by_date) {
+                return {
+                  ...s,
+                  next_session_date: updated_fields.date || s.next_session_date,
+                  next_postponement_reason:
+                    updated_fields.postponement_reason !== undefined
+                      ? updated_fields.postponement_reason
+                      : s.next_postponement_reason,
+                  updated_at: new Date().toISOString(),
+                };
+              }
+              return s;
+            });
+
+            const is_first = session_id.endsWith("-first");
+            const new_first_date = is_first && updated_fields.date !== undefined ? updated_fields.date : stage.first_session_date;
+            const new_court = is_first && updated_fields.court !== undefined ? updated_fields.court : stage.court;
+            const new_case_number = is_first && updated_fields.case_number !== undefined ? updated_fields.case_number : stage.case_number;
 
             return {
               ...stage,
+              first_session_date: new_first_date,
+              court: new_court,
+              case_number: new_case_number,
               sessions: updated_sessions,
               updated_at: new Date().toISOString(),
             };
@@ -516,15 +554,45 @@ const ClientsPage: React.FC<ClientsPageProps> = ({
                       ? {
                           ...cs,
                           updated_at: new Date().toISOString(),
-                          stages: cs.stages.map((st) =>
-                            st.id === context.item.id
-                              ? {
-                                  ...st,
-                                  ...stage_data,
+                          stages: cs.stages.map((st) => {
+                            if (st.id === context.item.id) {
+                              const updated_sessions = (st.sessions || []).map((s) => {
+                                const is_first = s.id.endsWith("-first");
+                                return {
+                                  ...s,
+                                  court: stage_data.court !== undefined ? stage_data.court : s.court,
+                                  case_number: stage_data.case_number !== undefined ? stage_data.case_number : s.case_number,
+                                  date: is_first && stage_data.first_session_date ? stage_data.first_session_date : s.date,
                                   updated_at: new Date().toISOString(),
-                                }
-                              : st,
-                          ),
+                                };
+                              });
+
+                              // If no session with ID ending with "-first" exists, but first_session_date is set, let's create it
+                              const has_first_session = updated_sessions.some((s) => s.id.endsWith("-first"));
+                              if (!has_first_session && stage_data.first_session_date) {
+                                updated_sessions.push({
+                                  id: `session-${Date.now()}-first`,
+                                  court: stage_data.court || st.court || "غير محدد",
+                                  case_number: stage_data.case_number || st.case_number || "",
+                                  date: stage_data.first_session_date,
+                                  client_name: c.name,
+                                  opponent_name: cs.opponent_name || "",
+                                  is_postponed: false,
+                                  assignee: "بدون تخصيص",
+                                  user_id: effective_user_id,
+                                  updated_at: new Date().toISOString(),
+                                });
+                              }
+
+                              return {
+                                ...st,
+                                ...stage_data,
+                                sessions: updated_sessions,
+                                updated_at: new Date().toISOString(),
+                              };
+                            }
+                            return st;
+                          }),
                         }
                       : cs,
                   ),
@@ -614,23 +682,34 @@ const ClientsPage: React.FC<ClientsPageProps> = ({
                       ? {
                           ...cs,
                           updated_at: new Date().toISOString(),
-                          stages: cs.stages.map((st) =>
-                            st.id === context.stage.id
-                              ? {
-                                  ...st,
-                                  updated_at: new Date().toISOString(),
-                                  sessions: st.sessions.map((s) =>
-                                    s.id === context.item.id
-                                      ? {
-                                          ...s,
-                                          ...session_data,
-                                          updated_at: new Date().toISOString(),
-                                        }
-                                      : s,
-                                  ),
-                                }
-                              : st,
-                          ),
+                          stages: cs.stages.map((st) => {
+                            if (st.id === context.stage.id) {
+                              const updated_sessions = st.sessions.map((s) =>
+                                s.id === context.item.id
+                                  ? {
+                                      ...s,
+                                      ...session_data,
+                                      updated_at: new Date().toISOString(),
+                                    }
+                                  : s,
+                              );
+
+                              const is_first = context.item.id.endsWith("-first");
+                              const new_first_date = is_first && session_data.date !== undefined ? session_data.date : st.first_session_date;
+                              const new_court = is_first && session_data.court !== undefined ? session_data.court : st.court;
+                              const new_case_number = is_first && session_data.case_number !== undefined ? session_data.case_number : st.case_number;
+
+                              return {
+                                ...st,
+                                first_session_date: new_first_date,
+                                court: new_court,
+                                case_number: new_case_number,
+                                sessions: updated_sessions,
+                                updated_at: new Date().toISOString(),
+                              };
+                            }
+                            return st;
+                          }),
                         }
                       : cs,
                   ),

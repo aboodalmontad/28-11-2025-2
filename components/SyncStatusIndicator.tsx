@@ -5,6 +5,7 @@ import {
   CheckCircleIcon,
   ExclamationCircleIcon,
   ListBulletIcon,
+  WifiSlashIcon,
 } from "./icons";
 import { SyncStatus, SyncLogEntry } from "../hooks/useSync";
 import SyncLogModal from "./SyncLogModal";
@@ -37,10 +38,10 @@ const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({
   let displayStatus;
   if (!is_online) {
     displayStatus = {
-      icon: <NoSymbolIcon className="w-5 h-5 text-gray-500" />,
-      text: "غير متصل",
-      className: "text-gray-500",
-      title: "أنت غير متصل بالإنترنت. التغييرات محفوظة محلياً.",
+      icon: <WifiSlashIcon className="w-5 h-5 text-red-500 stroke-2 animate-pulse" />,
+      text: "منقطع الاتصال",
+      className: "text-red-500 font-bold",
+      title: "انقطع الاتصال بالإنترنت. التغييرات محفوظة محلياً وسيتم مزامنتها عند عودة الشبكة.",
     };
   } else if (!is_auto_sync_enabled && is_dirty) {
     displayStatus = {

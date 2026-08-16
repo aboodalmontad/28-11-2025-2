@@ -56,6 +56,9 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
   const [db_stats, set_db_stats] = React.useState<string | null>(null);
   const [is_assistants_manager_open, set_is_assistants_manager_open] =
     React.useState(false);
+  const [whatsappPreference, setWhatsappPreference] = React.useState<string | null>(() => {
+    return localStorage.getItem("whatsapp_version_choice");
+  });
 
   const show_feedback = (message: string, type: "success" | "error") => {
     set_feedback({ message, type });
@@ -240,44 +243,146 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
         <h2 className="text-xl font-bold text-gray-800 border-b pb-3">
           إعدادات المزامنة
         </h2>
-        <div className="pt-2">
+        <div className="pt-2 space-y-2">
           <ToggleSwitch
             label="المزامنة التلقائية"
             enabled={is_auto_sync_enabled}
-            on_change={set_auto_sync_enabled}
+            on_change={(enabled) => {
+              set_auto_sync_enabled(enabled);
+              show_feedback(
+                enabled
+                  ? "تم تفعيل المزامنة التلقائية وحفظ الخيار."
+                  : "تم تعطيل المزامنة التلقائية وحفظ الخيار.",
+                "success"
+              );
+            }}
           />
+          <p className="text-xs text-gray-500">
+            {is_auto_sync_enabled
+              ? "✓ المزامنة التلقائية مفعلة ومحفوظة."
+              : "المزامنة التلقائية معطلة حالياً."}
+          </p>
         </div>
       </div>
+
       <div className="bg-white p-6 rounded-lg shadow space-y-4">
         <h2 className="text-xl font-bold text-gray-800 border-b pb-3">
           النسخ الاحتياطي
         </h2>
-        <div className="pt-2">
+        <div className="pt-2 space-y-2">
           <ToggleSwitch
             label="النسخ الاحتياطي اليومي التلقائي"
             enabled={is_auto_backup_enabled}
-            on_change={set_auto_backup_enabled}
+            on_change={(enabled) => {
+              set_auto_backup_enabled(enabled);
+              show_feedback(
+                enabled
+                  ? "تم تفعيل النسخ الاحتياطي اليومي. سيتم تنزيل نسخة احتياطية عن البيانات عند كل تسجيل دخول."
+                  : "تم تعطيل النسخ الاحتياطي اليومي التلقائي وحفظ الخيار.",
+                "success"
+              );
+            }}
           />
+          <p className="text-xs text-gray-500">
+            {is_auto_backup_enabled
+              ? "✓ عند تفعيل النسخ الاحتياطي اليومي، يتم تنزيل نسخة احتياطية عن البيانات تلقائياً عند كل تسجيل دخول للمستخدم."
+              : "النسخ الاحتياطي اليومي التلقائي معطل حالياً."}
+          </p>
         </div>
       </div>
-      {/* ... (Other sections: Layout, DB Inspect, Export/Import, Assistants List, Clear Data) ... */}
+
       <div className="bg-white p-6 rounded-lg shadow space-y-4">
         <h2 className="text-xl font-bold text-gray-800 border-b pb-3">
           تخطيط المهام
         </h2>
         <div className="pt-2 flex gap-4">
           <button
-            onClick={() => set_admin_tasks_layout("horizontal")}
-            className={`px-4 py-2 rounded ${admin_tasks_layout === "horizontal" ? "bg-blue-600 text-white" : "bg-gray-200"}`}
+            onClick={() => {
+              set_admin_tasks_layout("horizontal");
+              show_feedback("تم حفظ التخطيط (أفقي) بنجاح.", "success");
+            }}
+            className={`px-4 py-2 rounded font-medium transition-colors ${admin_tasks_layout === "horizontal" ? "bg-blue-600 text-white shadow" : "bg-gray-200 text-gray-700 hover:bg-gray-300"}`}
           >
             أفقي
           </button>
           <button
-            onClick={() => set_admin_tasks_layout("vertical")}
-            className={`px-4 py-2 rounded ${admin_tasks_layout === "vertical" ? "bg-blue-600 text-white" : "bg-gray-200"}`}
+            onClick={() => {
+              set_admin_tasks_layout("vertical");
+              show_feedback("تم حفظ التخطيط (عمودي) بنجاح.", "success");
+            }}
+            className={`px-4 py-2 rounded font-medium transition-colors ${admin_tasks_layout === "vertical" ? "bg-blue-600 text-white shadow" : "bg-gray-200 text-gray-700 hover:bg-gray-300"}`}
           >
             عمودي
           </button>
+        </div>
+      </div>
+
+      <div className="bg-white p-6 rounded-lg shadow space-y-4">
+        <h2 className="text-xl font-bold text-gray-800 border-b pb-3">
+          إعدادات المشاركة عبر واتساب
+        </h2>
+        <div className="pt-2 space-y-3">
+          <p className="text-sm text-gray-600 leading-relaxed">
+            اختر نسخة واتساب المفضلة لديك ليتم استخدامها تلقائياً عند إرسال المهام والتقارير:
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={() => {
+                localStorage.setItem("whatsapp_version_choice", "app");
+                setWhatsappPreference("app");
+                show_feedback("تم حفظ تفضيل واتساب العادي.", "success");
+              }}
+              className={`px-4 py-2 text-sm font-bold rounded-lg border transition-all ${
+                whatsappPreference === "app"
+                  ? "bg-emerald-600 border-emerald-600 text-white shadow-md shadow-emerald-600/15"
+                  : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
+              }`}
+            >
+              واتساب العادي (جوال)
+            </button>
+            <button
+              onClick={() => {
+                localStorage.setItem("whatsapp_version_choice", "business");
+                setWhatsappPreference("business");
+                show_feedback("تم حفظ تفضيل واتساب للأعمال.", "success");
+              }}
+              className={`px-4 py-2 text-sm font-bold rounded-lg border transition-all ${
+                whatsappPreference === "business"
+                  ? "bg-emerald-600 border-emerald-600 text-white shadow-md shadow-emerald-600/15"
+                  : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
+              }`}
+            >
+              واتساب للأعمال
+            </button>
+            <button
+              onClick={() => {
+                localStorage.setItem("whatsapp_version_choice", "web");
+                setWhatsappPreference("web");
+                show_feedback("تم حفظ تفضيل واتساب ويب.", "success");
+              }}
+              className={`px-4 py-2 text-sm font-bold rounded-lg border transition-all ${
+                whatsappPreference === "web"
+                  ? "bg-emerald-600 border-emerald-600 text-white shadow-md shadow-emerald-600/15"
+                  : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
+              }`}
+            >
+              واتساب ويب (كمبيوتر)
+            </button>
+            <button
+              onClick={() => {
+                localStorage.removeItem("whatsapp_version_choice");
+                setWhatsappPreference(null);
+                show_feedback("سيتم سؤالك عند كل عملية مشاركة الآن.", "success");
+              }}
+              className={`px-4 py-2 text-sm font-bold rounded-lg border transition-all ${
+                whatsappPreference === null
+                  ? "bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-600/15"
+                  : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
+              }`}
+            >
+              اسألني في كل مرة
+            </button>
+          </div>
         </div>
       </div>
       <div className="bg-white p-6 rounded-lg shadow space-y-4">

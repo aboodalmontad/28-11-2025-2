@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useData } from "../context/DataContext";
 import {
   Client,
   Case,
@@ -29,6 +30,7 @@ import CaseAccounting from "./CaseAccounting";
 import { format_date, safe_revive_date } from "../utils/dateUtils";
 import { MenuItem } from "./ContextMenu";
 import CaseDocuments from "./CaseDocuments";
+import CaseTasks from "./CaseTasks";
 
 type ExpandedState = { [key: string]: boolean };
 
@@ -88,6 +90,7 @@ const StageItem: React.FC<{
 }> = ({ stage, caseItem, client, props, expanded, onToggle }) => {
   const long_press_timer = React.useRef<number | null>(null);
   const { permissions } = props;
+  const { share_via_whatsapp } = useData();
 
   const handleContextMenu = (event: React.MouseEvent) => {
     const latestSession =
@@ -136,8 +139,7 @@ const StageItem: React.FC<{
         label: "مشاركة عبر واتساب",
         icon: <ShareIcon className="w-4 h-4" />,
         onClick: () => {
-          const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
-          window.open(whatsappUrl, "_blank");
+          share_via_whatsapp(message);
         },
       },
     ];
@@ -206,8 +208,7 @@ const StageItem: React.FC<{
         label: "مشاركة عبر واتساب",
         icon: <ShareIcon className="w-4 h-4" />,
         onClick: () => {
-          const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
-          window.open(whatsappUrl, "_blank");
+          share_via_whatsapp(message);
         },
       },
     ];
@@ -388,13 +389,14 @@ const CaseItem: React.FC<{
   onToggle: () => void;
 }> = ({ caseItem, client, props, expanded, onToggle }) => {
   const [active_tab, set_active_tab] = React.useState<
-    "stages" | "accounting" | "documents"
+    "stages" | "accounting" | "documents" | "tasks"
   >("stages");
   const case_accounting_entries = props.accounting_entries.filter(
     (e) => e.case_id === caseItem.id,
   );
   const long_press_timer = React.useRef<number | null>(null);
   const { permissions } = props;
+  const { share_via_whatsapp } = useData();
 
   const handle_fee_change = (new_fee: string) => {
     props.set_clients((clients) =>
@@ -493,8 +495,7 @@ const CaseItem: React.FC<{
         label: "مشاركة عبر واتساب",
         icon: <ShareIcon className="w-4 h-4" />,
         onClick: () => {
-          const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
-          window.open(whatsappUrl, "_blank");
+          share_via_whatsapp(message);
         },
       },
     ];
@@ -615,6 +616,12 @@ const CaseItem: React.FC<{
             >
               الوثائق
             </button>
+            <button
+              onClick={() => set_active_tab("tasks")}
+              className={`px-4 py-2 text-sm font-medium ${active_tab === "tasks" ? "border-b-2 border-blue-500 text-blue-600" : "text-gray-500"}`}
+            >
+              مهام القضية
+            </button>
           </div>
           {active_tab === "stages" && (
             <div>
@@ -641,6 +648,27 @@ const CaseItem: React.FC<{
             />
           )}
           {active_tab === "documents" && <CaseDocuments caseId={caseItem.id} />}
+          {active_tab === "tasks" && (
+            <CaseTasks
+              caseItem={caseItem}
+              clientName={client.name}
+              onUpdateTasks={(newTasks) => {
+                props.set_clients((clients) =>
+                  clients.map((c) => {
+                    if (c.id === client.id) {
+                      return {
+                        ...c,
+                        cases: c.cases.map((ca) =>
+                          ca.id === caseItem.id ? { ...ca, tasks: newTasks } : ca
+                        ),
+                      };
+                    }
+                    return c;
+                  })
+                );
+              }}
+            />
+          )}
         </div>
       )}
     </div>
@@ -672,6 +700,7 @@ const ClientItem: React.FC<{
 }> = ({ client, props, expanded, onToggle }) => {
   const long_press_timer = React.useRef<number | null>(null);
   const { permissions } = props;
+  const { share_via_whatsapp } = useData();
 
   const handleContextMenu = (event: React.MouseEvent) => {
     const menuItems: MenuItem[] = [
@@ -693,8 +722,7 @@ const ClientItem: React.FC<{
             `*معلومات الاتصال:* ${client.contact_info || "لا يوجد"}`,
             `*عدد القضايا:* ${client.cases.length}`,
           ].join("\n");
-          const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
-          window.open(whatsappUrl, "_blank");
+          share_via_whatsapp(message);
         },
       },
     ];

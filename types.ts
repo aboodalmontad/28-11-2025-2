@@ -137,12 +137,24 @@ export interface Stage {
   case_id?: string;
 }
 
+export interface CaseTask {
+  id: string;
+  task: string;
+  due_date: string;
+  completed: boolean;
+  importance: "normal" | "important" | "urgent";
+  assignee?: string;
+  image_url?: string;
+  updated_at?: string;
+}
+
 export interface Case {
   id: string;
   subject: string;
   client_name: string;
   opponent_name: string;
   stages: Stage[];
+  tasks?: CaseTask[]; // Made tasks optional
   fee_agreement: string;
   status: "active" | "closed" | "on_hold";
   updated_at?: string;
@@ -168,6 +180,8 @@ export interface AdminTask {
   importance: "normal" | "important" | "urgent";
   assignee?: string;
   location?: string;
+  case_id?: string;
+  image_url?: string;
   updated_at?: string;
   order_index?: number;
 }

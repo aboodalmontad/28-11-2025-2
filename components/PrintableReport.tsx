@@ -143,13 +143,27 @@ const PrintableReport: React.FC<PrintableReportProps> = ({ reportData }) => {
                 <div className="space-y-6">
                   {Object.entries(adminTasks).map(([location, tasks]) => {
                     const taskList = tasks as AdminTask[];
+                    const hasUrgent = taskList.some((t) => t.importance === "urgent");
                     return (
                       <div key={location}>
-                        <h4 className="text-lg font-semibold text-gray-700 bg-gray-50 p-3 rounded-t-lg">
-                          {location}{" "}
-                          <span className="text-sm font-normal text-gray-500">
-                            ({taskList.length} مهام)
+                        <h4
+                          className={`text-lg font-semibold p-3 rounded-t-lg flex items-center justify-between ${
+                            hasUrgent
+                              ? "bg-red-50 text-red-800 border-s-4 border-red-500"
+                              : "text-gray-700 bg-gray-50"
+                          }`}
+                        >
+                          <span>
+                            {location}{" "}
+                            <span className="text-sm font-normal text-gray-500">
+                              ({taskList.length} مهام)
+                            </span>
                           </span>
+                          {hasUrgent && (
+                            <span className="text-xs bg-red-100 text-red-800 px-2.5 py-1 rounded-full font-bold border border-red-200">
+                              ⚠️ يتضمن مهام عاجلة
+                            </span>
+                          )}
                         </h4>
                         <div className="overflow-x-auto border border-t-0 rounded-b-lg">
                           <table className="w-full text-sm text-right text-gray-600">

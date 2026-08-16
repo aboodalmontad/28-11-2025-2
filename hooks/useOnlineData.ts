@@ -290,7 +290,18 @@ export const fetch_data_from_supabase = async (
         }
       }
 
-      // Fetch all tables in parallel to maximize speed
+      // Helper to fetch tables in small controlled batches (2 at a time) to prevent mobile/Android socket exhaustion
+      const run_in_batches = async <T>(tasks: (() => Promise<T>)[], batch_size = 2): Promise<T[]> => {
+        const results: T[] = [];
+        for (let i = 0; i < tasks.length; i += batch_size) {
+          const batch = tasks.slice(i, i + batch_size);
+          const batch_results = await Promise.all(batch.map((fn) => fn()));
+          results.push(...batch_results);
+        }
+        return results;
+      };
+
+      // Fetch tables in batches to maximize reliability on Android mobile devices
       const [
         clients,
         admin_tasks,
@@ -305,21 +316,21 @@ export const fetch_data_from_supabase = async (
         case_documents,
         site_finances,
         sync_deletions
-      ] = await Promise.all([
-        fetch_table("clients", all_user_ids),
-        fetch_table("admin_tasks", all_user_ids),
-        fetch_table("appointments", all_user_ids),
-        fetch_table("accounting_entries", all_user_ids),
-        fetch_table("assistants", all_user_ids),
-        fetch_table("invoices", all_user_ids),
-        fetch_table("cases", all_user_ids),
-        fetch_table("stages", all_user_ids),
-        fetch_table("sessions", all_user_ids),
-        fetch_table("invoice_items", all_user_ids),
-        fetch_table("case_documents", all_user_ids),
-        fetch_table("site_finances", all_user_ids),
-        fetch_table("sync_deletions", all_user_ids)
-      ]);
+      ] = await run_in_batches([
+        () => fetch_table("clients", all_user_ids),
+        () => fetch_table("admin_tasks", all_user_ids),
+        () => fetch_table("appointments", all_user_ids),
+        () => fetch_table("accounting_entries", all_user_ids),
+        () => fetch_table("assistants", all_user_ids),
+        () => fetch_table("invoices", all_user_ids),
+        () => fetch_table("cases", all_user_ids),
+        () => fetch_table("stages", all_user_ids),
+        () => fetch_table("sessions", all_user_ids),
+        () => fetch_table("invoice_items", all_user_ids),
+        () => fetch_table("case_documents", all_user_ids),
+        () => fetch_table("site_finances", all_user_ids),
+        () => fetch_table("sync_deletions", all_user_ids)
+      ], 2);
 
       // Profiles logic: If admin and no specific user request, fetch all.
       let profiles;
@@ -336,8 +347,16 @@ export const fetch_data_from_supabase = async (
               .from("profiles")
               .select("*")
               .or(`id.eq.${target_id},lawyer_id.eq.${target_id}`);
-            if (res.error) throw res.error;
-            profiles = res.data || [];
+            if (res.error) {
+              const fallbackRes = await supabase
+                .from("profiles")
+                .select("*")
+                .eq("id", target_id);
+              if (fallbackRes.error) throw fallbackRes.error;
+              profiles = fallbackRes.data || [];
+            } else {
+              profiles = res.data || [];
+            }
             break;
           } catch (err: any) {
             p_attempt++;
@@ -612,18 +631,25 @@ export const upsert_data_to_supabase = async (
       updated_at: s.updated_at,
       user_id: s.user_id || user_id_to_use,
     })),
-    admin_tasks: data.admin_tasks?.map((task: any) => ({
-      id: task.id,
-      task: task.task,
-      due_date: task.due_date,
-      completed: task.completed,
-      importance: task.importance,
-      assignee: task.assignee,
-      location: task.location,
-      updated_at: task.updated_at,
-      order_index: task.order_index,
-      user_id: task.user_id || user_id_to_use,
-    })),
+    admin_tasks: data.admin_tasks?.map((task: any) => {
+      let taskText = task.task || "";
+      if (taskText.includes("<!--IMG:")) {
+        taskText = taskText.replace(/<!--IMG:[\s\S]*?-->/g, "").trim();
+      }
+      return {
+        id: task.id,
+        task: taskText,
+        due_date: task.due_date,
+        completed: task.completed,
+        importance: task.importance,
+        assignee: task.assignee,
+        location: task.location,
+        image_url: task.image_url,
+        updated_at: task.updated_at,
+        order_index: task.order_index,
+        user_id: task.user_id || user_id_to_use,
+      };
+    }),
     appointments: data.appointments?.map((apt: any) => ({
       id: apt.id,
       title: apt.title,
@@ -720,6 +746,49 @@ export const upsert_data_to_supabase = async (
     })),
   };
 
+  const cleanRecordForSchemaMismatch = (rec: any, errorMessage: string) => {
+    const cleaned = { ...rec };
+    const lowerMsg = errorMessage.toLowerCase();
+
+    // Extract field names from quotes in error messages like "could not find the 'case_id' column"
+    const extractedFields = new Set<string>();
+    const matches = errorMessage.match(/['"`]([a-zA-Z0-9_]+)['"`]/g);
+    if (matches) {
+      matches.forEach((m) => {
+        const fieldName = m.replace(/['"`]/g, "").trim();
+        if (fieldName && fieldName !== "admin_tasks" && fieldName !== "public") {
+          extractedFields.add(fieldName.toLowerCase());
+        }
+      });
+    }
+
+    if (
+      (extractedFields.has("image_url") || lowerMsg.includes("image_url")) &&
+      cleaned.image_url
+    ) {
+      let taskText = cleaned.task || "";
+      if (!taskText.includes("<!--IMG:")) {
+        cleaned.task = `${taskText}\n<!--IMG:${cleaned.image_url}-->`;
+      }
+    }
+
+    for (const key of Object.keys(cleaned)) {
+      const keyLower = key.toLowerCase();
+      const isMissingField =
+        extractedFields.has(keyLower) ||
+        lowerMsg.includes(`'${keyLower}'`) ||
+        lowerMsg.includes(`"${keyLower}"`) ||
+        lowerMsg.includes(`\`${keyLower}\``) ||
+        lowerMsg.includes(`column ${keyLower} `) ||
+        lowerMsg.includes(`.${keyLower} `);
+
+      if (isMissingField) {
+        delete cleaned[key];
+      }
+    }
+    return cleaned;
+  };
+
   const upsert_table = async (
     table: string,
     records: any[] | undefined,
@@ -739,27 +808,69 @@ export const upsert_data_to_supabase = async (
         if (error) {
           const message = String(error.message || "").toLowerCase();
 
-          // Fallback to one-by-one if foreign key violation occurs in a batch
-          if (error.code === "23503" && records.length > 1) {
+          // Fallback to one-by-one if any error occurs in a batch upsert
+          if (records.length > 1) {
             console.warn(
-              `Foreign key violation in batch upsert for ${table}. Attempting one-by-one fallback...`,
+              `Error in batch upsert for ${table}: ${error.message}. Attempting one-by-one fallback...`,
             );
             const successful_records: any[] = [];
             for (const rec of records) {
-              const { data: single_data, error: single_error } = await supabase
-                .from(table)
-                .upsert([rec], { onConflict: on_conflict })
-                .select();
-              if (single_error) {
-                console.warn(
-                  `Skipping invalid record in ${table} due to error:`,
-                  single_error,
-                );
-              } else if (single_data) {
-                successful_records.push(...single_data);
+              try {
+                const { data: single_data, error: single_error } = await supabase
+                  .from(table)
+                  .upsert([rec], { onConflict: on_conflict })
+                  .select();
+                if (single_error) {
+                  const single_msg = String(single_error.message || "").toLowerCase();
+                  if (
+                    single_msg.includes("column") ||
+                    single_msg.includes("schema") ||
+                    single_msg.includes("does not exist") ||
+                    single_error.code === "42703" ||
+                    single_error.code === "PGRST204"
+                  ) {
+                    const cleaned_rec = cleanRecordForSchemaMismatch(rec, single_msg);
+                    const { data: retry_data, error: retry_error } = await supabase
+                      .from(table)
+                      .upsert([cleaned_rec], { onConflict: on_conflict })
+                      .select();
+                    if (!retry_error && retry_data) {
+                      successful_records.push(...retry_data);
+                      continue;
+                    }
+                  }
+                  console.warn(
+                    `Skipping invalid record in ${table} due to error:`,
+                    single_error,
+                  );
+                } else if (single_data) {
+                  successful_records.push(...single_data);
+                }
+              } catch (single_e) {
+                console.warn(`Error upserting record in ${table}:`, single_e);
               }
             }
             return successful_records;
+          }
+
+          // If single record batch had a missing column or schema error
+          if (
+            message.includes("column") ||
+            message.includes("schema") ||
+            message.includes("does not exist") ||
+            error.code === "42703" ||
+            error.code === "PGRST204"
+          ) {
+            const cleaned_records = records.map((r) =>
+              cleanRecordForSchemaMismatch(r, message),
+            );
+            const { data: retry_data, error: retry_error } = await supabase
+              .from(table)
+              .upsert(cleaned_records, { onConflict: on_conflict })
+              .select();
+            if (!retry_error) {
+              return retry_data || [];
+            }
           }
 
           if (
@@ -860,7 +971,22 @@ export const transform_remote_to_local = (remote: any): Partial<FlatData> => {
       ...s,
       is_postponed: Boolean(s.is_postponed),
     })),
-    admin_tasks: remote.admin_tasks || [],
+    admin_tasks: (remote.admin_tasks || []).map((task: any) => {
+      let img = task.image_url;
+      let cleanTask = task.task || "";
+      if (!img && cleanTask.includes("<!--IMG:")) {
+        const match = cleanTask.match(/<!--IMG:([\s\S]*?)-->/);
+        if (match) img = match[1];
+      }
+      if (cleanTask.includes("<!--IMG:")) {
+        cleanTask = cleanTask.replace(/<!--IMG:[\s\S]*?-->/g, "").trim();
+      }
+      return {
+        ...task,
+        task: cleanTask,
+        image_url: img,
+      };
+    }),
     appointments: remote.appointments || [],
     accounting_entries: remote.accounting_entries || [],
     assistants: (remote.assistants || []).map((a: any) => ({ name: a.name })),

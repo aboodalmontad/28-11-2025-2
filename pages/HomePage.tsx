@@ -1,13 +1,14 @@
 import * as React from "react";
 import Calendar from "../components/Calendar";
 import DatePicker from "../components/DatePicker";
-import { Session, AdminTask, Appointment, Stage, Client } from "../types";
+import { Session, AdminTask, Appointment, Stage, Client, Case } from "../types";
 import {
   format_date,
   is_same_day,
   is_before_today,
   to_input_date_string,
   safe_revive_date,
+  parse_input_date_string,
 } from "../utils/dateUtils";
 import {
   PrintIcon,
@@ -231,10 +232,13 @@ const HomePage: React.FC<HomePageProps> = ({
     set_location_order: set_saved_location_order,
     permissions, // Destructure permissions
     effective_user_id, // Use effective_user_id
+    share_via_whatsapp,
   } = useData();
-  const { confirm } = useFeedback();
+  const { confirm, showFeedback } = useFeedback();
 
   // ... (State variables and effects remain the same)
+  const [selected_task_image_url, set_selected_task_image_url] =
+    React.useState<string | null>(null);
   const [calendar_view_date, set_calendar_view_date] =
     React.useState(selected_date);
   type ViewMode = "daily" | "unpostponed" | "upcoming";
@@ -298,6 +302,135 @@ const HomePage: React.FC<HomePageProps> = ({
     decision_summary: "",
     decision_notes: "",
   });
+
+  const [session_modal, set_session_modal] = React.useState<{
+    is_open: boolean;
+    session: Session | null;
+    stage: Stage | null;
+    caseItem: Case | null;
+    client: Client | null;
+  }>({
+    is_open: false,
+    session: null,
+    stage: null,
+    caseItem: null,
+    client: null,
+  });
+  const [session_form_data, set_session_form_data] = React.useState<any>({});
+
+  const find_session_context = (sessionId: string) => {
+    for (const client of clients) {
+      for (const caseItem of client.cases) {
+        for (const stage of caseItem.stages) {
+          const session = stage.sessions.find((s) => s.id === sessionId);
+          if (session) {
+            return { client, caseItem, stage, session };
+          }
+        }
+      }
+    }
+    return null;
+  };
+
+  const handle_edit_session = (session: Session) => {
+    const context = find_session_context(session.id);
+    if (context) {
+      set_session_modal({
+        is_open: true,
+        session: context.session,
+        stage: context.stage,
+        caseItem: context.caseItem,
+        client: context.client,
+      });
+      set_session_form_data({
+        ...context.session,
+        date: to_input_date_string(context.session.date),
+        next_session_date: to_input_date_string(context.session.next_session_date),
+      });
+    }
+  };
+
+  const handle_submit_session_edit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!session_modal.session || !session_modal.client || !session_modal.caseItem || !session_modal.stage) return;
+
+    const session_data = { ...session_form_data };
+    const parsed_date = parse_input_date_string(session_data.date);
+    if (!parsed_date) {
+      showFeedback("تاريخ الجلسة غير صالح.", "error");
+      return;
+    }
+    session_data.date = to_input_date_string(parsed_date);
+    const parsed_next = parse_input_date_string(session_data.next_session_date);
+    session_data.next_session_date = parsed_next ? to_input_date_string(parsed_next) : undefined;
+
+    set_clients((prev) =>
+      prev.map((c) =>
+        c.id === session_modal.client!.id
+          ? {
+              ...c,
+              updated_at: new Date().toISOString(),
+              cases: c.cases.map((cs) =>
+                cs.id === session_modal.caseItem!.id
+                  ? {
+                      ...cs,
+                      updated_at: new Date().toISOString(),
+                      stages: cs.stages.map((st) => {
+                        if (st.id === session_modal.stage!.id) {
+                          const session_index = st.sessions.findIndex(
+                            (s) => s.id === session_modal.session!.id
+                          );
+                          const original_session = st.sessions[session_index];
+                          const original_date = original_session?.date;
+
+                          const updated_sessions = st.sessions.map((s, idx) => {
+                            if (s.id === session_modal.session!.id) {
+                              return {
+                                ...s,
+                                ...session_data,
+                                updated_at: new Date().toISOString(),
+                              };
+                            }
+                            const is_previous_by_index = idx === session_index - 1;
+                            const is_previous_by_date = s.next_session_date === original_date;
+                            if (is_previous_by_index || is_previous_by_date) {
+                              return {
+                                ...s,
+                                next_session_date: session_data.date,
+                                next_postponement_reason: session_data.postponement_reason,
+                                updated_at: new Date().toISOString(),
+                              };
+                            }
+                            return s;
+                          });
+
+                          const is_first = session_modal.session!.id.endsWith("-first");
+                          const new_first_date = is_first && session_data.date !== undefined ? session_data.date : st.first_session_date;
+                          const new_court = is_first && session_data.court !== undefined ? session_data.court : st.court;
+                          const new_case_number = is_first && session_data.case_number !== undefined ? session_data.case_number : st.case_number;
+
+                          return {
+                            ...st,
+                            first_session_date: new_first_date,
+                            court: new_court,
+                            case_number: new_case_number,
+                            sessions: updated_sessions,
+                            updated_at: new Date().toISOString(),
+                          };
+                        }
+                        return st;
+                      }),
+                    }
+                  : cs,
+              ),
+            }
+          : c,
+      ),
+    );
+
+    set_session_modal({ is_open: false, session: null, stage: null, caseItem: null, client: null });
+    showFeedback("تم تحديث الجلسة بنجاح.", "success");
+  };
 
   React.useEffect(() => {
     set_calendar_view_date(selected_date);
@@ -449,17 +582,58 @@ const HomePage: React.FC<HomePageProps> = ({
   };
 
   const handle_toggle_task_complete = (id: string) => {
+    const taskToToggle = admin_tasks.find((t) => t.id === id);
+    if (!taskToToggle) return;
+
+    const newCompletedStatus = !taskToToggle.completed;
+
     set_admin_tasks((prev) =>
       prev.map((t) =>
         t.id === id
           ? {
               ...t,
-              completed: !t.completed,
+              completed: newCompletedStatus,
               updated_at: new Date().toISOString(),
             }
           : t,
       ),
     );
+
+    // Sync with CaseTask
+    let foundCaseId = taskToToggle.case_id;
+
+    // Search for case_id if it's missing in admin_tasks
+    if (!foundCaseId) {
+      for (const client of clients) {
+        for (const caseItem of client.cases) {
+          if (caseItem.tasks?.some((t) => t.id === id)) {
+            foundCaseId = caseItem.id;
+            break;
+          }
+        }
+        if (foundCaseId) break;
+      }
+    }
+
+    if (foundCaseId) {
+      set_clients((prevClients) =>
+        prevClients.map((client) => ({
+          ...client,
+          cases: client.cases.map((caseItem) =>
+            caseItem.id === foundCaseId
+              ? {
+                  ...caseItem,
+                  tasks: caseItem.tasks.map((task) =>
+                    task.id === id
+                      ? { ...task, completed: newCompletedStatus }
+                      : task,
+                  ),
+                }
+              : caseItem,
+          ),
+        })),
+      );
+    }
   };
 
   const handle_assignee_change = (taskId: string, newAssignee: string) => {
@@ -478,17 +652,20 @@ const HomePage: React.FC<HomePageProps> = ({
   };
 
   const handle_share_task = (task: AdminTask) => {
-    const message = [
+    const lines = [
       `*مهمة إدارية:*`,
       `*المهمة:* ${task.task}`,
       `*المكان:* ${task.location || "غير محدد"}`,
       `*تاريخ الاستحقاق:* ${format_date(task.due_date)}`,
       `*الأهمية:* ${importance_map_admin_tasks[task.importance]?.text}`,
       `*المسؤول:* ${task.assignee || "غير محدد"}`,
-    ].join("\n");
+    ];
+    if (task.image_url) {
+      lines.push(`*ملاحظة:* يوجد صورة مرفقة مع هذه المهمة في التطبيق.`);
+    }
+    const message = lines.join("\n");
 
-    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
-    window.open(whatsappUrl, "_blank");
+    share_via_whatsapp(message);
   };
 
   // ... (Drag and Drop Handlers remain the same)
@@ -633,14 +810,54 @@ const HomePage: React.FC<HomePageProps> = ({
             if (sessionIndex === -1) {
               return stage;
             }
-            const updatedSessions = [...stage.sessions];
-            updatedSessions[sessionIndex] = {
-              ...updatedSessions[sessionIndex],
-              ...updatedFields,
-              updated_at: new Date().toISOString(),
-            };
+
+            const original_session = stage.sessions[sessionIndex];
+            const original_date = original_session?.date;
+
+            const updatedSessions = stage.sessions.map((s, idx) => {
+              if (s.id === sessionId) {
+                return {
+                  ...s,
+                  ...updatedFields,
+                  updated_at: new Date().toISOString(),
+                };
+              }
+
+              // Update the next session's date if next_session_date was changed
+              if (idx === sessionIndex + 1 && updatedFields.next_session_date) {
+                return {
+                  ...s,
+                  date: updatedFields.next_session_date,
+                  updated_at: new Date().toISOString(),
+                };
+              }
+
+              const is_previous_by_index = idx === sessionIndex - 1;
+              const is_previous_by_date = s.next_session_date === original_date;
+              if (is_previous_by_index || is_previous_by_date) {
+                return {
+                  ...s,
+                  next_session_date: updatedFields.date || s.next_session_date,
+                  next_postponement_reason:
+                    updatedFields.postponement_reason !== undefined
+                      ? updatedFields.postponement_reason
+                      : s.next_postponement_reason,
+                  updated_at: new Date().toISOString(),
+                };
+              }
+              return s;
+            });
+
+            const isFirst = sessionId.endsWith("-first");
+            const newFirstDate = isFirst && updatedFields.date !== undefined ? updatedFields.date : stage.first_session_date;
+            const newCourt = isFirst && updatedFields.court !== undefined ? updatedFields.court : stage.court;
+            const newCaseNumber = isFirst && updatedFields.case_number !== undefined ? updatedFields.case_number : stage.case_number;
+
             return {
               ...stage,
+              first_session_date: newFirstDate,
+              court: newCourt,
+              case_number: newCaseNumber,
               sessions: updatedSessions,
               updated_at: new Date().toISOString(),
             };
@@ -762,8 +979,7 @@ const HomePage: React.FC<HomePageProps> = ({
             `*المسؤول:* ${appointment.assignee || "غير محدد"}`,
             `*الأهمية:* ${importance_map[appointment.importance]?.text}`,
           ].join("\n");
-          const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
-          window.open(whatsappUrl, "_blank");
+          share_via_whatsapp(message);
         },
       },
     ];
@@ -838,8 +1054,7 @@ const HomePage: React.FC<HomePageProps> = ({
         label: "مشاركة عبر واتساب",
         icon: <ShareIcon className="w-4 h-4" />,
         onClick: () => {
-          const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
-          window.open(whatsappUrl, "_blank");
+          share_via_whatsapp(message);
         },
       },
     ];
@@ -1028,6 +1243,30 @@ const HomePage: React.FC<HomePageProps> = ({
           >
             {task.task}
           </p>{" "}
+          {task.case_id && (
+            <div className="text-xs text-blue-800 bg-blue-100 rounded-full px-2 py-0.5 mt-1 flex items-center gap-1 w-fit font-medium">
+              <ScaleIcon className="w-3 h-3" />
+              <span>
+                القضية:{" "}
+                {clients
+                  .flatMap((c) => c.cases)
+                  .find((cs) => cs.id === task.case_id)?.subject || "غير معروف"}
+              </span>
+            </div>
+          )}
+          {task.image_url && (
+            <div className="mt-2">
+              <img
+                src={task.image_url}
+                alt="صورة المهمة"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  set_selected_task_image_url(task.image_url!);
+                }}
+                className="w-24 h-24 sm:w-32 sm:h-32 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-90 hover:shadow-md transition-all"
+              />
+            </div>
+          )}
           <div className="mt-2 flex items-center gap-x-4 gap-y-2 text-sm text-gray-600">
             {" "}
             <div
@@ -1157,7 +1396,7 @@ const HomePage: React.FC<HomePageProps> = ({
               </div>
               <button
                 onClick={handle_show_todays_agenda}
-                className={`w-full flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-1 sm:px-4 py-1.5 sm:py-2 text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 font-semibold ${view_mode === "daily" ? "bg-blue-700" : "bg-blue-600 hover:bg-blue-700"}`}
+                className={`w-full flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-1 sm:px-4 py-1.5 sm:py-2 text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-opacity-50 font-semibold ${view_mode === "daily" ? "bg-orange-600" : "bg-orange-500 hover:bg-orange-600"}`}
               >
                 <CalendarIcon className="w-4 h-4 sm:w-5 sm:h-5" />
                 <span className="text-[10px] sm:text-sm text-center leading-tight">
@@ -1198,6 +1437,11 @@ const HomePage: React.FC<HomePageProps> = ({
                         onUpdate={
                           permissions.can_edit_session
                             ? handle_update_session
+                            : undefined
+                        }
+                        onEdit={
+                          permissions.can_edit_session
+                            ? handle_edit_session
                             : undefined
                         }
                         onDecide={
@@ -1249,6 +1493,11 @@ const HomePage: React.FC<HomePageProps> = ({
                           ? handle_update_session
                           : undefined
                       }
+                      onEdit={
+                        permissions.can_edit_session
+                          ? handle_edit_session
+                          : undefined
+                      }
                       onDecide={
                         permissions.can_decide_session
                           ? handle_open_decide_modal
@@ -1277,6 +1526,11 @@ const HomePage: React.FC<HomePageProps> = ({
                           ? handle_update_session
                           : undefined
                       }
+                      onEdit={
+                        permissions.can_edit_session
+                          ? handle_edit_session
+                          : undefined
+                      }
                       onDecide={
                         permissions.can_decide_session
                           ? handle_open_decide_modal
@@ -1298,134 +1552,171 @@ const HomePage: React.FC<HomePageProps> = ({
 
       {main_view === "admin_tasks" && (
         <div className="bg-white p-4 sm:p-6 rounded-lg shadow space-y-4 no-print animate-fade-in">
-          <div className="flex justify-between items-center flex-wrap gap-4 border-b pb-3">
-            <div className="flex items-center gap-4">
-              <h2 className="text-2xl font-semibold">المهام الإدارية</h2>
-              {permissions.can_add_admin_task && (
-                <button
-                  onClick={() => on_open_admin_task_modal()}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                >
-                  <PlusIcon className="w-5 h-5" />
-                  <span>مهمة جديدة</span>
-                </button>
-              )}
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-1 p-1 bg-gray-200 rounded-lg">
-                <button
-                  onClick={() => set_admin_tasks_layout("horizontal")}
-                  className={`p-2 rounded-md transition-colors ${admin_tasks_layout === "horizontal" ? "bg-white shadow-sm" : "hover:bg-gray-300"}`}
-                  title="عرض أفقي (قائمة)"
-                >
-                  <ListBulletIcon className="w-5 h-5 text-gray-700" />
-                </button>
-                <button
-                  onClick={() => set_admin_tasks_layout("vertical")}
-                  className={`p-2 rounded-md transition-colors ${admin_tasks_layout === "vertical" ? "bg-white shadow-sm" : "hover:bg-gray-300"}`}
-                  title="عرض عمودي (أعمدة)"
-                >
-                  <ViewColumnsIcon className="w-5 h-5 text-gray-700" />
-                </button>
+          <div className="sticky -top-4 sm:-top-6 z-20 bg-white pt-4 pb-3 space-y-4 -mx-4 px-4 sm:-mx-6 sm:px-6 shadow-sm border-b border-gray-200 rounded-t-lg">
+            <div className="flex justify-between items-center flex-wrap gap-4">
+              <div className="flex items-center gap-4">
+                <h2 className="text-2xl font-semibold">المهام الإدارية</h2>
+                {permissions.can_add_admin_task && (
+                  <button
+                    onClick={() => on_open_admin_task_modal()}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors text-sm shadow-xs"
+                  >
+                    <PlusIcon className="w-5 h-5" />
+                    <span>مهمة جديدة</span>
+                  </button>
+                )}
               </div>
-              <div className="relative">
-                <input
-                  type="search"
-                  placeholder="ابحث عن مهمة..."
-                  value={admin_task_search}
-                  onChange={(e) => set_admin_task_search(e.target.value)}
-                  className="w-full sm:w-64 p-2 ps-10 text-sm border border-gray-300 rounded-lg bg-gray-50 focus:ring-blue-500 focus:border-blue-500"
-                />
-                <div className="absolute inset-y-0 start-0 flex items-center ps-3 pointer-events-none">
-                  <SearchIcon className="w-4 h-4 text-gray-500" />
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-1 p-1 bg-gray-200 rounded-lg">
+                  <button
+                    onClick={() => set_admin_tasks_layout("horizontal")}
+                    className={`p-2 rounded-md transition-colors ${admin_tasks_layout === "horizontal" ? "bg-white shadow-sm" : "hover:bg-gray-300"}`}
+                    title="عرض أفقي (قائمة)"
+                  >
+                    <ListBulletIcon className="w-5 h-5 text-gray-700" />
+                  </button>
+                  <button
+                    onClick={() => set_admin_tasks_layout("vertical")}
+                    className={`p-2 rounded-md transition-colors ${admin_tasks_layout === "vertical" ? "bg-white shadow-sm" : "hover:bg-gray-300"}`}
+                    title="عرض عمودي (أعمدة)"
+                  >
+                    <ViewColumnsIcon className="w-5 h-5 text-gray-700" />
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    type="search"
+                    placeholder="ابحث عن مهمة..."
+                    value={admin_task_search}
+                    onChange={(e) => set_admin_task_search(e.target.value)}
+                    className="w-full sm:w-64 p-2 ps-10 text-sm border border-gray-300 rounded-lg bg-gray-50 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  <div className="absolute inset-y-0 start-0 flex items-center ps-3 pointer-events-none">
+                    <SearchIcon className="w-4 h-4 text-gray-500" />
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-          {/* ... (rest of admin tasks view) */}
-          <div className="border-b border-gray-200">
-            <nav className="-mb-px flex space-x-4" aria-label="Tabs">
-              <button
-                onClick={() => set_active_task_tab("pending")}
-                className={`whitespace-nowrap py-3 px-4 border-b-2 font-medium text-sm ${active_task_tab === "pending" ? "border-blue-500 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"}`}
-              >
-                المهام المعلقة
-              </button>
-              <button
-                onClick={() => set_active_task_tab("completed")}
-                className={`whitespace-nowrap py-3 px-4 border-b-2 font-medium text-sm ${active_task_tab === "completed" ? "border-blue-500 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"}`}
-              >
-                المهام المنجزة
-              </button>
-            </nav>
+
+            <div className="border-b border-gray-100 pt-1">
+              <nav className="-mb-px flex space-x-4" aria-label="Tabs">
+                <button
+                  onClick={() => set_active_task_tab("pending")}
+                  className={`whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm ${active_task_tab === "pending" ? "border-blue-500 text-blue-600 font-semibold" : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"}`}
+                >
+                  المهام المعلقة
+                </button>
+                <button
+                  onClick={() => set_active_task_tab("completed")}
+                  className={`whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm ${active_task_tab === "completed" ? "border-blue-500 text-blue-600 font-semibold" : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"}`}
+                >
+                  المهام المنجزة
+                </button>
+              </nav>
+            </div>
           </div>
 
           {admin_tasks_layout === "vertical" ? (
             <div className="flex flex-row gap-4 pt-4">
               {location_order.length > 0 && (
-                <nav
-                  className="flex flex-col gap-2 w-28 flex-shrink-0"
-                  aria-label="Location Tabs"
-                >
-                  {location_order.map((location) => (
-                    <button
-                      key={location}
-                      onClick={() => set_active_location_tab(location)}
-                      draggable={active_task_tab === "pending"}
-                      onDragStart={(e) =>
-                        handle_drag_start(e, "group", location)
-                      }
-                      onDragEnd={handle_drag_end}
-                      onDragOver={(e) => {
-                        if (dragged_task_id.current) {
-                          e.preventDefault();
-                          set_drag_over_location(location);
-                        } else if (dragged_group_location) {
-                          e.preventDefault();
-                        }
-                      }}
-                      onDragLeave={() => set_drag_over_location(null)}
-                      onDrop={(e) => {
-                        set_drag_over_location(null);
-                        if (dragged_task_id.current) {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          handle_task_drop(null, location, "after");
-                        } else {
-                          if (active_task_tab !== "pending") return;
-                          e.preventDefault();
-                          e.stopPropagation();
-                          if (
-                            !dragged_group_location ||
+                <div className="flex flex-col gap-2 w-32 sm:w-40 flex-shrink-0 sticky top-32 self-start">
+                  <div className="flex items-center justify-between pb-2 px-1 border-b border-gray-200 mb-1">
+                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">المكان</span>
+                    <span className="text-[11px] font-semibold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full" title="إجمالي الأماكن">
+                      {location_order.length}
+                    </span>
+                  </div>
+                  <nav
+                    className="flex flex-col gap-1.5"
+                    aria-label="Location Tabs"
+                  >
+                    {location_order.map((location) => {
+                      const locationTasks = grouped_tasks[location] || [];
+                      const count = locationTasks.length;
+                      const hasUrgentTask =
+                        locationTasks.some((t) => t.importance === "urgent") ||
+                        admin_tasks.some(
+                          (t) =>
+                            (t.location || "غير محدد") === location &&
+                            !t.completed &&
+                            t.importance === "urgent",
+                        );
+                      const isSelected = active_location_tab === location;
+                      return (
+                        <button
+                          key={location}
+                          onClick={() => set_active_location_tab(location)}
+                          draggable={active_task_tab === "pending"}
+                          onDragStart={(e) =>
+                            handle_drag_start(e, "group", location)
+                          }
+                          onDragEnd={handle_drag_end}
+                          onDragOver={(e) => {
+                            if (dragged_task_id.current) {
+                              e.preventDefault();
+                              set_drag_over_location(location);
+                            } else if (dragged_group_location) {
+                              e.preventDefault();
+                            }
+                          }}
+                          onDragLeave={() => set_drag_over_location(null)}
+                          onDrop={(e) => {
+                            set_drag_over_location(null);
+                            if (dragged_task_id.current) {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handle_task_drop(null, location, "after");
+                            } else {
+                              if (active_task_tab !== "pending") return;
+                              e.preventDefault();
+                              e.stopPropagation();
+                              if (
+                                !dragged_group_location ||
+                                dragged_group_location === location
+                              )
+                                return;
+                              const newOrder = [...location_order];
+                              const sourceIndex = newOrder.indexOf(
+                                dragged_group_location,
+                              );
+                              const targetIndex = newOrder.indexOf(location);
+                              if (sourceIndex === -1 || targetIndex === -1) return;
+                              const [movedItem] = newOrder.splice(sourceIndex, 1);
+                              newOrder.splice(targetIndex, 0, movedItem);
+                              set_location_order(newOrder);
+                              set_saved_location_order(newOrder);
+                            }
+                          }}
+                          className={`whitespace-normal break-words w-full text-right px-2.5 py-2 border-r-4 font-medium text-sm transition-colors duration-150 focus:outline-none rounded-l-md flex items-center justify-between gap-1.5 ${
+                            active_task_tab === "pending" ? "cursor-grab" : ""
+                          } ${
+                            hasUrgentTask
+                              ? isSelected
+                                ? "border-red-500 bg-red-100 text-red-900 font-bold shadow-xs"
+                                : "border-red-400 bg-red-50 text-red-800 hover:bg-red-100 font-medium"
+                              : isSelected
+                                ? "border-blue-500 bg-blue-50 text-blue-600 font-semibold"
+                                : "border-transparent text-gray-600 hover:bg-gray-100 bg-white"
+                          } ${
                             dragged_group_location === location
-                          )
-                            return;
-                          const newOrder = [...location_order];
-                          const sourceIndex = newOrder.indexOf(
-                            dragged_group_location,
-                          );
-                          const targetIndex = newOrder.indexOf(location);
-                          if (sourceIndex === -1 || targetIndex === -1) return;
-                          const [movedItem] = newOrder.splice(sourceIndex, 1);
-                          newOrder.splice(targetIndex, 0, movedItem);
-                          set_location_order(newOrder);
-                          set_saved_location_order(newOrder);
-                        }
-                      }}
-                      className={`whitespace-normal break-words w-full text-right px-2 py-2 border-r-4 font-medium text-sm transition-colors duration-150 focus:outline-none ${active_task_tab === "pending" ? "cursor-grab" : ""} ${
-                        active_location_tab === location
-                          ? "border-blue-500 bg-blue-50 text-blue-600 font-semibold"
-                          : "border-transparent text-gray-600 hover:bg-gray-100"
-                      } ${
-                        dragged_group_location === location
-                          ? "opacity-30"
-                          : "opacity-100"
-                      } ${drag_over_location === location ? "bg-blue-200 border-blue-500" : ""}`}
-                    >
-                      {location}
-                    </button>
-                  ))}
-                </nav>
+                              ? "opacity-30"
+                              : "opacity-100"
+                          } ${drag_over_location === location ? "bg-blue-200 border-blue-500" : ""}`}
+                        >
+                          <span className="truncate flex items-center gap-1.5">
+                            {location}
+                            {hasUrgentTask && (
+                              <span
+                                className="w-2 h-2 rounded-full bg-red-600 animate-pulse flex-shrink-0"
+                                title="يوجد مهمة عاجلة في هذا المكان"
+                              />
+                            )}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </nav>
+                </div>
               )}
               <div className="flex-grow min-w-0">
                 {location_order.length > 0 && active_location_tab ? (
@@ -1461,70 +1752,100 @@ const HomePage: React.FC<HomePageProps> = ({
             <div className="pt-4">
               {location_order.length > 0 ? (
                 <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xs font-bold text-gray-700">المكان:</span>
+                  </div>
                   <nav
-                    className="-mb-px flex space-x-2 overflow-x-auto"
+                    className="-mb-px flex space-x-2 overflow-x-auto pb-1"
                     aria-label="Location Tabs"
                   >
-                    {location_order.map((location) => (
-                      <button
-                        key={location}
-                        onClick={() => set_active_location_tab(location)}
-                        draggable={active_task_tab === "pending"}
-                        onDragStart={(e) =>
-                          handle_drag_start(e, "group", location)
-                        }
-                        onDragEnd={handle_drag_end}
-                        onDragOver={(e) => {
-                          if (dragged_task_id.current) {
-                            e.preventDefault();
-                            set_drag_over_location(location);
-                          } else if (dragged_group_location) {
-                            e.preventDefault();
+                    {location_order.map((location) => {
+                      const locationTasks = grouped_tasks[location] || [];
+                      const count = locationTasks.length;
+                      const hasUrgentTask =
+                        locationTasks.some((t) => t.importance === "urgent") ||
+                        admin_tasks.some(
+                          (t) =>
+                            (t.location || "غير محدد") === location &&
+                            !t.completed &&
+                            t.importance === "urgent",
+                        );
+                      const isSelected = active_location_tab === location;
+                      return (
+                        <button
+                          key={location}
+                          onClick={() => set_active_location_tab(location)}
+                          draggable={active_task_tab === "pending"}
+                          onDragStart={(e) =>
+                            handle_drag_start(e, "group", location)
                           }
-                        }}
-                        onDragLeave={() => set_drag_over_location(null)}
-                        onDrop={(e) => {
-                          set_drag_over_location(null);
-                          if (dragged_task_id.current) {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            handle_task_drop(null, location, "after");
-                          } else {
-                            // Existing group drop logic
-                            if (active_task_tab !== "pending") return;
-                            e.preventDefault();
-                            e.stopPropagation();
-                            if (
-                              !dragged_group_location ||
-                              dragged_group_location === location
-                            )
-                              return;
-                            const newOrder = [...location_order];
-                            const sourceIndex = newOrder.indexOf(
-                              dragged_group_location,
-                            );
-                            const targetIndex = newOrder.indexOf(location);
-                            if (sourceIndex === -1 || targetIndex === -1)
-                              return;
-                            const [movedItem] = newOrder.splice(sourceIndex, 1);
-                            newOrder.splice(targetIndex, 0, movedItem);
-                            set_location_order(newOrder);
-                            set_saved_location_order(newOrder);
-                          }
-                        }}
-                        className={`whitespace-nowrap py-3 px-4 border font-medium text-sm rounded-t-lg transition-colors duration-150 focus:outline-none ${active_task_tab === "pending" ? "cursor-grab" : ""} ${
-                          active_location_tab === location
-                            ? "bg-gray-50 border-gray-200 border-b-gray-50 text-blue-600 font-semibold"
-                            : "bg-white border-transparent border-b-gray-200 text-gray-500 hover:text-gray-700"
-                        } ${
-                          dragged_group_location === location
-                            ? "opacity-30"
-                            : ""
-                        } ${drag_over_location === location ? "bg-blue-200" : ""}`}
-                      >
-                        {location}
-                      </button>
-                    ))}
+                          onDragEnd={handle_drag_end}
+                          onDragOver={(e) => {
+                            if (dragged_task_id.current) {
+                              e.preventDefault();
+                              set_drag_over_location(location);
+                            } else if (dragged_group_location) {
+                              e.preventDefault();
+                            }
+                          }}
+                          onDragLeave={() => set_drag_over_location(null)}
+                          onDrop={(e) => {
+                            set_drag_over_location(null);
+                            if (dragged_task_id.current) {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handle_task_drop(null, location, "after");
+                            } else {
+                              // Existing group drop logic
+                              if (active_task_tab !== "pending") return;
+                              e.preventDefault();
+                              e.stopPropagation();
+                              if (
+                                !dragged_group_location ||
+                                dragged_group_location === location
+                              )
+                                return;
+                              const newOrder = [...location_order];
+                              const sourceIndex = newOrder.indexOf(
+                                dragged_group_location,
+                              );
+                              const targetIndex = newOrder.indexOf(location);
+                              if (sourceIndex === -1 || targetIndex === -1)
+                                return;
+                              const [movedItem] = newOrder.splice(sourceIndex, 1);
+                              newOrder.splice(targetIndex, 0, movedItem);
+                              set_location_order(newOrder);
+                              set_saved_location_order(newOrder);
+                            }
+                          }}
+                          className={`whitespace-nowrap py-2.5 px-3.5 border font-medium text-sm rounded-t-lg transition-colors duration-150 focus:outline-none flex items-center gap-2 ${
+                            active_task_tab === "pending" ? "cursor-grab" : ""
+                          } ${
+                            hasUrgentTask
+                              ? isSelected
+                                ? "bg-red-100 border-red-400 border-b-red-100 text-red-900 font-bold shadow-xs"
+                                : "bg-red-50 border-red-300 border-b-gray-200 text-red-800 hover:bg-red-100 font-medium"
+                              : isSelected
+                                ? "bg-gray-50 border-gray-200 border-b-gray-50 text-blue-600 font-semibold"
+                                : "bg-white border-transparent border-b-gray-200 text-gray-500 hover:text-gray-700"
+                          } ${
+                            dragged_group_location === location
+                              ? "opacity-30"
+                              : ""
+                          } ${drag_over_location === location ? "bg-blue-200" : ""}`}
+                        >
+                          <span className="flex items-center gap-1.5">
+                            {location}
+                            {hasUrgentTask && (
+                              <span
+                                className="w-2 h-2 rounded-full bg-red-600 animate-pulse flex-shrink-0"
+                                title="يوجد مهمة عاجلة في هذا المكان"
+                              />
+                            )}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </nav>
                   <div
                     onDragOver={handle_group_drag_over}
@@ -1686,11 +2007,14 @@ const HomePage: React.FC<HomePageProps> = ({
                     className="mt-1 w-full p-2 border rounded"
                     required
                   >
-                    <option value="5">5 دقائق</option>
-                    <option value="10">10 دقائق</option>
-                    <option value="15">15 دقيقة</option>
-                    <option value="30">30 دقيقة</option>
-                    <option value="60">ساعة واحدة</option>
+                    <option value="0">في وقت الموعد تماماً</option>
+                    <option value="5">قبل 5 دقائق</option>
+                    <option value="10">قبل 10 دقائق</option>
+                    <option value="15">قبل 15 دقيقة</option>
+                    <option value="30">قبل 30 دقيقة</option>
+                    <option value="60">قبل ساعة واحدة</option>
+                    <option value="120">قبل ساعتين</option>
+                    <option value="1440">قبل يوم واحد (24 ساعة)</option>
                   </select>
                 </div>
               </div>
@@ -1800,6 +2124,156 @@ const HomePage: React.FC<HomePageProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {session_modal.is_open && session_modal.session && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50 no-print p-4 overflow-y-auto"
+          onClick={() => set_session_modal({ is_open: false, session: null, stage: null, caseItem: null, client: null })}
+        >
+          <div
+            className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg mt-10"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-xl font-bold mb-4">تعديل الجلسة</h2>
+            <form onSubmit={handle_submit_session_edit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  المحكمة
+                </label>
+                <input
+                  type="text"
+                  value={session_form_data.court || ""}
+                  onChange={(e) =>
+                    set_session_form_data((p: any) => ({
+                      ...p,
+                      court: e.target.value,
+                    }))
+                  }
+                  className="w-full p-2 border rounded mt-1"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  رقم الدعوى
+                </label>
+                <input
+                  type="text"
+                  value={session_form_data.case_number || ""}
+                  onChange={(e) =>
+                    set_session_form_data((p: any) => ({
+                      ...p,
+                      case_number: e.target.value,
+                    }))
+                  }
+                  className="w-full p-2 border rounded mt-1"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  تاريخ الجلسة
+                </label>
+                <div className="mt-1">
+                  <DatePicker
+                    value={session_form_data.date}
+                    onChange={(date) =>
+                      set_session_form_data((p: any) => ({
+                        ...p,
+                        date,
+                      }))
+                    }
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  المكلف بالحضور
+                </label>
+                <select
+                  value={session_form_data.assignee || "بدون تخصيص"}
+                  onChange={(e) =>
+                    set_session_form_data((p: any) => ({
+                      ...p,
+                      assignee: e.target.value,
+                    }))
+                  }
+                  className="w-full p-2 border rounded mt-1"
+                >
+                  <option value="بدون تخصيص">بدون تخصيص</option>
+                  {assistants.map((a) => {
+                    const name = typeof a === "string" ? a : a.name;
+                    return (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  سبب التأجيل السابق
+                </label>
+                <textarea
+                  value={session_form_data.postponement_reason || ""}
+                  onChange={(e) =>
+                    set_session_form_data((p: any) => ({
+                      ...p,
+                      postponement_reason: e.target.value,
+                    }))
+                  }
+                  className="w-full p-2 border rounded mt-1"
+                  rows={2}
+                ></textarea>
+              </div>
+
+              <div className="mt-6 flex justify-end gap-4">
+                <button
+                  type="button"
+                  onClick={() =>
+                    set_session_modal({ is_open: false, session: null, stage: null, caseItem: null, client: null })
+                  }
+                  className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  حفظ التعديلات
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Task Image Lightbox Modal */}
+      {selected_task_image_url && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4"
+          onClick={() => set_selected_task_image_url(null)}
+        >
+          <div className="relative max-w-4xl max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => set_selected_task_image_url(null)}
+              className="absolute -top-10 left-0 text-white bg-gray-800 bg-opacity-70 px-3 py-1 rounded-lg text-sm hover:bg-gray-700"
+            >
+              إغلاق ✕
+            </button>
+            <img
+              src={selected_task_image_url}
+              alt="صورة المهمة مكبرة"
+              className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl"
+            />
           </div>
         </div>
       )}

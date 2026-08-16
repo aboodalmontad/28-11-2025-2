@@ -80,7 +80,36 @@ const construct_data = (flat_data: Partial<FlatData>): AppData => {
 
   const case_map = new Map<string, Case[]>();
   (flat_data.cases || []).forEach((cs) => {
-    const case_item = { ...cs, stages: stage_map.get(cs.id) || [] } as Case;
+    const case_admin_tasks = (flat_data.admin_tasks || [])
+      .filter((t: any) => t.case_id === cs.id)
+      .map((t: any) => ({
+        id: t.id,
+        task: t.task,
+        due_date: t.due_date,
+        completed: Boolean(t.completed),
+        importance: t.importance || "normal",
+        assignee: t.assignee,
+        image_url: t.image_url,
+        updated_at: t.updated_at,
+      }));
+
+    const task_map = new Map<string, any>();
+    (cs.tasks || []).forEach((t: any) => task_map.set(t.id, t));
+    case_admin_tasks.forEach((t: any) => {
+      const existing = task_map.get(t.id);
+      task_map.set(
+        t.id,
+        existing
+          ? { ...existing, ...t, image_url: t.image_url || existing.image_url }
+          : t,
+      );
+    });
+
+    const case_item = {
+      ...cs,
+      stages: stage_map.get(cs.id) || [],
+      tasks: Array.from(task_map.values()),
+    } as Case;
     const client_id = cs.client_id;
     if (client_id) {
       if (!case_map.has(client_id)) case_map.set(client_id, []);
@@ -139,7 +168,12 @@ const merge_for_refresh = <T extends { id: any; updated_at?: Date | string }>(
       const remote_date = safe_revive_date(remote_item.updated_at || 0);
       const local_date = safe_revive_date(existing_item.updated_at || 0);
       if (remote_date > local_date) {
-        const merged = { ...remote_item };
+        const merged = {
+          ...existing_item,
+          ...remote_item,
+          image_url: (remote_item as any).image_url || (existing_item as any).image_url,
+          tasks: (remote_item as any).tasks || (existing_item as any).tasks,
+        };
         if (key === "case_documents") {
           // If remote is newer, it might need download if it's a new version
           // But usually we want to preserve local_state if it was already synced
@@ -148,8 +182,14 @@ const merge_for_refresh = <T extends { id: any; updated_at?: Date | string }>(
         }
         final_items.set(id, merged);
       } else {
-        // Keep local to preserve local_state
-        final_items.set(id, existing_item);
+        // Keep local to preserve local_state and image_url
+        const merged = {
+          ...remote_item,
+          ...existing_item,
+          image_url: (existing_item as any).image_url || (remote_item as any).image_url,
+          tasks: (existing_item as any).tasks || (remote_item as any).tasks,
+        };
+        final_items.set(id, merged);
       }
     } else {
       const merged = { ...remote_item };
@@ -266,39 +306,44 @@ const cleanup_local_files = async (deletions: SyncDeletion[]) => {
 };
 
 const cleanup_expired_documents = async (remote_docs: any[], supabase: any) => {
-  const hours_72_ago = safe_revive_date(Date.now() - 72 * 60 * 60 * 1000);
-  const expired_docs = remote_docs.filter(
-    (d: any) => safe_revive_date(d.added_at) < hours_72_ago,
-  );
-
-  if (expired_docs.length > 0) {
-    console.log(
-      `Cleaning up ${expired_docs.length} expired documents from cloud...`,
+  try {
+    const hours_72_ago = safe_revive_date(Date.now() - 72 * 60 * 60 * 1000);
+    const expired_docs = remote_docs.filter(
+      (d: any) => safe_revive_date(d.added_at) < hours_72_ago,
     );
-    const expired_ids = expired_docs.map((d: any) => d.id);
-    const expired_paths = expired_docs
-      .map((d: any) => d.storage_path)
-      .filter((p: any) => !!p);
 
-    // Delete from DB first
-    const { error: db_error } = await supabase
-      .from("case_documents")
-      .delete()
-      .in("id", expired_ids);
-    if (db_error) {
-      console.error("Failed to delete expired docs metadata:", db_error);
-    } else {
-      // If DB delete success, delete from storage
-      // Note: We do NOT log these deletions to 'sync_deletions' because we WANT local clients to keep their copies (Archive behavior).
-      // Normal delete triggers might log them, but clients should be smart enough not to delete local files if they are 'synced'.
-      if (expired_paths.length > 0) {
-        const { error: storage_error } = await supabase.storage
-          .from("documents")
-          .remove(expired_paths);
-        if (storage_error)
-          console.error("Failed to delete expired docs files:", storage_error);
+    if (expired_docs.length > 0) {
+      console.log(
+        `Cleaning up ${expired_docs.length} expired documents from cloud...`,
+      );
+      const expired_ids = expired_docs.map((d: any) => d.id);
+      const expired_paths = expired_docs
+        .map((d: any) => d.storage_path)
+        .filter((p: any) => !!p);
+
+      // Delete from DB first
+      const { error: db_error } = await supabase
+        .from("case_documents")
+        .delete()
+        .in("id", expired_ids);
+      if (db_error) {
+        console.warn("Failed to delete expired docs metadata (non-fatal, ignored in background cleanup):", db_error);
+      } else {
+        // If DB delete success, delete from storage
+        // Note: We do NOT log these deletions to 'sync_deletions' because we WANT local clients to keep their copies (Archive behavior).
+        // Normal delete triggers might log them, but clients should be smart enough not to delete local files if they are 'synced'.
+        if (expired_paths.length > 0) {
+          const { error: storage_error } = await supabase.storage
+            .from("documents")
+            .remove(expired_paths);
+          if (storage_error) {
+            console.warn("Failed to delete expired docs files (non-fatal, ignored in background cleanup):", storage_error);
+          }
+        }
       }
     }
+  } catch (err) {
+    console.warn("Exception during background cleanup of expired documents:", err);
   }
 };
 
@@ -468,6 +513,19 @@ export const use_sync = ({
 
           for (const doc of pending_docs) {
             try {
+              // Check file size limit before upload attempt (Supabase default bucket limit is ~5MB)
+              if (doc.size && doc.size > 5 * 1024 * 1024) {
+                doc.local_state = "error";
+                doc.updated_at = new Date().toISOString();
+                console.warn(`[File Size Limit] Document ${doc.name} (${(doc.size / (1024 * 1024)).toFixed(1)}MB) exceeds max upload size limit (5MB). Kept locally.`);
+                log(
+                  "warning",
+                  `فشل رفع الوثيقة: ${doc.name}`,
+                  "حجم الملف يتجاوز الحد الأقصى للمزامنة السحابية (5 ميغابايت)، وتم حفظه محلياً على جهازك بنجاح.",
+                );
+                continue;
+              }
+
               const file = await db.get(DOCS_FILES_STORE_NAME, doc.id);
               if (file) {
                 let storage_path = doc.storage_path;
@@ -498,21 +556,45 @@ export const use_sync = ({
                   });
 
                 if (upload_error) {
-                  console.error(`Failed to upload ${doc.name}:`, upload_error);
+                  doc.local_state = "error";
+                  doc.updated_at = new Date().toISOString();
+
+                  const is_size_error =
+                    upload_error.message?.includes("exceeded the maximum allowed size") ||
+                    upload_error.message?.includes("maximum allowed size") ||
+                    upload_error.message?.includes("413") ||
+                    (upload_error as any).statusCode === "413";
+
+                  if (is_size_error) {
+                    console.warn(`[File Size Limit] Document ${doc.name} exceeds cloud storage limit:`, upload_error.message);
+                  } else {
+                    console.error(`Failed to upload ${doc.name}:`, upload_error);
+                  }
+
+                  const reason = is_size_error
+                    ? "تجاوز الملف الحد الأقصى المسموح به للمزامنة السحابية (5 ميغابايت)، ويبقى محفوظاً محلياً على جهازك."
+                    : upload_error.message;
+
                   log(
                     "warning",
                     `فشل رفع الوثيقة: ${doc.name}`,
-                    upload_error.message,
+                    reason,
                   );
                 } else {
+                  doc.local_state = "synced";
+                  doc.updated_at = new Date().toISOString();
                   uploaded_doc_ids.push(doc.id);
                 }
               } else {
                 console.warn(`File for doc ${doc.id} missing in IndexedDB`);
+                doc.local_state = "error";
+                doc.updated_at = new Date().toISOString();
                 log("warning", `ملف الوثيقة مفقود محلياً: ${doc.name}`);
               }
             } catch (e: any) {
               console.error(`Error uploading doc ${doc.id}:`, e);
+              doc.local_state = "error";
+              doc.updated_at = new Date().toISOString();
               log("error", `خطأ أثناء رفع الوثيقة: ${doc.name}`, e.message);
             }
           }
@@ -674,15 +756,26 @@ export const use_sync = ({
                 items_to_upsert.push(local_item);
                 final_merged_items.set(id, local_item);
               } else if (remote_date > local_date) {
-                // Remote is newer, take it but if it's a document, it will need download
-                const merged = { ...remote_item };
+                // Remote is newer, take it but preserve local image_url & tasks if missing on remote
+                const merged = {
+                  ...local_item,
+                  ...remote_item,
+                  image_url: remote_item.image_url || local_item.image_url,
+                  tasks: remote_item.tasks || local_item.tasks,
+                };
                 if (key === "case_documents") {
                   merged.local_state = "pending_download";
                 }
                 final_merged_items.set(id, merged);
               } else {
-                // Dates are equal, keep local to preserve local_state (especially for documents)
-                final_merged_items.set(id, local_item);
+                // Dates are equal, keep local to preserve local_state & image_url
+                const merged = {
+                  ...remote_item,
+                  ...local_item,
+                  image_url: local_item.image_url || remote_item.image_url,
+                  tasks: local_item.tasks || remote_item.tasks,
+                };
+                final_merged_items.set(id, merged);
               }
             } else {
               items_to_upsert.push(local_item);
@@ -870,8 +963,16 @@ export const use_sync = ({
             const merged_items = (merged_flat_data as any)[key];
             if (Array.isArray(merged_items))
               (merged_flat_data as any)[key] = merged_items.map(
-                (item: any) =>
-                  upserted_data_map.get(item.id ?? item.name) || item,
+                (item: any) => {
+                  const returned = upserted_data_map.get(item.id ?? item.name);
+                  if (!returned) return item;
+                  return {
+                    ...item,
+                    ...returned,
+                    image_url: returned.image_url || item.image_url,
+                    tasks: returned.tasks || item.tasks,
+                  };
+                },
               );
           }
           log("success", `تم رفع ${total_upserts} سجلات بنجاح.`);

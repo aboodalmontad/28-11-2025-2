@@ -547,71 +547,412 @@ const DocumentScannerModal: React.FC<{
   onCapture: (file: File) => void;
 }> = ({ onClose, onCapture }) => {
   const videoRef = React.useRef<HTMLVideoElement>(null);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const frameBoxRef = React.useRef<HTMLDivElement>(null);
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const streamRef = React.useRef<MediaStream | null>(null);
+
   const [error, setError] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const [isPreview, setIsPreview] = React.useState(false);
 
-  React.useEffect(() => {
-    const startCamera = async () => {
-      setIsLoading(true);
-      setError(null);
+  // Raw captured image stored on an offscreen canvas
+  const [rawCanvas, setRawCanvas] = React.useState<HTMLCanvasElement | null>(null);
+
+  // Settings & Enhancements
+  const [autoCrop, setAutoCrop] = React.useState(true);
+  const [filterMode, setFilterMode] = React.useState<"scanner" | "color" | "bw" | "grayscale" | "raw">("scanner");
+  const [brightness, setBrightness] = React.useState(0); // -50 to 50
+  const [contrast, setContrast] = React.useState(0); // -50 to 50
+  const [rotation, setRotation] = React.useState(0); // 0, 90, 180, 270
+
+  // Outer Edge Crop Insets (percentages 0 to 25%)
+  const [cropInsets, setCropInsets] = React.useState({
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+  });
+
+  // Active tab in preview mode (Enhancements vs Cropping)
+  const [previewTab, setPreviewTab] = React.useState<"filter" | "crop">("crop");
+
+  // Camera capabilities
+  const [hasTorch, setHasTorch] = React.useState(false);
+  const [torchOn, setTorchOn] = React.useState(false);
+  const [facingMode, setFacingMode] = React.useState<"environment" | "user">("environment");
+
+  // Shutter flash animation
+  const [flashActive, setFlashActive] = React.useState(false);
+
+  const startCamera = React.useCallback(async (facing: "environment" | "user") => {
+    setIsLoading(true);
+    setError(null);
+
+    // Stop existing stream
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+    }
+
+    try {
+      const constraints: MediaStreamConstraints = {
+        video: {
+          facingMode: facing,
+          width: { ideal: 3840, min: 1920 },
+          height: { ideal: 2160, min: 1080 },
+        },
+      };
+
+      let stream: MediaStream;
       try {
-        const constraints = {
-          video: {
-            facingMode: "environment",
-            width: { ideal: 4096 },
-            height: { ideal: 2160 },
-          },
-        };
-        streamRef.current =
-          await navigator.mediaDevices.getUserMedia(constraints);
-        if (videoRef.current) {
-          videoRef.current.srcObject = streamRef.current;
-        }
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
       } catch (err) {
-        console.warn("High-res camera request failed, trying default:", err);
-        try {
-          streamRef.current = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: "environment" },
-          });
-          if (videoRef.current) {
-            videoRef.current.srcObject = streamRef.current;
-          }
-        } catch (fallbackErr) {
-          console.error("Error accessing camera:", fallbackErr);
-          setError(
-            "لم يتمكن من الوصول إلى الكاميرا. يرجى التحقق من الأذونات وتحديث الصفحة.",
-          );
-        }
-      } finally {
-        setIsLoading(false);
+        console.warn("High-res video request failed, trying default:", err);
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: facing },
+        });
       }
-    };
 
-    startCamera();
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(() => {});
+      }
 
-    return () => {
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-    };
+      // Check for flashlight capability
+      const videoTrack = stream.getVideoTracks()[0];
+      if (videoTrack) {
+        const capabilities: any = videoTrack.getCapabilities ? videoTrack.getCapabilities() : {};
+        if (capabilities.torch) {
+          setHasTorch(true);
+        } else {
+          setHasTorch(false);
+        }
+
+        // Apply auto-focus if available
+        try {
+          if (capabilities.focusMode && capabilities.focusMode.includes("continuous")) {
+            await videoTrack.applyConstraints({
+              advanced: [{ focusMode: "continuous" } as any],
+            });
+          }
+        } catch (e) {
+          console.log("Focus mode constraint not applied:", e);
+        }
+      }
+    } catch (err) {
+      console.error("Error accessing camera:", err);
+      setError("لم يتمكن من الوصول إلى الكاميرا. يرجى إعطاء الإذن أو التأكد من سلامة الكاميرا.");
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
-  const handleCapture = () => {
-    if (videoRef.current && canvasRef.current && !isLoading) {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const context = canvas.getContext("2d", { willReadFrequently: true });
-      if (!context) return;
+  React.useEffect(() => {
+    startCamera(facingMode);
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, [facingMode, startCamera]);
 
-      // Apply scanner-like filters to enhance the document image, remove shadows, and whiten background
-      context.filter = "grayscale(1) contrast(1.5) brightness(1.15)";
-      context.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
-
-      setIsPreview(true); // Switch to preview mode
+  const toggleTorch = async () => {
+    if (!streamRef.current) return;
+    const track = streamRef.current.getVideoTracks()[0];
+    if (track) {
+      const newTorchState = !torchOn;
+      try {
+        await track.applyConstraints({
+          advanced: [{ torch: newTorchState } as any],
+        });
+        setTorchOn(newTorchState);
+      } catch (err) {
+        console.warn("Failed to toggle flashlight:", err);
+      }
     }
+  };
+
+  const toggleCamera = () => {
+    setFacingMode((prev) => (prev === "environment" ? "user" : "environment"));
+  };
+
+  // Paper boundary auto-detection helper
+  const detectAndAutoCropPaper = React.useCallback((srcCanvas: HTMLCanvasElement) => {
+    try {
+      const ctx = srcCanvas.getContext("2d", { willReadFrequently: true });
+      if (!ctx) return;
+      const w = srcCanvas.width;
+      const h = srcCanvas.height;
+      if (w < 100 || h < 100) return;
+
+      const imgData = ctx.getImageData(0, 0, w, h);
+      const data = imgData.data;
+
+      const getLum = (x: number, y: number) => {
+        const idx = (y * w + x) * 4;
+        return data[idx] * 0.299 + data[idx + 1] * 0.587 + data[idx + 2] * 0.114;
+      };
+
+      // Scan top edge
+      let topIdx = 0;
+      for (let y = 0; y < Math.floor(h * 0.32); y += 3) {
+        let avg = 0;
+        const n = 8;
+        for (let s = 1; s <= n; s++) {
+          avg += getLum(Math.floor((w * s) / (n + 1)), y);
+        }
+        if (avg / n > 115) {
+          topIdx = y;
+          break;
+        }
+      }
+
+      // Scan bottom edge
+      let bottomIdx = h - 1;
+      for (let y = h - 1; y > Math.floor(h * 0.68); y -= 3) {
+        let avg = 0;
+        const n = 8;
+        for (let s = 1; s <= n; s++) {
+          avg += getLum(Math.floor((w * s) / (n + 1)), y);
+        }
+        if (avg / n > 115) {
+          bottomIdx = y;
+          break;
+        }
+      }
+
+      // Scan left edge
+      let leftIdx = 0;
+      for (let x = 0; x < Math.floor(w * 0.32); x += 3) {
+        let avg = 0;
+        const n = 8;
+        for (let s = 1; s <= n; s++) {
+          avg += getLum(x, Math.floor((h * s) / (n + 1)));
+        }
+        if (avg / n > 115) {
+          leftIdx = x;
+          break;
+        }
+      }
+
+      // Scan right edge
+      let rightIdx = w - 1;
+      for (let x = w - 1; x > Math.floor(w * 0.68); x -= 3) {
+        let avg = 0;
+        const n = 8;
+        for (let s = 1; s <= n; s++) {
+          avg += getLum(x, Math.floor((h * s) / (n + 1)));
+        }
+        if (avg / n > 115) {
+          rightIdx = x;
+          break;
+        }
+      }
+
+      const topPct = Math.min(22, Math.max(0, Math.round((topIdx / h) * 100)));
+      const bottomPct = Math.min(22, Math.max(0, Math.round(((h - 1 - bottomIdx) / h) * 100)));
+      const leftPct = Math.min(22, Math.max(0, Math.round((leftIdx / w) * 100)));
+      const rightPct = Math.min(22, Math.max(0, Math.round(((w - 1 - rightIdx) / w) * 100)));
+
+      setCropInsets({
+        top: topPct || 2,
+        bottom: bottomPct || 2,
+        left: leftPct || 2,
+        right: rightPct || 2,
+      });
+    } catch (e) {
+      console.warn("Auto paper detection error:", e);
+    }
+  }, []);
+
+  // Helper to crop & render captured video frame
+  const handleCapture = () => {
+    if (!videoRef.current || isLoading) return;
+
+    // Trigger visual shutter flash
+    setFlashActive(true);
+    setTimeout(() => setFlashActive(false), 200);
+
+    const video = videoRef.current;
+    const vW = video.videoWidth;
+    const vH = video.videoHeight;
+
+    if (!vW || !vH) return;
+
+    const capturedCanvas = document.createElement("canvas");
+
+    if (autoCrop && containerRef.current && frameBoxRef.current) {
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const frameRect = frameBoxRef.current.getBoundingClientRect();
+
+      const cW = containerRect.width;
+      const cH = containerRect.height;
+
+      // Scale factor of object-cover video inside container
+      const scale = Math.max(cW / vW, cH / vH);
+      const renderedW = vW * scale;
+      const renderedH = vH * scale;
+
+      const videoLeft = (cW - renderedW) / 2;
+      const videoTop = (cH - renderedH) / 2;
+
+      const boxLeft = frameRect.left - containerRect.left;
+      const boxTop = frameRect.top - containerRect.top;
+      const boxWidth = frameRect.width;
+      const boxHeight = frameRect.height;
+
+      // Crop coordinates in video coordinate space
+      let sx = (boxLeft - videoLeft) / scale;
+      let sy = (boxTop - videoTop) / scale;
+      let sWidth = boxWidth / scale;
+      let sHeight = boxHeight / scale;
+
+      // Clamp coordinates safely
+      sx = Math.max(0, Math.min(vW - 10, sx));
+      sy = Math.max(0, Math.min(vH - 10, sy));
+      sWidth = Math.min(vW - sx, sWidth);
+      sHeight = Math.min(vH - sy, sHeight);
+
+      capturedCanvas.width = sWidth;
+      capturedCanvas.height = sHeight;
+
+      const ctx = capturedCanvas.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, sWidth, sHeight);
+      }
+    } else {
+      // Full frame capture
+      capturedCanvas.width = vW;
+      capturedCanvas.height = vH;
+      const ctx = capturedCanvas.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, vW, vH);
+      }
+    }
+
+    setRawCanvas(capturedCanvas);
+    detectAndAutoCropPaper(capturedCanvas);
+    setIsPreview(true);
+  };
+
+  // Render processed preview canvas whenever settings change
+  const updateProcessedCanvas = React.useCallback(() => {
+    if (!rawCanvas || !canvasRef.current) return;
+
+    const source = rawCanvas;
+    const target = canvasRef.current;
+
+    // Crop coordinates from raw canvas
+    const cropX = Math.round(source.width * (cropInsets.left / 100));
+    const cropY = Math.round(source.width * (cropInsets.top / 100));
+    const cropW = Math.max(30, Math.round(source.width * (1 - (cropInsets.left + cropInsets.right) / 100)));
+    const cropH = Math.max(30, Math.round(source.height * (1 - (cropInsets.top + cropInsets.bottom) / 100)));
+
+    const isRotated90 = rotation === 90 || rotation === 270;
+    target.width = isRotated90 ? cropH : cropW;
+    target.height = isRotated90 ? cropW : cropH;
+
+    const ctx = target.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return;
+
+    ctx.save();
+    ctx.clearRect(0, 0, target.width, target.height);
+
+    // Apply rotation transformation
+    if (rotation === 90) {
+      ctx.translate(target.width, 0);
+      ctx.rotate((90 * Math.PI) / 180);
+    } else if (rotation === 180) {
+      ctx.translate(target.width, target.height);
+      ctx.rotate((180 * Math.PI) / 180);
+    } else if (rotation === 270) {
+      ctx.translate(0, target.height);
+      ctx.rotate((270 * Math.PI) / 180);
+    }
+
+    // Build filter string
+    let filterStr = "";
+    switch (filterMode) {
+      case "scanner":
+        filterStr = "contrast(1.35) brightness(1.1) saturate(1.1)";
+        break;
+      case "bw":
+        filterStr = "grayscale(100%) contrast(1.8) brightness(1.15)";
+        break;
+      case "grayscale":
+        filterStr = "grayscale(100%) contrast(1.25) brightness(1.05)";
+        break;
+      case "color":
+        filterStr = "contrast(1.15) brightness(1.05) saturate(1.2)";
+        break;
+      case "raw":
+      default:
+        filterStr = "none";
+        break;
+    }
+
+    if (brightness !== 0) {
+      filterStr += ` brightness(${1 + brightness / 100})`;
+    }
+    if (contrast !== 0) {
+      filterStr += ` contrast(${1 + contrast / 100})`;
+    }
+
+    ctx.filter = filterStr.trim() || "none";
+    ctx.drawImage(source, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+    // Advanced pixel whitening for document paper background
+    if (filterMode === "scanner" || filterMode === "bw") {
+      const imgData = ctx.getImageData(0, 0, target.width, target.height);
+      const data = imgData.data;
+      const isBW = filterMode === "bw";
+
+      for (let i = 0; i < data.length; i += 4) {
+        let r = data[i];
+        let g = data[i + 1];
+        let b = data[i + 2];
+
+        const avg = (r + g + b) / 3;
+        if (avg > 175) {
+          // Whiten off-white background paper and remove shadows
+          const boost = (avg - 175) * 1.6;
+          data[i] = Math.min(255, r + boost);
+          data[i + 1] = Math.min(255, g + boost);
+          data[i + 2] = Math.min(255, b + boost);
+        } else if (avg < 95) {
+          // Darken text for high legibility
+          data[i] = Math.max(0, r * 0.82);
+          data[i + 1] = Math.max(0, g * 0.82);
+          data[i + 2] = Math.max(0, b * 0.82);
+        }
+
+        if (isBW) {
+          const mono = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114) > 140 ? 255 : 0;
+          data[i] = mono;
+          data[i + 1] = mono;
+          data[i + 2] = mono;
+        }
+      }
+      ctx.putImageData(imgData, 0, 0);
+    }
+
+    ctx.restore();
+  }, [rawCanvas, rotation, filterMode, brightness, contrast, cropInsets]);
+
+  React.useEffect(() => {
+    if (isPreview) {
+      updateProcessedCanvas();
+    }
+  }, [isPreview, updateProcessedCanvas]);
+
+  const handleRetake = () => {
+    setRawCanvas(null);
+    setIsPreview(false);
+    setBrightness(0);
+    setContrast(0);
+    setRotation(0);
+    setCropInsets({ top: 0, bottom: 0, left: 0, right: 0 });
   };
 
   const handleSave = () => {
@@ -619,104 +960,454 @@ const DocumentScannerModal: React.FC<{
       canvasRef.current.toBlob(
         (blob) => {
           if (blob) {
-            const fileName = `document-${new Date().toISOString()}.jpeg`;
+            const fileName = ` وثيقة-${new Date().toISOString().slice(0, 10)}.jpeg`;
             const file = new File([blob], fileName, { type: "image/jpeg" });
             onCapture(file);
           }
         },
         "image/jpeg",
-        0.92,
+        0.93
       );
     }
   };
 
-  const handleRetake = () => {
-    const canvas = canvasRef.current;
-    const context = canvas?.getContext("2d");
-    if (canvas && context) {
-      context.filter = "none"; // Reset filter before clearing
-      context.clearRect(0, 0, canvas.width, canvas.height);
-    }
-    setIsPreview(false); // Go back to camera view
-  };
-
   return (
     <div
-      className="fixed inset-0 bg-black z-50 flex flex-col items-center justify-center"
+      className="fixed inset-0 bg-black/95 z-50 flex flex-col items-center justify-center overflow-hidden font-sans dir-rtl"
       onClick={onClose}
     >
       <div
-        className="relative w-full h-full"
+        ref={containerRef}
+        className="relative w-full h-full flex flex-col justify-between"
         onClick={(e) => e.stopPropagation()}
       >
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          className={`w-full h-full object-cover ${isPreview ? "hidden" : ""}`}
-        ></video>
-        <canvas
-          ref={canvasRef}
-          className={`w-full h-full object-contain ${isPreview ? "" : "hidden"}`}
-        ></canvas>
+        {/* Top Header Bar */}
+        <div className="absolute top-0 left-0 right-0 z-30 p-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent flex items-center justify-between text-white">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              className="p-2.5 bg-black/50 hover:bg-black/80 backdrop-blur rounded-full text-white transition-colors"
+              title="إغلاق"
+            >
+              <XMarkIcon className="w-6 h-6" />
+            </button>
 
-        {/* Overlay for alignment (only for camera view) */}
-        {!isPreview && (
-          <div className="absolute inset-0 pointer-events-none border-[1rem] sm:border-[2rem] border-black/50">
-            <div className="absolute top-4 left-4 sm:top-8 sm:left-8 border-t-4 border-l-4 border-white h-12 w-12 sm:h-16 sm:w-16 opacity-75 rounded-tl-lg"></div>
-            <div className="absolute top-4 right-4 sm:top-8 sm:right-8 border-t-4 border-r-4 border-white h-12 w-12 sm:h-16 sm:w-16 opacity-75 rounded-tr-lg"></div>
-            <div className="absolute bottom-4 left-4 sm:bottom-8 sm:left-8 border-b-4 border-l-4 border-white h-12 w-12 sm:h-16 sm:w-16 opacity-75 rounded-bl-lg"></div>
-            <div className="absolute bottom-4 right-4 sm:bottom-8 sm:right-8 border-b-4 border-r-4 border-white h-12 w-12 sm:h-16 sm:w-16 opacity-75 rounded-br-lg"></div>
-          </div>
-        )}
-
-        {(isLoading || error) && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/70">
-            {isLoading && (
-              <ArrowPathIcon className="w-12 h-12 text-white animate-spin" />
-            )}
-            {error && (
-              <p className="text-white text-center p-8 max-w-sm">{error}</p>
+            {!isPreview && (
+              <div className="flex items-center gap-1.5 bg-black/50 backdrop-blur px-3 py-1.5 rounded-full text-xs font-medium text-emerald-400 border border-emerald-500/30">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                <span>ماسح المستندات الضوئي</span>
+              </div>
             )}
           </div>
-        )}
 
-        {/* Close Button */}
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 p-3 bg-black/50 rounded-full text-white hover:bg-black/75 transition-colors z-10"
-        >
-          <XMarkIcon className="w-6 h-6" />
-        </button>
+          {!isPreview && (
+            <div className="flex items-center gap-2">
+              {/* Flashlight toggle */}
+              {hasTorch && (
+                <button
+                  onClick={toggleTorch}
+                  className={`p-2.5 rounded-full backdrop-blur transition-all ${
+                    torchOn
+                      ? "bg-amber-500 text-black shadow-lg shadow-amber-500/30"
+                      : "bg-black/50 text-white hover:bg-black/80"
+                  }`}
+                  title={torchOn ? "إيقاف الكشاف" : "تشغيل الكشاف"}
+                >
+                  <span className="text-sm font-bold">💡</span>
+                </button>
+              )}
 
-        {/* Control Buttons */}
-        <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black/80 to-transparent flex justify-center items-center">
-          {isPreview ? (
-            <div className="flex items-center justify-around w-full max-w-xs">
+              {/* Auto Crop Toggle */}
               <button
-                onClick={handleRetake}
-                className="flex flex-col items-center text-white font-semibold p-2 rounded-lg hover:bg-white/10"
+                onClick={() => setAutoCrop(!autoCrop)}
+                className={`px-3 py-1.5 rounded-full text-xs font-semibold backdrop-blur transition-all flex items-center gap-1.5 ${
+                  autoCrop
+                    ? "bg-emerald-500/20 text-emerald-300 border border-emerald-400/50"
+                    : "bg-black/50 text-gray-300 border border-gray-600"
+                }`}
+                title="تحديد واقتطاع حدود الورقة تلقائياً"
               >
-                <ArrowPathIcon className="w-8 h-8 mb-1" />
-                <span>إعادة</span>
+                <span>✂️</span>
+                <span>{autoCrop ? "اقتصاص الحدود: مفعّل" : "تحديد كامل"}</span>
               </button>
+
+              {/* Camera Switch */}
               <button
-                onClick={handleSave}
-                className="w-20 h-20 rounded-full bg-blue-500 flex items-center justify-center p-1 ring-4 ring-black/30 hover:bg-blue-600"
-                aria-label="حفظ الصورة"
+                onClick={toggleCamera}
+                className="p-2.5 bg-black/50 hover:bg-black/80 backdrop-blur rounded-full text-white transition-colors"
+                title="تبديل الكاميرا"
               >
-                <CheckCircleIcon className="w-12 h-12 text-white" />
+                <ArrowPathIcon className="w-5 h-5" />
               </button>
             </div>
+          )}
+        </div>
+
+        {/* Video feed & Frame Overlay View */}
+        <div className="relative flex-grow w-full h-full flex items-center justify-center overflow-hidden bg-black">
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            className={`w-full h-full object-cover transition-opacity duration-300 ${
+              isPreview ? "hidden" : "block"
+            }`}
+          ></video>
+
+          {/* Processed canvas preview */}
+          <canvas
+            ref={canvasRef}
+            className={`max-w-full max-h-[75vh] object-contain shadow-2xl rounded-lg border border-gray-800 ${
+              isPreview ? "block" : "hidden"
+            }`}
+          ></canvas>
+
+          {/* Shutter flash effect */}
+          {flashActive && (
+            <div className="absolute inset-0 bg-white animate-pulse z-40 pointer-events-none"></div>
+          )}
+
+          {/* Alignment Document Frame Overlay (Camera View) */}
+          {!isPreview && !isLoading && !error && (
+            <div className="absolute inset-0 pointer-events-none flex items-center justify-center p-4">
+              {/* Outer dark overlay surrounding frame box */}
+              <div
+                ref={frameBoxRef}
+                className="relative w-[88vw] max-w-sm aspect-[1/1.4] max-h-[68vh] rounded-2xl border-2 border-emerald-400/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.6)] flex flex-col justify-between p-4 transition-all"
+              >
+                {/* Glowing Corner Guides */}
+                <div className="absolute -top-1 -left-1 w-10 h-10 border-t-4 border-l-4 border-emerald-400 rounded-tl-xl shadow-[0_0_12px_rgba(52,211,153,0.8)]"></div>
+                <div className="absolute -top-1 -right-1 w-10 h-10 border-t-4 border-r-4 border-emerald-400 rounded-tr-xl shadow-[0_0_12px_rgba(52,211,153,0.8)]"></div>
+                <div className="absolute -bottom-1 -left-1 w-10 h-10 border-b-4 border-l-4 border-emerald-400 rounded-bl-xl shadow-[0_0_12px_rgba(52,211,153,0.8)]"></div>
+                <div className="absolute -bottom-1 -right-1 w-10 h-10 border-b-4 border-r-4 border-emerald-400 rounded-br-xl shadow-[0_0_12px_rgba(52,211,153,0.8)]"></div>
+
+                {/* Animated Green Laser Scan Line */}
+                <div className="absolute inset-x-0 h-0.5 bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_15px_#10b981] animate-[pulse_2s_infinite]"></div>
+
+                {/* Top status instruction */}
+                <div className="self-center bg-black/75 backdrop-blur text-emerald-300 text-xs font-semibold px-3 py-1.5 rounded-full shadow border border-emerald-500/30 flex items-center gap-1.5 mt-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                  <span>حاذِ الورقة بالكامل داخل الإطار الأخضر</span>
+                </div>
+
+                {/* Bottom guidance */}
+                <div className="self-center text-center text-white/90 text-xs bg-black/60 backdrop-blur px-3 py-1 rounded-full mb-2">
+                  حافظ على إضاءة جيدة وثبات الكاميرا
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Loading or Error view */}
+          {(isLoading || error) && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/85 z-20 text-white p-6">
+              {isLoading && (
+                <div className="flex flex-col items-center gap-3">
+                  <ArrowPathIcon className="w-10 h-10 text-emerald-400 animate-spin" />
+                  <p className="text-sm font-medium">جاري تشغيل الكاميرا والمستشعر...</p>
+                </div>
+              )}
+              {error && (
+                <div className="text-center space-y-4 max-w-sm">
+                  <div className="p-3 bg-red-500/20 text-red-400 rounded-full w-14 h-14 mx-auto flex items-center justify-center">
+                    <XMarkIcon className="w-8 h-8" />
+                  </div>
+                  <p className="text-sm leading-relaxed">{error}</p>
+                  <button
+                    onClick={() => startCamera(facingMode)}
+                    className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-medium text-sm transition-colors"
+                  >
+                    إعادة المحاولة
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Bottom Control & Enhancement Bar */}
+        <div className="z-30 bg-black/90 border-t border-gray-800 p-4 backdrop-blur flex flex-col gap-3">
+          {isPreview ? (
+            /* PREVIEW EDITING TOOLS */
+            <div className="space-y-3">
+              {/* Tab Selector: Cropping vs Filter Enhancements */}
+              <div className="flex items-center gap-2 border-b border-gray-800 pb-2 text-xs">
+                <button
+                  onClick={() => setPreviewTab("crop")}
+                  className={`flex-1 py-1.5 px-3 rounded-lg font-bold flex items-center justify-center gap-1.5 transition-all ${
+                    previewTab === "crop"
+                      ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30"
+                      : "bg-gray-800/80 text-gray-300 hover:bg-gray-800"
+                  }`}
+                >
+                  <span>✂️</span>
+                  <span>قص وتقليم الحدود الخارجية</span>
+                </button>
+                <button
+                  onClick={() => setPreviewTab("filter")}
+                  className={`flex-1 py-1.5 px-3 rounded-lg font-bold flex items-center justify-center gap-1.5 transition-all ${
+                    previewTab === "filter"
+                      ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30"
+                      : "bg-gray-800/80 text-gray-300 hover:bg-gray-800"
+                  }`}
+                >
+                  <span>🎨</span>
+                  <span>الفلاتر والإضاءة</span>
+                </button>
+              </div>
+
+              {previewTab === "crop" ? (
+                /* OUTER EDGE CROPPING PANEL */
+                <div className="space-y-2.5 text-xs">
+                  {/* Quick Action Presets */}
+                  <div className="flex items-center justify-between gap-1.5 overflow-x-auto pb-1">
+                    <button
+                      onClick={() => rawCanvas && detectAndAutoCropPaper(rawCanvas)}
+                      className="px-3 py-1.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 font-bold rounded-lg whitespace-nowrap transition-all flex items-center gap-1"
+                      title="التقاط تلقائي لحدود الورقة"
+                    >
+                      <span>🪄</span>
+                      <span>قص تلقائي للحدود</span>
+                    </button>
+
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setCropInsets({ top: 0, bottom: 0, left: 0, right: 0 })}
+                        className={`px-2.5 py-1 rounded-md font-medium transition-all ${
+                          cropInsets.top === 0 && cropInsets.bottom === 0 && cropInsets.left === 0 && cropInsets.right === 0
+                            ? "bg-gray-200 text-black font-bold"
+                            : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+                        }`}
+                      >
+                        بدون قص
+                      </button>
+                      <button
+                        onClick={() => setCropInsets({ top: 3, bottom: 3, left: 3, right: 3 })}
+                        className={`px-2.5 py-1 rounded-md font-medium transition-all ${
+                          cropInsets.top === 3 && cropInsets.bottom === 3 && cropInsets.left === 3 && cropInsets.right === 3
+                            ? "bg-gray-200 text-black font-bold"
+                            : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+                        }`}
+                      >
+                        قص خفيف (3%)
+                      </button>
+                      <button
+                        onClick={() => setCropInsets({ top: 6, bottom: 6, left: 6, right: 6 })}
+                        className={`px-2.5 py-1 rounded-md font-medium transition-all ${
+                          cropInsets.top === 6 && cropInsets.bottom === 6 && cropInsets.left === 6 && cropInsets.right === 6
+                            ? "bg-gray-200 text-black font-bold"
+                            : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+                        }`}
+                      >
+                        قص متوسط (6%)
+                      </button>
+                      <button
+                        onClick={() => setCropInsets({ top: 10, bottom: 10, left: 10, right: 10 })}
+                        className={`px-2.5 py-1 rounded-md font-medium transition-all ${
+                          cropInsets.top === 10 && cropInsets.bottom === 10 && cropInsets.left === 10 && cropInsets.right === 10
+                            ? "bg-gray-200 text-black font-bold"
+                            : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+                        }`}
+                      >
+                        قص عميق (10%)
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Precise Individual Edge Sliders */}
+                  <div className="grid grid-cols-2 gap-2.5 bg-gray-900/90 p-2.5 rounded-xl border border-gray-800">
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-400 whitespace-nowrap min-w-[3.5rem]">⬆️ أعلى:</span>
+                      <input
+                        type="range"
+                        min="0"
+                        max="25"
+                        value={cropInsets.top}
+                        onChange={(e) => setCropInsets((prev) => ({ ...prev, top: Number(e.target.value) }))}
+                        className="w-full accent-emerald-500 h-1.5 bg-gray-700 rounded-lg cursor-pointer"
+                      />
+                      <span className="text-emerald-400 min-w-[2rem] text-left font-mono">{cropInsets.top}%</span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-400 whitespace-nowrap min-w-[3.5rem]">⬇️ أسفل:</span>
+                      <input
+                        type="range"
+                        min="0"
+                        max="25"
+                        value={cropInsets.bottom}
+                        onChange={(e) => setCropInsets((prev) => ({ ...prev, bottom: Number(e.target.value) }))}
+                        className="w-full accent-emerald-500 h-1.5 bg-gray-700 rounded-lg cursor-pointer"
+                      />
+                      <span className="text-emerald-400 min-w-[2rem] text-left font-mono">{cropInsets.bottom}%</span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-400 whitespace-nowrap min-w-[3.5rem]">➡️ أيمن:</span>
+                      <input
+                        type="range"
+                        min="0"
+                        max="25"
+                        value={cropInsets.right}
+                        onChange={(e) => setCropInsets((prev) => ({ ...prev, right: Number(e.target.value) }))}
+                        className="w-full accent-emerald-500 h-1.5 bg-gray-700 rounded-lg cursor-pointer"
+                      />
+                      <span className="text-emerald-400 min-w-[2rem] text-left font-mono">{cropInsets.right}%</span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-400 whitespace-nowrap min-w-[3.5rem]">⬅️ أيسر:</span>
+                      <input
+                        type="range"
+                        min="0"
+                        max="25"
+                        value={cropInsets.left}
+                        onChange={(e) => setCropInsets((prev) => ({ ...prev, left: Number(e.target.value) }))}
+                        className="w-full accent-emerald-500 h-1.5 bg-gray-700 rounded-lg cursor-pointer"
+                      />
+                      <span className="text-emerald-400 min-w-[2rem] text-left font-mono">{cropInsets.left}%</span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* FILTERS & ADJUSTMENTS PANEL */
+                <div className="space-y-3">
+                  {/* Filter Selection Row */}
+                  <div className="flex items-center justify-between gap-1 overflow-x-auto pb-1 text-xs">
+                    <button
+                      onClick={() => setFilterMode("scanner")}
+                      className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                        filterMode === "scanner"
+                          ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30 font-bold"
+                          : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+                      }`}
+                    >
+                      <span>✨</span>
+                      <span>ماسح ضوئي</span>
+                    </button>
+                    <button
+                      onClick={() => setFilterMode("color")}
+                      className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                        filterMode === "color"
+                          ? "bg-blue-600 text-white shadow-md font-bold"
+                          : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+                      }`}
+                    >
+                      <span>🎨</span>
+                      <span>ألوان حقيقية</span>
+                    </button>
+                    <button
+                      onClick={() => setFilterMode("bw")}
+                      className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                        filterMode === "bw"
+                          ? "bg-gray-200 text-black shadow-md font-bold"
+                          : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+                      }`}
+                    >
+                      <span>📄</span>
+                      <span>أبيض وأسود</span>
+                    </button>
+                    <button
+                      onClick={() => setFilterMode("grayscale")}
+                      className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                        filterMode === "grayscale"
+                          ? "bg-purple-600 text-white shadow-md font-bold"
+                          : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+                      }`}
+                    >
+                      <span>🌗</span>
+                      <span>رمادي</span>
+                    </button>
+                    <button
+                      onClick={() => setFilterMode("raw")}
+                      className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                        filterMode === "raw"
+                          ? "bg-amber-600 text-white shadow-md font-bold"
+                          : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+                      }`}
+                    >
+                      <span>📷</span>
+                      <span>أصلية</span>
+                    </button>
+                  </div>
+
+                  {/* Adjustments: Brightness, Contrast & Rotation */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-gray-900/80 p-2.5 rounded-xl border border-gray-800 text-xs">
+                    {/* Brightness slider */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-400 whitespace-nowrap">☀️ الإضاءة:</span>
+                      <input
+                        type="range"
+                        min="-40"
+                        max="40"
+                        value={brightness}
+                        onChange={(e) => setBrightness(Number(e.target.value))}
+                        className="w-full accent-emerald-500 h-1.5 bg-gray-700 rounded-lg cursor-pointer"
+                      />
+                      <span className="text-gray-300 min-w-[2rem] text-left">{brightness > 0 ? `+${brightness}` : brightness}</span>
+                    </div>
+
+                    {/* Contrast slider */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-400 whitespace-nowrap">☯️ التباين:</span>
+                      <input
+                        type="range"
+                        min="-40"
+                        max="40"
+                        value={contrast}
+                        onChange={(e) => setContrast(Number(e.target.value))}
+                        className="w-full accent-emerald-500 h-1.5 bg-gray-700 rounded-lg cursor-pointer"
+                      />
+                      <span className="text-gray-300 min-w-[2rem] text-left">{contrast > 0 ? `+${contrast}` : contrast}</span>
+                    </div>
+
+                    {/* Rotation Button */}
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => setRotation((prev) => (prev + 90) % 360)}
+                        className="w-full py-1.5 px-3 bg-gray-800 hover:bg-gray-700 text-white rounded-lg flex items-center justify-center gap-1.5 font-medium border border-gray-700 transition-colors"
+                      >
+                        <ArrowPathIcon className="w-4 h-4" />
+                        <span>تدوير ({rotation}°)</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons: Retake vs Save */}
+              <div className="flex items-center justify-between gap-4 pt-1">
+                <button
+                  onClick={handleRetake}
+                  className="flex-1 py-3 px-4 bg-gray-800 hover:bg-gray-700 text-white font-semibold rounded-xl flex items-center justify-center gap-2 transition-colors border border-gray-700"
+                >
+                  <ArrowPathIcon className="w-5 h-5" />
+                  <span>إعادة التقاط</span>
+                </button>
+
+                <button
+                  onClick={handleSave}
+                  className="flex-1 py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/30 transition-all transform active:scale-98"
+                >
+                  <CheckCircleIcon className="w-6 h-6" />
+                  <span>حفظ المستند</span>
+                </button>
+              </div>
+            </div>
           ) : (
-            <button
-              onClick={handleCapture}
-              disabled={isLoading}
-              className="w-20 h-20 rounded-full bg-white flex items-center justify-center p-1 ring-4 ring-black/30 disabled:opacity-50"
-              aria-label="التقاط صورة"
-            >
-              <div className="w-full h-full rounded-full bg-white border-2 border-black"></div>
-            </button>
+            /* CAMERA SHUTTER BUTTON BAR */
+            <div className="flex items-center justify-center py-1">
+              <button
+                onClick={handleCapture}
+                disabled={isLoading || !!error}
+                className="group relative w-20 h-20 rounded-full bg-emerald-500 p-1 flex items-center justify-center shadow-xl shadow-emerald-500/30 hover:bg-emerald-400 active:scale-95 transition-all disabled:opacity-40"
+                aria-label="التقاط صورة المستند"
+              >
+                <div className="w-full h-full rounded-full border-4 border-white flex items-center justify-center">
+                  <div className="w-12 h-12 rounded-full bg-white group-hover:scale-105 transition-transform"></div>
+                </div>
+              </button>
+            </div>
           )}
         </div>
       </div>

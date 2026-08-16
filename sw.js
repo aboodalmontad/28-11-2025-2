@@ -1,15 +1,22 @@
-const CACHE_NAME = "lawyer-app-cache-v2026-04-18"; // Force Refresh
+// sw.js - Unified Service Worker for Offline-First Lawyer Management App
+const CACHE_NAME = "lawyer-app-cache-v2026-08-08-offline-v2";
 
+// App Shell URLs to precache during Service Worker installation
 const urlsToCache = [
   "./",
   "./index.html",
+  "./index.css",
+  "./index.tsx",
   "./manifest.json",
   "./icon.svg",
   "https://cdn.tailwindcss.com",
+  "https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"
 ];
 
 self.addEventListener("install", (event) => {
-  self.skipWaiting();
+  console.log("Service Worker: Installing and caching app shell assets.");
+  self.skipWaiting(); // Force the waiting service worker to become active immediately.
+
   event.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
       const cachePromises = urlsToCache.map(async (url) => {
@@ -19,118 +26,167 @@ self.addEventListener("install", (event) => {
           });
           const response = await fetch(req);
           if (response.ok || response.type === "opaque") {
-            return cache.put(url, response);
+            return await cache.put(url, response);
           }
         } catch (error) {
           console.warn(`Failed to precache ${url}:`, error);
         }
       });
       await Promise.all(cachePromises);
-    }),
+      console.log("Service Worker: Precaching completed.");
+    })
   );
 });
 
 self.addEventListener("activate", (event) => {
+  console.log("Service Worker: Activating and cleaning obsolete caches.");
   event.waitUntil(
     caches
       .keys()
-      .then((cacheNames) =>
-        Promise.all(
+      .then((cacheNames) => {
+        return Promise.all(
           cacheNames.map((cacheName) => {
-            if (cacheName !== CACHE_NAME) return caches.delete(cacheName);
-          }),
-        ),
-      )
-      .then(() =>
-        self.clients.claim().then(() => {
-          return self.clients.matchAll().then((clients) => {
-            clients.forEach((client) =>
-              client.postMessage({ type: "RELOAD_PAGE_NOW" }),
-            );
-          });
-        }),
-      ),
+            if (cacheName !== CACHE_NAME) {
+              console.log("Service Worker: Deleting obsolete cache:", cacheName);
+              return caches.delete(cacheName);
+            }
+          })
+        );
+      })
+      .then(() => {
+        console.log("Service Worker: Claiming clients.");
+        return self.clients.claim();
+      })
   );
 });
 
-// Helper for fetch with timeout
-const fetchWithTimeout = (request, timeoutMs) => {
-  return new Promise((resolve, reject) => {
-    const timeoutId = setTimeout(
-      () => reject(new Error("Fetch timeout")),
-      timeoutMs,
-    );
-    fetch(request)
-      .then((response) => {
-        clearTimeout(timeoutId);
-        resolve(response);
-      })
-      .catch((err) => {
-        clearTimeout(timeoutId);
-        reject(err);
-      });
-  });
-};
-
 self.addEventListener("fetch", (event) => {
+  // Skip non-GET requests (e.g. POST, PUT, DELETE should never be cached)
+  if (event.request.method !== "GET") {
+    return;
+  }
+
   const url = new URL(event.request.url);
 
-  if (url.hostname.includes("supabase.co") || url.pathname.startsWith("/api/"))
+  // Bypass Service Worker completely for Supabase sync database calls & backend APIs
+  if (url.hostname.includes("supabase.co") || url.pathname.startsWith("/api/")) {
     return;
-  if (event.request.method !== "GET") return;
+  }
 
-  const isNavigation = event.request.mode === "navigate";
-  const isHtml = url.pathname === "/" || url.pathname.endsWith(".html");
-  const isViteHmr =
-    url.pathname.includes("@vite") ||
-    url.pathname.includes("?import") ||
-    url.pathname.includes(".ts") ||
-    url.pathname.includes(".tsx");
+  // Bypass Vite Hot Module Replacement (HMR) websocket pings
+  if (
+    url.pathname.includes("__vite_ping") ||
+    url.pathname.includes("@vite/client")
+  ) {
+    return;
+  }
 
-  // Network First with Timeout for HTML and core scripts (to catch updates)
-  if (isNavigation || isHtml || isViteHmr) {
+  // Bypass the Service Worker script itself to prevent updates loop
+  if (url.pathname.endsWith("sw.js")) {
+    return;
+  }
+
+  // Handle Cross-Origin requests securely
+  const isCrossOrigin = url.origin !== self.location.origin;
+  const allowedOrigins = [
+    "cdn.tailwindcss.com",
+    "fonts.googleapis.com",
+    "fonts.gstatic.com"
+  ];
+  const isAllowedOrigin = allowedOrigins.some((origin) => url.hostname.includes(origin));
+
+  if (isCrossOrigin && !isAllowedOrigin) {
+    return;
+  }
+
+  // Navigation requests: Network first with robust offline fallback to cached index.html
+  if (event.request.mode === "navigate") {
     event.respondWith(
-      fetchWithTimeout(event.request, 2000)
+      fetch(event.request)
         .then((response) => {
-          if (
-            !response ||
-            (response.status !== 200 && response.type !== "opaque")
-          )
-            return response;
-          const resClone = response.clone();
-          caches
-            .open(CACHE_NAME)
-            .then((cache) => cache.put(event.request, resClone));
+          if (response && response.status === 200) {
+            const responseToCache = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseToCache);
+              cache.put("./index.html", responseToCache.clone());
+            });
+          }
           return response;
         })
-        .catch(() =>
-          caches
-            .match(event.request)
-            .then((res) => res || new Response("Offline", { status: 503 })),
-        ),
+        .catch(async () => {
+          console.log("Offline navigation fallback requested for:", event.request.url);
+          const cached =
+            (await caches.match(event.request)) ||
+            (await caches.match("./index.html")) ||
+            (await caches.match("/index.html")) ||
+            (await caches.match("./")) ||
+            (await caches.match("/"));
+          
+          if (cached) return cached;
+
+          // Search any matching cache key in CACHE_NAME ending with index.html or /
+          try {
+            const cache = await caches.open(CACHE_NAME);
+            const keys = await cache.keys();
+            for (const key of keys) {
+              if (key.url.endsWith("index.html") || key.url.endsWith("/")) {
+                const match = await cache.match(key);
+                if (match) return match;
+              }
+            }
+          } catch (e) {
+            console.error("Cache lookup error during navigation:", e);
+          }
+
+          return new Response("Offline Page Unavailable", {
+            status: 503,
+            statusText: "Service Unavailable",
+          });
+        })
     );
     return;
   }
 
-  // Stale-While-Revalidate for everything else (CSS, Fonts, Images, Tailwind CDN)
+  // Static Assets & Code Modules: Stale-While-Revalidate / Cache-First when Offline
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
-      const networkFetch = fetch(event.request)
-        .then((response) => {
-          if (
-            response &&
-            (response.status === 200 || response.type === "opaque")
-          ) {
-            const resClone = response.clone();
-            caches
-              .open(CACHE_NAME)
-              .then((cache) => cache.put(event.request, resClone));
-          }
-          return response;
-        })
-        .catch((e) => console.warn("Background fetch failed:", e));
+      // If we are offline and have a cached copy, return it immediately
+      if (cachedResponse && (typeof navigator !== "undefined" && !navigator.onLine)) {
+        return cachedResponse;
+      }
 
-      return cachedResponse || networkFetch;
-    }),
+      return fetch(event.request)
+        .then((networkResponse) => {
+          if (
+            networkResponse &&
+            (networkResponse.status === 200 || networkResponse.type === "opaque")
+          ) {
+            const responseToCache = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseToCache);
+            });
+          }
+          return networkResponse;
+        })
+        .catch(async (error) => {
+          console.warn("Fetch failed offline for asset:", url.href, error);
+          if (cachedResponse) {
+            return cachedResponse;
+          }
+
+          const altMatch = await caches.match(url.pathname);
+          if (altMatch) return altMatch;
+
+          // Safe fallback for stylesheets
+          if (url.pathname.endsWith(".css")) {
+            return new Response("", { headers: { "Content-Type": "text/css" } });
+          }
+
+          return new Response("Offline Resource Unavailable", {
+            status: 503,
+            statusText: "Service Unavailable",
+          });
+        });
+    })
   );
 });

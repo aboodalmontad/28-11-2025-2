@@ -95,7 +95,36 @@
     <div id="datepicker-portal"></div>
     <!-- Script to handle loader removal if React fails or takes too long -->
     <script>
-      // Safety watchdog: If app hasn't mounted in 10 seconds, show error.
+      // Global error diagnostics to print exact issues if they occur
+      window.addEventListener('error', function(e) {
+        console.error('Startup error caught:', e.error);
+        const errEl = document.getElementById("loader-error");
+        if (errEl) {
+          const detail = document.createElement("p");
+          detail.className = "text-xs text-red-500 mt-2 font-mono text-left break-all bg-red-50 p-2 rounded border border-red-100";
+          detail.textContent = e.message || 'خطأ أثناء تحميل موارد التطبيق (Resource loading error)';
+          errEl.appendChild(detail);
+          const spinner = document.querySelector(".spinner");
+          if (spinner) spinner.style.display = "none";
+          errEl.style.display = "block";
+        }
+      });
+
+      window.addEventListener('unhandledrejection', function(e) {
+        console.error('Unhandled Promise rejection:', e.reason);
+        const errEl = document.getElementById("loader-error");
+        if (errEl) {
+          const detail = document.createElement("p");
+          detail.className = "text-xs text-red-500 mt-2 font-mono text-left break-all bg-red-50 p-2 rounded border border-red-100";
+          detail.textContent = String(e.reason || 'Unhandled Promise rejection');
+          errEl.appendChild(detail);
+          const spinner = document.querySelector(".spinner");
+          if (spinner) spinner.style.display = "none";
+          errEl.style.display = "block";
+        }
+      });
+
+      // Safety watchdog: If app hasn't mounted in 60 seconds, show error.
       setTimeout(() => {
         const root = document.getElementById("root");
         const loader = document.getElementById("initial-loader");
@@ -104,10 +133,12 @@
           loader.style.display !== "none" &&
           (!root || root.innerHTML === "")
         ) {
-          document.querySelector(".spinner").style.display = "none";
-          document.getElementById("loader-error").style.display = "block";
+          const spinner = document.querySelector(".spinner");
+          if (spinner) spinner.style.display = "none";
+          const errEl = document.getElementById("loader-error");
+          if (errEl) errEl.style.display = "block";
         }
-      }, 10000);
+      }, 60000);
     </script>
     <!-- The main script for the application -->
     <script type="module" src="/index.tsx"></script>

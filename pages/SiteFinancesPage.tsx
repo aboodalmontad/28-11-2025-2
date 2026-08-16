@@ -6,6 +6,7 @@ import {
   format_date,
   to_input_date_string,
   safe_revive_date,
+  format_month_year,
 } from "../utils/dateUtils";
 import {
   PlusIcon,
@@ -257,10 +258,7 @@ const SiteFinancesPage: React.FC = () => {
 
         if (!acc[monthKey]) {
           acc[monthKey] = {
-            month: d.toLocaleString("ar-EG", {
-              month: "short",
-              year: "numeric",
-            }),
+            month: format_month_year(d),
             monthDate: monthStart,
             income: 0,
             expense: 0,

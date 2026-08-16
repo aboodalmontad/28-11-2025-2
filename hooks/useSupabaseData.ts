@@ -31,6 +31,7 @@ import {
   to_input_date_string,
   is_holiday,
   safe_revive_date,
+  is_today,
 } from "../utils/dateUtils";
 import { generateId } from "../utils/idUtils";
 import { RealtimeAlert } from "../components/RealtimeNotifier";
@@ -47,7 +48,7 @@ export const get_app_data_key = (user_id: string | null) =>
   user_id ? `${APP_DATA_KEY_PREFIX}_${user_id}` : APP_DATA_KEY_PREFIX;
 
 export type SyncStatus = SyncStatusType;
-const default_assistants = ["أحمد", "فاطمة", "سارة", "بدون تخصيص"];
+const default_assistants = ["بدون تخصيص"];
 
 const get_initial_data = (): AppData => ({
   clients: [],
@@ -103,6 +104,27 @@ const migrate_data = (old_data: any): AppData => {
     client_name: c.client_name || c.clientName || "",
     opponent_name: c.opponent_name || c.opponentName || "",
     stages: (c.stages || []).map(migrate_stage),
+    tasks: (c.tasks || []).map((t: any) => {
+      let img = t.image_url || t.imageUrl;
+      let cleanTask = t.task || "";
+      if (!img && cleanTask.includes("<!--IMG:")) {
+        const match = cleanTask.match(/<!--IMG:([\s\S]*?)-->/);
+        if (match) img = match[1];
+      }
+      if (cleanTask.includes("<!--IMG:")) {
+        cleanTask = cleanTask.replace(/<!--IMG:[\s\S]*?-->/g, "").trim();
+      }
+      return {
+        id: t.id,
+        task: cleanTask,
+        due_date: t.due_date || t.dueDate || "",
+        completed: Boolean(t.completed),
+        importance: t.importance || "normal",
+        assignee: t.assignee,
+        image_url: img,
+        updated_at: t.updated_at || t.updatedAt,
+      };
+    }),
     fee_agreement: c.fee_agreement || c.feeAgreement || "",
     status: c.status || "active",
     updated_at: c.updated_at || c.updatedAt,
@@ -119,18 +141,31 @@ const migrate_data = (old_data: any): AppData => {
     user_id: c.user_id || c.userId,
   });
 
-  const migrate_task = (t: any): AdminTask => ({
-    id: t.id,
-    user_id: t.user_id || t.userId,
-    task: t.task || "",
-    due_date: t.due_date || t.dueDate || "",
-    completed: Boolean(t.completed),
-    importance: t.importance || "normal",
-    assignee: t.assignee,
-    location: t.location,
-    updated_at: t.updated_at || t.updatedAt,
-    order_index: t.order_index ?? t.orderIndex,
-  });
+  const migrate_task = (t: any): AdminTask => {
+    let img = t.image_url || t.imageUrl;
+    let cleanTask = t.task || "";
+    if (!img && cleanTask.includes("<!--IMG:")) {
+      const match = cleanTask.match(/<!--IMG:([\s\S]*?)-->/);
+      if (match) img = match[1];
+    }
+    if (cleanTask.includes("<!--IMG:")) {
+      cleanTask = cleanTask.replace(/<!--IMG:[\s\S]*?-->/g, "").trim();
+    }
+    return {
+      id: t.id,
+      user_id: t.user_id || t.userId,
+      task: cleanTask,
+      due_date: t.due_date || t.dueDate || "",
+      completed: Boolean(t.completed),
+      importance: t.importance || "normal",
+      assignee: t.assignee,
+      location: t.location,
+      image_url: img,
+      case_id: t.case_id || t.caseId,
+      updated_at: t.updated_at || t.updatedAt,
+      order_index: t.order_index ?? t.orderIndex,
+    };
+  };
 
   const migrate_appointment = (a: any): Appointment => ({
     id: a.id,
@@ -283,6 +318,14 @@ export const useSupabaseData = (
     RealtimeAlert[]
   >([]);
   const [is_update_available, set_is_update_available] = React.useState(false);
+  const [whatsapp_share_data, set_whatsapp_share_data] = React.useState<{
+    text: string;
+    phone?: string;
+  } | null>(null);
+
+  const share_via_whatsapp = React.useCallback((text: string, phone?: string) => {
+    set_whatsapp_share_data({ text, phone });
+  }, []);
   const is_online = useOnlineStatus();
 
   const user_ref = React.useRef(user);
@@ -560,7 +603,7 @@ export const useSupabaseData = (
           set_deleted_ids(get_initial_deleted_ids());
         }
         
-        if (has_local_data) {
+        if (cached_data) {
           set_is_data_loading(false);
           set_sync_status("synced");
         }
@@ -768,12 +811,135 @@ export const useSupabaseData = (
     fetch_and_refresh,
   ]);
 
-  const [is_auto_sync_enabled, set_auto_sync_enabled] = React.useState(true);
-  const [is_auto_backup_enabled, set_auto_backup_enabled] =
-    React.useState(false);
-  const [admin_tasks_layout, set_admin_tasks_layout] = React.useState<
+  const [is_auto_sync_enabled, set_auto_sync_enabled_state] = React.useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem("is_auto_sync_enabled");
+      if (saved !== null) return JSON.parse(saved);
+    } catch (e) {}
+    return true;
+  });
+
+  const [is_auto_backup_enabled, set_auto_backup_enabled_state] = React.useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem("is_auto_backup_enabled");
+      if (saved !== null) return JSON.parse(saved);
+    } catch (e) {}
+    return false;
+  });
+
+  const [admin_tasks_layout, set_admin_tasks_layout_state] = React.useState<
     "horizontal" | "vertical"
-  >("vertical");
+  >(() => {
+    try {
+      const saved = localStorage.getItem("admin_tasks_layout");
+      if (saved === "horizontal" || saved === "vertical") return saved;
+    } catch (e) {}
+    return "vertical";
+  });
+
+  // Load user specific settings when user changes
+  React.useEffect(() => {
+    if (!user?.id) return;
+    try {
+      const syncKey = `is_auto_sync_enabled_${user.id}`;
+      const syncSaved = localStorage.getItem(syncKey);
+      if (syncSaved !== null) set_auto_sync_enabled_state(JSON.parse(syncSaved));
+
+      const backupKey = `is_auto_backup_enabled_${user.id}`;
+      const backupSaved = localStorage.getItem(backupKey);
+      if (backupSaved !== null) set_auto_backup_enabled_state(JSON.parse(backupSaved));
+
+      const layoutKey = `admin_tasks_layout_${user.id}`;
+      const layoutSaved = localStorage.getItem(layoutKey);
+      if (layoutSaved === "horizontal" || layoutSaved === "vertical") {
+        set_admin_tasks_layout_state(layoutSaved as "horizontal" | "vertical");
+      }
+    } catch (e) {
+      console.error("Error loading user settings from localStorage:", e);
+    }
+  }, [user?.id]);
+
+  const set_auto_sync_enabled = React.useCallback(
+    (enabled: boolean) => {
+      set_auto_sync_enabled_state(enabled);
+      try {
+        localStorage.setItem("is_auto_sync_enabled", JSON.stringify(enabled));
+        if (user?.id) {
+          localStorage.setItem(`is_auto_sync_enabled_${user.id}`, JSON.stringify(enabled));
+        }
+      } catch (e) {
+        console.error("Error persisting auto sync setting:", e);
+      }
+    },
+    [user?.id],
+  );
+
+  const set_auto_backup_enabled = React.useCallback(
+    (enabled: boolean) => {
+      set_auto_backup_enabled_state(enabled);
+      try {
+        localStorage.setItem("is_auto_backup_enabled", JSON.stringify(enabled));
+        if (user?.id) {
+          localStorage.setItem(`is_auto_backup_enabled_${user.id}`, JSON.stringify(enabled));
+        }
+      } catch (e) {
+        console.error("Error persisting auto backup setting:", e);
+      }
+    },
+    [user?.id],
+  );
+
+  const set_admin_tasks_layout = React.useCallback(
+    (layout: "horizontal" | "vertical") => {
+      set_admin_tasks_layout_state(layout);
+      try {
+        localStorage.setItem("admin_tasks_layout", layout);
+        if (user?.id) {
+          localStorage.setItem(`admin_tasks_layout_${user.id}`, layout);
+        }
+      } catch (e) {
+        console.error("Error persisting admin tasks layout setting:", e);
+      }
+    },
+    [user?.id],
+  );
+
+  // Perform daily auto-backup and download backup on actual user login if enabled
+  React.useEffect(() => {
+    if (!user?.id || !is_auto_backup_enabled || is_data_loading || !data) return;
+
+    const loginFlagKey = `just_logged_in_user_${user.id}`;
+    const isJustLoggedIn = sessionStorage.getItem(loginFlagKey) === "true";
+
+    const todayStr = new Date().toISOString().split("T")[0];
+    const userKey = user.id;
+
+    try {
+      const dataStr = JSON.stringify(data, null, 2);
+      localStorage.setItem(`auto_backup_data_${userKey}`, dataStr);
+      localStorage.setItem(`last_auto_backup_date_${userKey}`, todayStr);
+      localStorage.setItem(`last_auto_backup_time_${userKey}`, new Date().toISOString());
+
+      // Only trigger file download if user performed an explicit login action in this session
+      if (isJustLoggedIn) {
+        sessionStorage.removeItem(loginFlagKey); // Remove flag so page refreshes will NOT download
+
+        const blob = new Blob([dataStr], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `lawyer_backup_${todayStr}.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        console.log("Backup file downloaded on explicit user login for:", userKey);
+      }
+    } catch (e) {
+      console.error("Failed to process auto backup on login:", e);
+    }
+  }, [is_auto_backup_enabled, is_data_loading, data, user?.id]);
+
   const [location_order, set_location_order] = React.useState<string[]>([]);
 
   const set_full_data = React.useCallback(
@@ -867,7 +1033,8 @@ export const useSupabaseData = (
             ...s,
             client_name: s.client_name || c.name,
             opponent_name: s.opponent_name || cs.opponent_name,
-            case_number: s.case_number || cs.subject || cs.id,
+            case_number: s.case_number || st.case_number || cs.subject || cs.id,
+            court: s.court || st.court || "غير محدد",
             stage_id: s.stage_id || st.id,
             stage_decision_date: st.decision_date,
             is_postponed: Boolean(s.is_postponed),
@@ -882,6 +1049,169 @@ export const useSupabaseData = (
       (s) => !s.is_postponed && !s.stage_decision_date && !s.next_session_date,
     );
   }, [all_sessions]);
+
+  // Alert for unpostponed today's sessions after 12:00 PM
+  const unpostponed_alert_tracker = React.useRef<{
+    date: string;
+    count: number;
+  }>({ date: "", count: 0 });
+
+  React.useEffect(() => {
+    const check_unpostponed_today_sessions = () => {
+      const now = new Date();
+      // Only check if time is past 12:00 PM (noon)
+      if (now.getHours() < 12) return;
+
+      const today_str = to_input_date_string(now);
+      const todays_unpostponed = unpostponed_sessions.filter((s) =>
+        is_today(s.date),
+      );
+      const count = todays_unpostponed.length;
+
+      if (count === 0) {
+        // If all today's sessions have been postponed/decided, clear any active alert
+        set_realtime_alerts((prev) =>
+          prev.filter((a) => a.type !== "unpostponed"),
+        );
+        return;
+      }
+
+      // If we haven't already alerted for today's date and count
+      if (
+        unpostponed_alert_tracker.current.date !== today_str ||
+        unpostponed_alert_tracker.current.count !== count
+      ) {
+        unpostponed_alert_tracker.current = { date: today_str, count };
+
+        const session_text =
+          count === 1
+            ? "جلسة واحدة اليوم لم ترحّل"
+            : count === 2
+            ? "جلسان اليوم لم ترحّلا"
+            : count >= 3 && count <= 10
+            ? `${count} جلسات اليوم لم ترحّل`
+            : `${count} جلسة اليوم لم ترحّل`;
+
+        set_realtime_alerts((prev) => [
+          ...prev.filter((a) => a.type !== "unpostponed"),
+          {
+            id: Date.now(),
+            message: `تنبيه بعد 12:00 ظهراً: يوجد ${session_text} بعد إلى جلسة قادمة.`,
+            type: "unpostponed",
+          },
+        ]);
+      }
+    };
+
+    check_unpostponed_today_sessions();
+
+    // Check periodically every minute
+    const intervalId = setInterval(check_unpostponed_today_sessions, 60000);
+    return () => clearInterval(intervalId);
+  }, [unpostponed_sessions]);
+
+  // Check for appointment reminders and trigger alerts
+  React.useEffect(() => {
+    const check_appointment_reminders = () => {
+      const appointmentsList = data.appointments;
+      if (!appointmentsList || appointmentsList.length === 0) return;
+
+      const now = new Date();
+      const nowMs = now.getTime();
+      const newAlerts: Appointment[] = [];
+      const notifiedApptIds: string[] = [];
+
+      appointmentsList.forEach((apt) => {
+        if (apt.completed || apt.notified) return;
+        if (!apt.date || !apt.time) return;
+
+        const datePart = apt.date.includes("T")
+          ? apt.date.split("T")[0]
+          : apt.date;
+        const dateTokens = datePart.split("-");
+        const timeTokens = apt.time.split(":");
+
+        if (dateTokens.length < 3 || timeTokens.length < 2) return;
+
+        const year = parseInt(dateTokens[0], 10);
+        const month = parseInt(dateTokens[1], 10);
+        const day = parseInt(dateTokens[2], 10);
+        const hour = parseInt(timeTokens[0], 10);
+        const minute = parseInt(timeTokens[1], 10);
+
+        if (
+          isNaN(year) ||
+          isNaN(month) ||
+          isNaN(day) ||
+          isNaN(hour) ||
+          isNaN(minute)
+        )
+          return;
+
+        const aptDate = new Date(year, month - 1, day, hour, minute, 0, 0);
+        const aptMs = aptDate.getTime();
+
+        const reminderMins =
+          typeof apt.reminder_time_in_minutes === "number"
+            ? apt.reminder_time_in_minutes
+            : 15;
+        const reminderMs = aptMs - reminderMins * 60 * 1000;
+
+        // Trigger if current time has reached/passed the reminder time,
+        // AND not passed appointment time by more than 3 hours.
+        if (nowMs >= reminderMs && nowMs <= aptMs + 3 * 60 * 60 * 1000) {
+          newAlerts.push(apt);
+          notifiedApptIds.push(apt.id);
+        }
+      });
+
+      if (newAlerts.length > 0) {
+        set_triggered_alerts((prev) => {
+          const existingIds = new Set(prev.map((a) => a.id));
+          const filteredNew = newAlerts.filter((a) => !existingIds.has(a.id));
+          if (filteredNew.length === 0) return prev;
+          return [...prev, ...filteredNew];
+        });
+
+        set_data((prev) => {
+          const updatedApps = prev.appointments.map((a) =>
+            notifiedApptIds.includes(a.id)
+              ? {
+                  ...a,
+                  notified: true,
+                  updated_at: new Date().toISOString(),
+                }
+              : a,
+          );
+          return { ...prev, appointments: updatedApps };
+        });
+
+        // Browser Native Push Notification fallback
+        if (typeof window !== "undefined" && "Notification" in window) {
+          if (Notification.permission === "granted") {
+            newAlerts.forEach((a) => {
+              try {
+                new Notification("⏰ تذكير بموعد: " + a.title, {
+                  body: `الموعد الساعة ${a.time} - المسند إليه: ${
+                    a.assignee || "غير محدد"
+                  }`,
+                  icon: "/favicon.ico",
+                  dir: "rtl",
+                  lang: "ar",
+                });
+              } catch (e) {
+                console.error("Browser notification error:", e);
+              }
+            });
+          }
+        }
+      }
+    };
+
+    check_appointment_reminders();
+    const intervalId = setInterval(check_appointment_reminders, 10000); // Check every 10 seconds
+    return () => clearInterval(intervalId);
+  }, [data.appointments]);
 
   const download_document_file = React.useCallback(
     async (doc: CaseDocument) => {
@@ -1015,6 +1345,9 @@ export const useSupabaseData = (
             : "";
           const storage_path = `${effective_user_id}/${case_id}/${id}${extension ? "." + extension : ""}`;
 
+          // If file is larger than 5MB, mark as local-only error state to avoid cloud storage limits
+          const is_oversized = file.size > 5 * 1024 * 1024;
+
           const new_doc: CaseDocument = {
             id,
             case_id,
@@ -1024,7 +1357,7 @@ export const useSupabaseData = (
             size: file.size,
             added_at: new Date().toISOString(),
             storage_path,
-            local_state: "pending_upload",
+            local_state: is_oversized ? "error" : "pending_upload",
             updated_at: new Date().toISOString(),
           };
 
@@ -1459,6 +1792,9 @@ export const useSupabaseData = (
       }));
     },
     delete_document,
+    whatsapp_share_data,
+    set_whatsapp_share_data,
+    share_via_whatsapp,
     add_documents,
     download_document_file,
     get_document_file,

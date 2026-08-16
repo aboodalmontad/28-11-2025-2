@@ -1,3 +1,41 @@
+export const MONTH_NAMES_AR = [
+  "كانون الثاني (1)",
+  "شباط (2)",
+  "آذار (3)",
+  "نيسان (4)",
+  "أيار (5)",
+  "حزيران (6)",
+  "تموز (7)",
+  "آب (8)",
+  "أيلول (9)",
+  "تشرين الأول (10)",
+  "تشرين الثاني (11)",
+  "كانون الأول (12)",
+];
+
+/**
+ * Returns month name with numerical rank e.g. "كانون الثاني (1)", "شباط (2)"
+ */
+export const get_month_name_with_number = (date: Date | string | number): string => {
+  if (typeof date === "number") {
+    return MONTH_NAMES_AR[date] || "";
+  }
+  const d = safe_revive_date(date);
+  if (isNaN(d.getTime())) return "";
+  return MONTH_NAMES_AR[d.getMonth()] || "";
+};
+
+/**
+ * Returns formatted month and year e.g. "شباط (2) 2026"
+ */
+export const format_month_year = (date: Date | string): string => {
+  const d = safe_revive_date(date);
+  if (isNaN(d.getTime())) return "";
+  const monthStr = get_month_name_with_number(d);
+  const year = d.getFullYear();
+  return `${monthStr} ${year}`;
+};
+
 export const get_days_in_month = (year: number, month: number): Date[] => {
   const date = new Date(year, month, 1);
   const days: Date[] = [];

@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useData } from "../context/DataContext";
 import {
   Client,
   Case,
@@ -29,6 +30,7 @@ import CaseAccounting from "./CaseAccounting";
 import { format_date, safe_revive_date } from "../utils/dateUtils";
 import { MenuItem } from "./ContextMenu";
 import CaseDocuments from "./CaseDocuments";
+import CaseTasks from "./CaseTasks";
 
 interface ClientsListViewProps {
   clients: Client[];
@@ -86,12 +88,13 @@ const ClientCard: React.FC<{
     string | null
   >(null);
   const [active_tab, set_active_tab] = React.useState<
-    "stages" | "accounting" | "documents"
+    "stages" | "accounting" | "documents" | "tasks"
   >("stages");
   const client_long_press_timer = React.useRef<number | null>(null);
   const case_long_press_timer = React.useRef<number | null>(null);
   const stage_long_press_timer = React.useRef<number | null>(null);
   const { permissions } = props;
+  const { share_via_whatsapp } = useData();
 
   const handle_fee_change = (caseId: string, new_fee: string) => {
     props.set_clients((clients) =>
@@ -136,8 +139,7 @@ const ClientCard: React.FC<{
             `*معلومات الاتصال:* ${client.contact_info || "لا يوجد"}`,
             `*عدد القضايا:* ${client.cases.length}`,
           ].join("\n");
-          const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
-          window.open(whatsappUrl, "_blank");
+          share_via_whatsapp(message);
         },
       },
     ];
@@ -219,8 +221,7 @@ const ClientCard: React.FC<{
         label: "مشاركة عبر واتساب",
         icon: <ShareIcon className="w-4 h-4" />,
         onClick: () => {
-          const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
-          window.open(whatsappUrl, "_blank");
+          share_via_whatsapp(message);
         },
       },
     ];
@@ -278,8 +279,7 @@ const ClientCard: React.FC<{
         label: "مشاركة عبر واتساب",
         icon: <ShareIcon className="w-4 h-4" />,
         onClick: () => {
-          const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
-          window.open(whatsappUrl, "_blank");
+          share_via_whatsapp(message);
         },
       },
     ];
@@ -331,8 +331,7 @@ const ClientCard: React.FC<{
         label: "مشاركة عبر واتساب",
         icon: <ShareIcon className="w-4 h-4" />,
         onClick: () => {
-          const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
-          window.open(whatsappUrl, "_blank");
+          share_via_whatsapp(message);
         },
       },
     ];
@@ -543,6 +542,12 @@ const ClientCard: React.FC<{
                         className={`px-4 py-2 text-sm font-medium ${active_tab === "documents" ? "border-b-2 border-blue-500 text-blue-600" : "text-gray-500"}`}
                       >
                         الوثائق
+                      </button>
+                      <button
+                        onClick={() => set_active_tab("tasks")}
+                        className={`px-4 py-2 text-sm font-medium ${active_tab === "tasks" ? "border-b-2 border-blue-500 text-blue-600" : "text-gray-500"}`}
+                      >
+                        مهام القضية
                       </button>
                     </div>
                     {active_tab === "stages" && (
@@ -764,6 +769,27 @@ const ClientCard: React.FC<{
                     )}
                     {active_tab === "documents" && (
                       <CaseDocuments caseId={caseItem.id} />
+                    )}
+                    {active_tab === "tasks" && (
+                      <CaseTasks
+                        caseItem={caseItem}
+                        clientName={client.name}
+                        onUpdateTasks={(newTasks) => {
+                          props.set_clients((clients) =>
+                            clients.map((c) => {
+                              if (c.id === client.id) {
+                                return {
+                                  ...c,
+                                  cases: c.cases.map((ca) =>
+                                    ca.id === caseItem.id ? { ...ca, tasks: newTasks } : ca
+                                  ),
+                                };
+                              }
+                              return c;
+                            })
+                          );
+                        }}
+                      />
                     )}
                   </div>
                 )}
