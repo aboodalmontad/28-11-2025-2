@@ -1076,9 +1076,9 @@ export const useSupabaseData = (
       sync_status !== "syncing"
     ) {
       const timer = setTimeout(() => {
-        console.log("Auto-syncing local changes to cloud...");
+        console.log("Auto-syncing local changes to cloud in background...");
         manual_sync();
-      }, 2000); // Wait 2 seconds of inactivity before auto-syncing local changes
+      }, 300); // Fast background sync upon any modification (300ms debounce)
       return () => clearTimeout(timer);
     }
   }, [
