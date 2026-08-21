@@ -1,4 +1,5 @@
 import * as React from "react";
+import { logActivity } from "../utils/auditLogger";
 import {
   Client,
   Session,
@@ -17,6 +18,7 @@ import {
   SiteFinancialEntry,
   Permissions,
   default_permissions,
+  AuditLogEntry,
 } from "../types";
 import { useOnlineStatus } from "./useOnlineStatus";
 import type { User } from "@supabase/supabase-js";
@@ -60,6 +62,7 @@ const get_initial_data = (): AppData => ({
   documents: [],
   profiles: [],
   site_finances: [],
+  audit_logs: [],
 });
 
 const migrate_data = (old_data: any): AppData => {
@@ -291,6 +294,7 @@ const migrate_data = (old_data: any): AppData => {
     documents: (old_data.documents || []).map(migrate_document),
     profiles: (old_data.profiles || []).map(migrate_profile),
     site_finances: (old_data.site_finances || []).map(migrate_site_finance),
+    audit_logs: old_data.audit_logs || [],
   };
 };
 
@@ -479,21 +483,18 @@ export const useSupabaseData = (
         (f) => f.user_id === target_user_id,
       ),
       assistants: data.assistants.filter((a: any) => {
-        // If they are strings, assume they are the default system dropdown items
+        // If it's a string, only keep default system dropdown item
         if (typeof a === "string") {
-          return true; // default_assistants
+          return a === "بدون تخصيص";
         }
         // If assistants are objects with user_id, explicitly filter them.
         if (typeof a === "object" && a !== null && "user_id" in a) {
           if (is_admin && !admin_viewing_user_id) {
-            // If admin is NOT viewing a specific user, they should only see their own assistants or system ones
-            // Otherwise the dropdown becomes a massive mess of all assistants across the app
-            return a.user_id === user?.id; 
+            return a.user_id === user?.id;
           }
           return a.user_id === target_user_id;
         }
-        // If it's some other weird object without user_id, keep it just in case
-        return true;
+        return false;
       }),
     };
   }, [data, is_admin, admin_viewing_user_id, user?.id]);
@@ -747,106 +748,7 @@ export const useSupabaseData = (
       is_dirty: is_dirty,
     });
 
-  // Auto-sync on mount/login
-  React.useEffect(() => {
-    if (user && is_online && !is_auth_loading) {
-      // Run a quiet background sync once to pull any remote updates and push pending offline work
-      console.log("Triggering background auto-sync on startup in 500ms...");
-      const timer = setTimeout(() => {
-        manual_sync({ force: true });
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [user?.id, is_online, is_auth_loading]);
 
-  // Auto-sync when coming back online or internet becomes available
-  const prev_is_online = React.useRef(is_online);
-  React.useEffect(() => {
-    if (
-      user &&
-      is_online &&
-      !prev_is_online.current &&
-      !is_auth_loading &&
-      sync_status !== "syncing"
-    ) {
-      console.log("🌐 Internet restored, triggering full background auto-sync...");
-      manual_sync({ force: true });
-    }
-    prev_is_online.current = is_online;
-  }, [is_online, manual_sync, user, is_auth_loading, sync_status]);
-
-  // Listen to custom online_restored event, window focus, tab visibility and Service Worker sync messages
-  React.useEffect(() => {
-    if (!user || is_auth_loading) return;
-
-    const handleOnlineRestored = () => {
-      console.log("⚡ app:online_restored event received. Executing background sync...");
-      if (sync_status !== "syncing") {
-        manual_sync({ force: true });
-      }
-    };
-
-    const handleVisibilityOrFocus = () => {
-      if (
-        document.visibilityState === "visible" &&
-        is_online &&
-        sync_status !== "syncing"
-      ) {
-        fetch_and_refresh();
-      }
-    };
-
-    const handleSWMessage = (event: MessageEvent) => {
-      if (
-        event.data &&
-        (event.data.type === "TRIGGER_BACKGROUND_SYNC" ||
-          event.data.type === "ONLINE_RESTORED")
-      ) {
-        console.log("Service Worker requested background sync:", event.data);
-        if (is_online && sync_status !== "syncing") {
-          manual_sync({ force: true });
-        }
-      }
-    };
-
-    window.addEventListener("app:online_restored", handleOnlineRestored);
-    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
-    window.addEventListener("focus", handleVisibilityOrFocus);
-
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.addEventListener("message", handleSWMessage);
-    }
-
-    return () => {
-      window.removeEventListener("app:online_restored", handleOnlineRestored);
-      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
-      window.removeEventListener("focus", handleVisibilityOrFocus);
-      if ("serviceWorker" in navigator) {
-        navigator.serviceWorker.removeEventListener("message", handleSWMessage);
-      }
-    };
-  }, [user?.id, is_online, is_auth_loading, sync_status, manual_sync, fetch_and_refresh]);
-
-  // Periodic background sync every 60 seconds while online
-  React.useEffect(() => {
-    if (!user || !is_online || is_auth_loading || !is_auto_sync_enabled) return;
-
-    const interval = setInterval(() => {
-      if (sync_status !== "syncing" && document.visibilityState === "visible") {
-        console.log("Running periodic background sync...");
-        fetch_and_refresh();
-      }
-    }, 60000);
-
-    return () => clearInterval(interval);
-  }, [
-    user?.id,
-    is_online,
-    is_auth_loading,
-    is_auto_sync_enabled,
-    sync_status,
-    fetch_and_refresh,
-  ]);
 
   // Realtime Subscription for all data tables (Immediate sync across users)
   React.useEffect(() => {
@@ -1599,6 +1501,11 @@ export const useSupabaseData = (
         const updated_clients = next_clients.map((c: any) => {
           const prev_c = prev.clients.find((pc) => pc.id === c.id);
           if (!prev_c || JSON.stringify(prev_c) !== JSON.stringify(c)) {
+            if (user?.id) {
+              const action = !prev_c ? "CREATE" : "UPDATE";
+              const details = !prev_c ? `إضافة موكل: ${c.name}` : `تعديل بيانات موكل: ${c.name}`;
+              logActivity(user.id, action, "client", c.id, details);
+            }
             return { ...c, updated_at: now };
           }
           return c;
@@ -1614,6 +1521,11 @@ export const useSupabaseData = (
         const updated_tasks = next_tasks.map((t: any) => {
           const prev_t = prev.admin_tasks.find((pt) => pt.id === t.id);
           if (!prev_t || JSON.stringify(prev_t) !== JSON.stringify(t)) {
+            if (user?.id) {
+              const action = !prev_t ? "CREATE" : "UPDATE";
+              const details = !prev_t ? `إضافة مهمة: ${t.task}` : `تعديل مهمة: ${t.task}`;
+              logActivity(user.id, action, "admin_task", t.id, details);
+            }
             return { ...t, updated_at: now };
           }
           return t;
@@ -1631,6 +1543,11 @@ export const useSupabaseData = (
         const updated_apps = next_apps.map((a: any) => {
           const prev_a = prev.appointments.find((pa) => pa.id === a.id);
           if (!prev_a || JSON.stringify(prev_a) !== JSON.stringify(a)) {
+            if (user?.id) {
+              const action = !prev_a ? "CREATE" : "UPDATE";
+              const details = !prev_a ? `إضافة موعد: ${a.title}` : `تعديل موعد: ${a.title}`;
+              logActivity(user.id, action, "appointment", a.id, details);
+            }
             return { ...a, updated_at: now };
           }
           return a;
@@ -1877,5 +1794,35 @@ export const useSupabaseData = (
     download_document_file,
     get_document_file,
     postpone_session,
+    audit_logs: data.audit_logs || [],
+    log_activity: async (action: string, entity_type: string, entity_id?: string, details?: string) => {
+      const new_log: AuditLogEntry = {
+        id: Math.random().toString(36).substring(2, 9),
+        user_id: user?.id || "",
+        action,
+        entity_type,
+        entity_id,
+        details: details || "",
+        created_at: new Date().toISOString(),
+      };
+      set_full_data((prev) => ({
+        ...prev,
+        audit_logs: [new_log, ...(prev.audit_logs || [])].slice(0, 200),
+      }));
+      try {
+        const supabase = get_supabase_client();
+        if (supabase) {
+          await supabase.from("audit_logs").insert([{
+            user_id: user?.id || null,
+            action,
+            entity_type,
+            entity_id: entity_id || null,
+            details: details || "",
+          }]);
+        }
+      } catch (err) {
+        // Table might not exist yet
+      }
+    },
   };
 };

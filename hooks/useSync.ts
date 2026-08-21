@@ -149,6 +149,7 @@ const construct_data = (flat_data: Partial<FlatData>): AppData => {
     documents: (flat_data.case_documents || []) as any,
     profiles: (flat_data.profiles || []) as any,
     site_finances: (flat_data.site_finances || []) as any,
+    audit_logs: (flat_data.audit_logs || []) as any,
   };
 };
 
@@ -435,6 +436,7 @@ export const use_sync = ({
       case_documents: data.documents,
       profiles: data.profiles,
       site_finances: data.site_finances,
+      audit_logs: data.audit_logs || [],
       sync_deletions: [], // Local data doesn't track deletions this way
     };
   };

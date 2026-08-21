@@ -1566,7 +1566,7 @@ const HomePage: React.FC<HomePageProps> = ({
                 <h2 className="text-2xl font-semibold">المهام الإدارية</h2>
                 {permissions.can_add_admin_task && (
                   <button
-                    onClick={() => on_open_admin_task_modal()}
+                    onClick={() => on_open_admin_task_modal(active_location_tab ? { location: active_location_tab } : undefined)}
                     className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors text-sm shadow-xs"
                   >
                     <PlusIcon className="w-5 h-5" />

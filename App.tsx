@@ -516,8 +516,26 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
     }
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, newSession) => {
+    } = supabase.auth.onAuthStateChange(async (event, newSession) => {
       console.log("Auth state changed:", event, newSession?.user?.id);
+      
+      if (event === "SIGNED_IN" && newSession?.user?.id) {
+        const sessionKey = "session_login_logged_" + newSession.user.id;
+        if (!sessionStorage.getItem(sessionKey)) {
+          sessionStorage.setItem(sessionKey, "true");
+          import("./utils/auditLogger").then(({ logActivity }) => {
+            logActivity(
+              newSession.user.id,
+              "LOGIN",
+              "auth",
+              newSession.user.id,
+              "تسجيل دخول للنظام",
+              newSession.user.user_metadata?.full_name || newSession.user.email || ""
+            );
+          });
+        }
+      }
+
       if (newSession) {
         setSession(newSession);
         localStorage.setItem(
@@ -614,6 +632,7 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
     profile?.full_name || session?.user.user_metadata?.full_name || "مستخدم";
 
   const handleLogout = async () => {
+    sessionStorage.clear();
     localStorage.removeItem("lawyerAppLastUser");
     setSession(null);
     if (supabase) await supabase.auth.signOut();

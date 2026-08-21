@@ -1,10 +1,11 @@
 {
   "name": "lawyer-business-management-vercel",
   "version": "1.0.1",
+  "type": "module",
   "private": true,
   "scripts": {
     "dev": "vite",
-    "start": "vite",
+    "start": "node server.ts",
     "build": "vite build && node generate-sw.js",
     "lint": "tsc --noEmit"
   },

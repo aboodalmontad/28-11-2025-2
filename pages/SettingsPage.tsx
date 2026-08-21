@@ -21,6 +21,7 @@ import {
   DOCS_METADATA_STORE_NAME,
 } from "../utils/db";
 import AssistantsManager from "../components/AssistantsManager";
+import ActivityLogsModal from "../components/ActivityLogsModal";
 
 interface SettingsPageProps {}
 
@@ -45,6 +46,7 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
     message: string;
     type: "success" | "error";
   } | null>(null);
+  const [showActivityLogs, setShowActivityLogs] = React.useState(false);
   const [is_confirm_modal_open, set_is_confirm_modal_open] =
     React.useState(false);
   const [is_delete_assistant_modal_open, set_is_delete_assistant_modal_open] =
@@ -508,6 +510,26 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
           </ul>
         </div>
       </div>
+      
+      {permissions?.can_delete_client && (
+        <div className="bg-white p-6 rounded-lg shadow space-y-4">
+          <h2 className="text-xl font-bold text-gray-800 border-b pb-3 flex items-center gap-2">
+            <ShieldCheckIcon className="w-6 h-6 text-indigo-600" />
+            سجل نشاطات النظام
+          </h2>
+          <p className="text-gray-600 text-sm">
+            استعرض كافة النشاطات، تسجيلات الدخول، والتعديلات التي تمت على النظام من قبل المستخدمين والمساعدين مع الوقت والتاريخ.
+          </p>
+          <button
+            onClick={() => setShowActivityLogs(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 transition-colors"
+          >
+            <ShieldCheckIcon className="w-5 h-5" />
+            <span>فتح سجل النشاطات</span>
+          </button>
+        </div>
+      )}
+
       <div className="bg-white p-6 rounded-lg shadow space-y-4">
         <h2 className="text-xl font-bold text-gray-800 border-b pb-3">خطر</h2>
         <button
@@ -565,6 +587,10 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
         <AssistantsManager
           onClose={() => set_is_assistants_manager_open(false)}
         />
+      )}
+      
+      {showActivityLogs && (
+        <ActivityLogsModal onClose={() => setShowActivityLogs(false)} />
       )}
     </div>
   );

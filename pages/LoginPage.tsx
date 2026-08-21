@@ -210,7 +210,10 @@ const LoginPage: React.FC<auth_page_props> = ({
         admin_tasks: remote_flat_data.admin_tasks || [],
         appointments: remote_flat_data.appointments || [],
         accounting_entries: remote_flat_data.accounting_entries || [],
-        assistants: (remote_flat_data.assistants || []).map((a) => a.name),
+        assistants: (remote_flat_data.assistants || []).map((a: any) => ({
+          name: a.name,
+          user_id: a.user_id,
+        })),
         invoices: (remote_flat_data.invoices || []).map((inv) => ({
           ...inv,
           items: invoice_item_map.get(inv.id) || [],
@@ -1447,7 +1450,7 @@ const LoginPage: React.FC<auth_page_props> = ({
         </div>
 
         <div className="mt-8 text-center">
-          <p className="text-xs text-gray-400 mb-1">الإصدار: 30-04-2026</p>
+          <p className="text-xs text-gray-400 mb-1">الإصدار: 18-8-2026</p>
           <p className="text-xs text-gray-400">
             جميع حقوق الملكية محفوظة لشركة الحلول التقنية ©{" "}
             {new Date().getFullYear()}

@@ -271,6 +271,18 @@ export interface CaseDocument {
   updated_at?: string;
 }
 
+export interface AuditLogEntry {
+  id: string | number;
+  office_id?: string;
+  user_id: string;
+  user_name?: string;
+  action: string;
+  entity_type: string;
+  entity_id?: string;
+  details: string;
+  created_at: string;
+}
+
 export interface AppData {
   clients: Client[];
   admin_tasks: AdminTask[];
@@ -281,6 +293,7 @@ export interface AppData {
   documents: CaseDocument[];
   profiles: Profile[];
   site_finances: SiteFinancialEntry[];
+  audit_logs: AuditLogEntry[];
 }
 
 export interface DeletedIds {

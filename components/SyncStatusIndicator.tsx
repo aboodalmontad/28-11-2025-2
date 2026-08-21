@@ -80,21 +80,12 @@ const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({
       title: "جاري تحميل البيانات...",
     };
   } else if (status === "syncing" || isManualSyncing) {
-    if (isManualSyncing) {
-      displayStatus = {
-        icon: <ArrowPathIcon className="w-5 h-5 text-blue-500 animate-spin" />,
-        text: "جاري المزامنة...",
-        className: "text-blue-500 font-medium",
-        title: "جاري مزامنة بياناتك مع السحابة...",
-      };
-    } else {
-      displayStatus = {
-        icon: <CheckCircleIcon className="w-5 h-5 text-green-500" />,
-        text: "متزامن",
-        className: "text-green-500",
-        title: "مزامنة سريعة في الخلفية...",
-      };
-    }
+    displayStatus = {
+      icon: <ArrowPathIcon className="w-5 h-5 text-blue-500 animate-spin" />,
+      text: "جاري المزامنة...",
+      className: "text-blue-500 font-medium",
+      title: "جاري مزامنة بياناتك مع السحابة...",
+    };
   } else if (status === "error") {
     displayStatus = {
       icon: <ExclamationCircleIcon className="w-5 h-5 text-red-500" />,
@@ -118,13 +109,7 @@ const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({
     };
   }
 
-  const canSyncManually =
-    is_online &&
-    status !== "syncing" &&
-    status !== "loading" &&
-    status !== "unconfigured" &&
-    status !== "uninitialized" &&
-    !isManualSyncing;
+  const canSyncManually = is_online;
 
   return (
     <div className="flex items-center gap-1">

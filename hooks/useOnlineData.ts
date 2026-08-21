@@ -10,6 +10,7 @@ import {
   Profile,
   SiteFinancialEntry,
   SyncDeletion,
+  AuditLogEntry,
 } from "../types";
 import type { User } from "@supabase/supabase-js";
 import { safe_revive_date, to_input_date_string } from "../utils/dateUtils";
@@ -28,6 +29,7 @@ export type FlatData = {
   case_documents: CaseDocument[];
   profiles: Profile[];
   site_finances: SiteFinancialEntry[];
+  audit_logs: AuditLogEntry[];
   sync_deletions: SyncDeletion[];
 };
 

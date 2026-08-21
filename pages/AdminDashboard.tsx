@@ -12,12 +12,14 @@ import {
   ExclamationTriangleIcon,
   ArrowPathIcon,
   CloudArrowDownIcon,
+  ListBulletIcon,
 } from "../components/icons";
 import { useData } from "../context/DataContext";
 import AdminAnalyticsPage from "./AdminAnalyticsPage";
 import SiteFinancesPage from "./SiteFinancesPage";
 import AdminTestsPage from "./AdminTestsPage";
 import AdminSettingsPage from "./AdminSettingsPage";
+import AdminActivityLogsPage from "./AdminActivityLogsPage";
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import { fetch_data_from_supabase } from "../hooks/useOnlineData";
 import { useFeedback } from "../context/FeedbackContext";
@@ -27,7 +29,13 @@ interface AdminDashboardProps {
   on_open_config: () => void;
 }
 
-type AdminView = "analytics" | "users" | "finances" | "settings" | "tests";
+type AdminView =
+  | "analytics"
+  | "users"
+  | "activity_logs"
+  | "finances"
+  | "settings"
+  | "tests";
 
 const NavLink: React.FC<{
   label: string;
@@ -225,6 +233,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         return <AdminAnalyticsPage />;
       case "users":
         return <AdminPage />;
+      case "activity_logs":
+        return <AdminActivityLogsPage />;
       case "finances":
         return <SiteFinancesPage />;
       case "settings":
@@ -250,6 +260,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       label: "المستخدمين",
       icon: <UserGroupIcon className="w-5 h-5" />,
       badge: pending_users_count,
+    },
+    {
+      id: "activity_logs",
+      label: "سجل النشاطات",
+      icon: <ListBulletIcon className="w-5 h-5" />,
     },
     {
       id: "analytics",
@@ -351,7 +366,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   title="تحديث النظام ومسح الكاش"
                 >
                   <ArrowPathIcon className="w-3 h-3" />
-                  تحديث (30-04-2026)
+                  تحديث (18-8-2026)
                 </button>
               )}
               <div className={`hidden sm:flex items-center gap-2 px-3 py-1 rounded-full border text-xs font-bold ${is_online ? "bg-green-50 text-green-700 border-green-100" : "bg-red-50 text-red-700 border-red-100"}`}>
@@ -514,7 +529,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* Footer / Info */}
       <footer className="bg-white border-t border-slate-200 py-3 px-6 text-center no-print">
         <p className="text-[10px] text-slate-400 font-medium">
-          نظام إدارة المحاماة - الإصدار: 30-04-2026
+          نظام إدارة المحاماة - الإصدار: 18-8-2026
         </p>
       </footer>
     </div>
