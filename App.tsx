@@ -11,6 +11,7 @@ import PendingApprovalPage from "./pages/PendingApprovalPage";
 import SubscriptionExpiredPage from "./pages/SubscriptionExpiredPage";
 
 import ConfigurationModal from "./components/ConfigurationModal";
+import Logo from "./components/Logo";
 import { useSupabaseData, SyncStatus } from "./hooks/useSupabaseData";
 import {
   UserIcon,
@@ -109,10 +110,13 @@ const Navbar: React.FC<NavbarProps> = ({
 
   return (
     <header className="bg-white shadow-md p-2 sm:p-4 flex justify-between items-center no-print sticky top-0 z-30">
-      <div className="flex items-center gap-4">
-        <h1 className="text-lg font-bold text-gray-800 hidden sm:block">
-          مكتب المحامي
-        </h1>
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 cursor-pointer" onClick={() => onNavigate("home")}>
+          <Logo size="sm" className="h-9 w-9 shadow-sm rounded-lg border border-slate-200" />
+          <h1 className="text-lg font-bold text-gray-800">
+            مكتب المحامي
+          </h1>
+        </div>
         <div className="flex items-center gap-2 px-3 py-1 bg-blue-50 rounded-full border border-blue-100">
           <UserIcon className="w-4 h-4 text-blue-600" />
           <span className="text-xs font-bold text-blue-800 truncate max-w-[120px]">

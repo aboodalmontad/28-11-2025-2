@@ -1,4 +1,5 @@
 import * as React from "react";
+import Logo from "../components/Logo";
 import AdminPage from "./AdminPage";
 import {
   PowerIcon,
@@ -296,11 +297,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div className="flex justify-between items-center h-16">
             {/* Logo & Title */}
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-md">
-                <Cog6ToothIcon className="w-5 h-5 text-white" />
-              </div>
+              <Logo size="sm" className="h-9 w-9 shadow-sm rounded-lg border border-slate-200" />
               <span className="font-bold text-slate-800 hidden md:block">
-                لوحة الإدارة
+                لوحة الإدارة - مكتب المحامي
               </span>
             </div>
 

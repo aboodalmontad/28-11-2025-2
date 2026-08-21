@@ -11,8 +11,9 @@ import {
   KeyIcon,
   ShieldCheckIcon,
   BuildingLibraryIcon,
-  UserGroupIcon,
   ChevronLeftIcon,
+  ChevronRightIcon,
+  Bars3Icon,
 } from "../components/icons";
 import { get_supabase_client } from "../supabaseClient";
 import { useData } from "../context/DataContext";
@@ -26,6 +27,9 @@ export const AdminActivityLogsPage: React.FC = () => {
   // Main Tabs: "activities" (General operations) vs "logins" (Login sessions)
   const [activeTab, setActiveTab] = React.useState<"activities" | "logins">("activities");
 
+  // Filters Collapsed Toggle
+  const [showFilters, setShowFilters] = React.useState(true);
+
   // Filters State
   const [searchQuery, setSearchQuery] = React.useState("");
   const [selectedOffice, setSelectedOffice] = React.useState("all");
@@ -38,7 +42,18 @@ export const AdminActivityLogsPage: React.FC = () => {
 
   // Pagination State
   const [currentPage, setCurrentPage] = React.useState(1);
-  const itemsPerPage = 50;
+  const [pageSize, setPageSize] = React.useState(25);
+
+  // Scroll Container Ref for smooth jumping
+  const tableContainerRef = React.useRef<HTMLDivElement>(null);
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const scrollToBottom = () => {
+    window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+  };
 
   // Build profiles map for quick lookup
   const profilesMap = React.useMemo(() => {
@@ -51,7 +66,6 @@ export const AdminActivityLogsPage: React.FC = () => {
 
   // Extract all distinct offices/lawyers
   const officesList = React.useMemo(() => {
-    // A lawyer office is a profile where role !== "admin" and !lawyer_id
     const offices = profiles.filter(
       (p) => (!p.lawyer_id && p.role !== "admin") || (p.role as string) === "lawyer"
     );
@@ -96,128 +110,94 @@ export const AdminActivityLogsPage: React.FC = () => {
       if (storedGeneric) {
         localStoredLogs = JSON.parse(storedGeneric);
       }
-      // Also inspect all localStorage keys for office-specific logs
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (key && key.startsWith("local_audit_logs_")) {
+        if (key && key.startsWith("local_audit_logs_") && key !== "local_audit_logs") {
           try {
-            const val = localStorage.getItem(key);
-            if (val) {
-              const parsed = JSON.parse(val);
-              if (Array.isArray(parsed)) {
-                localStoredLogs.push(...parsed);
-              }
+            const parsed = JSON.parse(localStorage.getItem(key) || "[]");
+            if (Array.isArray(parsed)) {
+              localStoredLogs.push(...parsed);
             }
-          } catch {}
+          } catch (e) {
+            // ignore
+          }
         }
       }
     } catch (e) {
       // ignore
     }
 
-    // Smart deduplication (by action, entity, user, details, and minute timestamp)
-    const uniqueMap = new Map<string, AuditLogEntry>();
-    [...remoteLogs, ...contextAuditLogs, ...localStoredLogs].forEach((log) => {
+    // Merge & Deduplicate
+    const uniqueMap = new Map();
+    [...remoteLogs, ...contextAuditLogs, ...localStoredLogs].forEach((log: any) => {
       if (log && log.action && log.entity_type) {
         const timeKey = Math.floor(new Date(log.created_at || Date.now()).getTime() / 60000);
-        const signature = `${log.office_id || ""}_${log.user_id || ""}_${log.action}_${log.entity_type}_${log.entity_id || ""}_${log.details || ""}_${timeKey}`;
+        const signature = `${log.office_id || log.user_id || ""}_${log.action}_${log.entity_type}_${log.entity_id || ""}_${log.details || ""}_${timeKey}`;
 
         if (!uniqueMap.has(signature)) {
           uniqueMap.set(signature, log);
         } else {
-          const existing = uniqueMap.get(signature)!;
-          if (typeof log.id === "number" && typeof existing.id !== "number") {
+          const existing = uniqueMap.get(signature);
+          if (log.id && typeof log.id === "number" && typeof existing.id !== "number") {
             uniqueMap.set(signature, log);
           }
         }
       }
     });
 
-    const allLogs = Array.from(uniqueMap.values()).sort(
-      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    const combinedLogs = Array.from(uniqueMap.values()).sort(
+      (a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
 
-    // Enrich logs with office name and user name from profile metadata
-    const enriched = allLogs.map((log) => {
-      const userProf = profilesMap.get(log.user_id);
-      const effectiveOfficeId = log.office_id || userProf?.lawyer_id || log.user_id;
-      const officeProf = profilesMap.get(effectiveOfficeId);
+    // Enrich logs with resolved User and Office Names
+    const enrichedLogs = combinedLogs.map((log: any) => {
+      let resolvedUserName = log.user_name || "مستخدم غير معروف";
+      let resolvedOfficeName = log.office_name || "عام / غير محدد";
 
-      const resolvedOfficeName =
-        officeProf?.full_name ||
-        (effectiveOfficeId === log.user_id ? userProf?.full_name : null) ||
-        "مكتب غير محدد";
+      if (log.user_id && profilesMap.has(log.user_id)) {
+        const u = profilesMap.get(log.user_id);
+        resolvedUserName = u.full_name || u.mobile_number || resolvedUserName;
+        if (u.lawyer_id && profilesMap.has(u.lawyer_id)) {
+          const lawyer = profilesMap.get(u.lawyer_id);
+          resolvedOfficeName = lawyer.full_name || lawyer.mobile_number || resolvedOfficeName;
+        } else if (!u.lawyer_id && u.role !== "admin") {
+          resolvedOfficeName = u.full_name || u.mobile_number || resolvedOfficeName;
+        }
+      }
 
-      const resolvedUserName =
-        log.user_name ||
-        userProf?.full_name ||
-        userProf?.mobile_number ||
-        "مستخدم";
+      if (log.office_id && profilesMap.has(log.office_id)) {
+        const off = profilesMap.get(log.office_id);
+        resolvedOfficeName = off.full_name || off.mobile_number || resolvedOfficeName;
+      }
 
       return {
         ...log,
-        office_id: effectiveOfficeId,
-        office_name: resolvedOfficeName,
         user_name: resolvedUserName,
+        office_name: resolvedOfficeName,
       };
     });
 
-    setLogs(enriched as any);
+    setLogs(enrichedLogs);
     setLoading(false);
   };
 
   React.useEffect(() => {
     fetchLogs();
-  }, [profilesMap, contextAuditLogs]);
+  }, [contextAuditLogs, profiles]);
 
-  // Handle Preset Date changes
-  const handleDatePresetChange = (preset: string) => {
-    setDateFilterPreset(preset);
-    setCurrentPage(1);
-    const now = new Date();
-    const todayStr = now.toISOString().split("T")[0];
-
-    if (preset === "all") {
-      setStartDate("");
-      setEndDate("");
-    } else if (preset === "today") {
-      setStartDate(todayStr);
-      setEndDate(todayStr);
-    } else if (preset === "yesterday") {
-      const yesterday = new Date();
-      yesterday.setDate(now.getDate() - 1);
-      const yStr = yesterday.toISOString().split("T")[0];
-      setStartDate(yStr);
-      setEndDate(yStr);
-    } else if (preset === "last7") {
-      const past7 = new Date();
-      past7.setDate(now.getDate() - 7);
-      setStartDate(past7.toISOString().split("T")[0]);
-      setEndDate(todayStr);
-    } else if (preset === "last30") {
-      const past30 = new Date();
-      past30.setDate(now.getDate() - 30);
-      setStartDate(past30.toISOString().split("T")[0]);
-      setEndDate(todayStr);
-    } else if (preset === "thisMonth") {
-      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-      setStartDate(firstDay.toISOString().split("T")[0]);
-      setEndDate(todayStr);
-    }
-  };
-
-  // Base classification into Activities vs Logins
+  // Base classification
   const allActivityLogs = React.useMemo(() => {
-    return logs.filter((l) => !(l.action || "").includes("LOGIN") && l.entity_type !== "auth");
+    return logs.filter((l: any) => !(l.action || "").includes("LOGIN") && l.entity_type !== "auth");
   }, [logs]);
 
   const allLoginLogs = React.useMemo(() => {
-    return logs.filter((l) => (l.action || "").includes("LOGIN") || l.entity_type === "auth");
+    return logs.filter((l: any) => (l.action || "").includes("LOGIN") || l.entity_type === "auth");
   }, [logs]);
 
-  // Dynamic user list depending on selected office
+  // Available users for dropdown filter based on selected office
   const availableUsers = React.useMemo(() => {
     const userMap = new Map<string, string>();
+
     profiles.forEach((p: any) => {
       if (selectedOffice === "all" || p.id === selectedOffice || p.lawyer_id === selectedOffice) {
         userMap.set(p.id, p.full_name || p.mobile_number || "مستخدم");
@@ -352,47 +332,83 @@ export const AdminActivityLogsPage: React.FC = () => {
   }, [filteredLogs]);
 
   // Pagination slice
-  const totalPages = Math.ceil(filteredLogs.length / itemsPerPage) || 1;
+  const totalPages = Math.max(1, Math.ceil(filteredLogs.length / pageSize));
   const paginatedLogs = React.useMemo(() => {
-    const start = (currentPage - 1) * itemsPerPage;
-    return filteredLogs.slice(start, start + itemsPerPage);
-  }, [filteredLogs, currentPage, itemsPerPage]);
+    const start = (currentPage - 1) * pageSize;
+    return filteredLogs.slice(start, start + pageSize);
+  }, [filteredLogs, currentPage, pageSize]);
 
-  // Formatters & Labels
+  // Handle Date Presets
+  const handleDatePresetChange = (preset: string) => {
+    setDateFilterPreset(preset);
+    setCurrentPage(1);
+    const now = new Date();
+    const todayStr = now.toISOString().split("T")[0];
+
+    if (preset === "all") {
+      setStartDate("");
+      setEndDate("");
+    } else if (preset === "today") {
+      setStartDate(todayStr);
+      setEndDate(todayStr);
+    } else if (preset === "yesterday") {
+      const yesterday = new Date();
+      yesterday.setDate(now.getDate() - 1);
+      const yStr = yesterday.toISOString().split("T")[0];
+      setStartDate(yStr);
+      setEndDate(yStr);
+    } else if (preset === "last7") {
+      const past7 = new Date();
+      past7.setDate(now.getDate() - 7);
+      setStartDate(past7.toISOString().split("T")[0]);
+      setEndDate(todayStr);
+    } else if (preset === "last30") {
+      const past30 = new Date();
+      past30.setDate(now.getDate() - 30);
+      setStartDate(past30.toISOString().split("T")[0]);
+      setEndDate(todayStr);
+    } else if (preset === "thisMonth") {
+      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+      setStartDate(firstDay.toISOString().split("T")[0]);
+      setEndDate(todayStr);
+    }
+  };
+
+  // Badge Helper
   const getActionBadge = (action: string) => {
-    if (!action) return <span className="px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-700">إجراء</span>;
+    if (!action) return <span className="px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-700">إجراء</span>;
     if (action.includes("LOGIN")) {
       return (
-        <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 inline-flex items-center gap-1">
-          <KeyIcon className="w-3 h-3" />
+        <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 inline-flex items-center gap-1">
+          <KeyIcon className="w-3.5 h-3.5" />
           تسجيل دخول
         </span>
       );
     }
     if (action.includes("CREATE") || action.includes("ADD")) {
       return (
-        <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-200">
-          ➕ إضافة
+        <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-100 text-blue-800 border border-blue-200">
+          إضافة
         </span>
       );
     }
     if (action.includes("DELETE") || action.includes("REMOVE")) {
       return (
-        <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-800 border border-rose-200">
-          🗑️ حذف
+        <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-100 text-rose-800 border border-rose-200">
+          حذف
         </span>
       );
     }
     if (action.includes("POSTPONE")) {
       return (
-        <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-800 border border-purple-200">
-          ⏱️ تأجيل جلسة
+        <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-purple-100 text-purple-800 border border-purple-200">
+          تأجيل جلسة
         </span>
       );
     }
     return (
-      <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">
-        ✏️ تعديل
+      <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200">
+        تعديل
       </span>
     );
   };
@@ -430,13 +446,12 @@ export const AdminActivityLogsPage: React.FC = () => {
     }
   };
 
-  // CSV Export
   const handleExportCSV = () => {
     try {
       const isLoginTab = activeTab === "logins";
       const headers = isLoginTab
-        ? ["التاريخ والوقت", "المكتب / المحامي", "المستخدم", "النوع", "التفاصيل"]
-        : ["التاريخ والوقت", "المكتب / المحامي", "المستخدم", "الإجراء", "القسم", "التفاصيل"];
+        ? ["التاريخ والوقت", "المكتب / المحامي", "المستخدم", "نوع الجلسة", "التفاصيل"]
+        : ["التاريخ والوقت", "المكتب / المحامي", "المستخدم الفاعل", "نوع الإجراء", "القسم", "تفاصيل العملية"];
 
       const rows = filteredLogs.map((l: any) =>
         isLoginTab
@@ -444,7 +459,7 @@ export const AdminActivityLogsPage: React.FC = () => {
               `"${formatDate(l.created_at)}"`,
               `"${l.office_name || ""}"`,
               `"${l.user_name || ""}"`,
-              `"تسجيل دخول"`,
+              `"تسجيل دخول للنظام"`,
               `"${(l.details || "").replace(/"/g, '""')}"`,
             ]
           : [
@@ -464,7 +479,7 @@ export const AdminActivityLogsPage: React.FC = () => {
       link.setAttribute("href", url);
       link.setAttribute(
         "download",
-        `admin_${isLoginTab ? "logins" : "activities"}_${selectedOffice !== "all" ? selectedOffice : "all_offices"}_${new Date().toISOString().split("T")[0]}.csv`
+        `admin_audit_${isLoginTab ? "logins" : "activities"}_${new Date().toISOString().split("T")[0]}.csv`
       );
       document.body.appendChild(link);
       link.click();
@@ -491,16 +506,16 @@ export const AdminActivityLogsPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-300" dir="rtl">
+    <div className="space-y-4 sm:space-y-6 animate-in fade-in duration-300 pb-12" dir="rtl">
       {/* Header Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white p-6 sm:p-8 rounded-3xl shadow-xl border border-slate-700/50 flex flex-col md:flex-row md:items-center justify-between gap-6 no-print">
-        <div className="space-y-2">
+      <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white p-5 sm:p-8 rounded-3xl shadow-xl border border-slate-700/50 flex flex-col md:flex-row md:items-center justify-between gap-4 sm:gap-6 no-print">
+        <div className="space-y-1.5">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-300">
-              <ShieldCheckIcon className="w-7 h-7" />
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-300">
+              <ShieldCheckIcon className="w-6 h-6 sm:w-7 sm:h-7" />
             </div>
             <div>
-              <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
+              <h1 className="text-xl sm:text-3xl font-black tracking-tight">
                 لوحة سجل النشاطات والتدقيق العام
               </h1>
               <p className="text-xs sm:text-sm text-slate-300 font-medium">
@@ -512,336 +527,346 @@ export const AdminActivityLogsPage: React.FC = () => {
 
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <button
+            onClick={() => setShowFilters(!showFilters)}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold bg-slate-800 hover:bg-slate-700 text-indigo-200 rounded-xl transition-all border border-slate-600 shadow-xs"
+          >
+            <Bars3Icon className="w-4 h-4" />
+            <span>{showFilters ? "إخفاء الفلاتر" : "عرض الفلاتر"}</span>
+          </button>
+          <button
             onClick={handlePrint}
-            className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold bg-slate-700/80 hover:bg-slate-700 text-white rounded-xl transition-all border border-slate-600 shadow-xs active:scale-95"
-            title="طباعة التقرير"
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold bg-slate-700 hover:bg-slate-600 text-white rounded-xl transition-all border border-slate-600 shadow-xs"
+            title="طباعة"
           >
             <PrintIcon className="w-4 h-4" />
-            <span>طباعة التقرير</span>
+            <span className="hidden sm:inline">طباعة التقرير</span>
           </button>
           <button
             onClick={handleExportCSV}
-            className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold bg-emerald-700/80 hover:bg-emerald-700 text-white rounded-xl transition-all border border-emerald-600 shadow-xs active:scale-95"
-            title="تصدير كملف Excel / CSV"
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl transition-all border border-emerald-600 shadow-xs"
+            title="تصدير Excel"
           >
             <ArrowDownTrayIcon className="w-4 h-4" />
-            <span>تصدير Excel / CSV</span>
+            <span className="hidden sm:inline">تصدير Excel</span>
           </button>
           <button
             onClick={fetchLogs}
             disabled={loading}
-            className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-all shadow-md active:scale-95 disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-all shadow-md disabled:opacity-50"
             title="تحديث البيانات"
           >
             <ArrowPathIcon className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-            <span>{loading ? "جاري التحديث..." : "تحديث السجلات"}</span>
+            <span>{loading ? "جاري التحديث..." : "تحديث"}</span>
           </button>
         </div>
       </div>
 
       {/* Office Selector Card */}
-      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3 no-print">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <BuildingLibraryIcon className="w-5 h-5 text-indigo-600" />
-            <span className="font-bold text-slate-800 text-sm sm:text-base">
-              تحديد المكتب المستهدف:
-            </span>
-          </div>
+      {showFilters && (
+        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 no-print">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <BuildingLibraryIcon className="w-5 h-5 text-indigo-600" />
+              <span className="font-bold text-slate-800 text-xs sm:text-base">
+                تحديد المكتب المستهدف:
+              </span>
+            </div>
 
-          <div className="flex-1 max-w-xl">
-            <div className="relative">
-              <select
-                value={selectedOffice}
-                onChange={(e) => {
-                  setSelectedOffice(e.target.value);
-                  setSelectedUser("all");
-                  setCurrentPage(1);
-                }}
-                className="w-full py-2.5 pr-10 pl-4 text-sm font-bold border border-indigo-200 rounded-xl bg-indigo-50/50 hover:bg-indigo-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all text-indigo-950"
-              >
-                <option value="all">🏢 جميع المكاتب ({officesList.length} مكتب مسجل)</option>
-                {officesList.map((off) => (
-                  <option key={off.id} value={off.id}>
-                    {off.name} {off.mobile ? `(${off.mobile})` : ""} - {off.assistantsCount} مساعد
-                  </option>
-                ))}
-              </select>
-              <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-indigo-500">
-                <BuildingLibraryIcon className="w-5 h-5" />
+            <div className="flex-1 max-w-xl">
+              <div className="relative">
+                <select
+                  value={selectedOffice}
+                  onChange={(e) => {
+                    setSelectedOffice(e.target.value);
+                    setSelectedUser("all");
+                    setCurrentPage(1);
+                  }}
+                  className="w-full py-2 pr-9 pl-3 text-xs sm:text-sm font-bold border border-indigo-200 rounded-xl bg-indigo-50/50 hover:bg-indigo-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all text-indigo-950"
+                >
+                  <option value="all">🏢 جميع المكاتب ({officesList.length} مكتب مسجل)</option>
+                  {officesList.map((off) => (
+                    <option key={off.id} value={off.id}>
+                      {off.name} {off.mobile ? `(${off.mobile})` : ""} - {off.assistantsCount} مساعد
+                    </option>
+                  ))}
+                </select>
+                <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-indigo-500">
+                  <BuildingLibraryIcon className="w-4 h-4" />
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Selected Office Badge Details */}
-        {currentOfficeDetails && (
-          <div className="p-3 bg-indigo-50/80 rounded-xl border border-indigo-100 flex flex-wrap items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-3">
-              <span className="font-bold text-indigo-900 text-sm">{currentOfficeDetails.name}</span>
-              {currentOfficeDetails.mobile && (
-                <span className="text-slate-600 font-mono" dir="ltr">
-                  📱 {currentOfficeDetails.mobile}
+          {currentOfficeDetails && (
+            <div className="p-2.5 bg-indigo-50/80 rounded-xl border border-indigo-100 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <span className="font-bold text-indigo-900 text-xs sm:text-sm">{currentOfficeDetails.name}</span>
+                {currentOfficeDetails.mobile && (
+                  <span className="text-slate-600 font-mono text-[11px]" dir="ltr">
+                    📱 {currentOfficeDetails.mobile}
+                  </span>
+                )}
+                <span className="px-2 py-0.5 bg-indigo-200/70 text-indigo-800 rounded-md font-semibold text-[10px]">
+                  {currentOfficeDetails.assistantsCount} مساعدين
                 </span>
-              )}
-              <span className="px-2 py-0.5 bg-indigo-200/70 text-indigo-800 rounded-md font-semibold">
-                {currentOfficeDetails.assistantsCount} مساعدين تابعين
-              </span>
+              </div>
+              <button
+                onClick={() => {
+                  setSelectedOffice("all");
+                  setSelectedUser("all");
+                }}
+                className="text-xs text-indigo-600 hover:text-indigo-800 font-bold hover:underline"
+              >
+                إلغاء التحديد وعرض الكل ✕
+              </button>
             </div>
-            <button
-              onClick={() => {
-                setSelectedOffice("all");
-                setSelectedUser("all");
-              }}
-              className="text-xs text-indigo-600 hover:text-indigo-800 font-bold hover:underline"
-            >
-              إلغاء التحديد وعرض كل المكاتب ✕
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Tabs Header (ألسنة منفصلة للأنشطة وتسجيلات الدخول) */}
-      <div className="flex items-center gap-2 border-b border-slate-200 no-print">
-        <button
-          onClick={() => {
-            setActiveTab("activities");
-            setSelectedAction("all");
-            setSelectedDepartment("all");
-            setCurrentPage(1);
-          }}
-          className={`flex items-center gap-2.5 py-3.5 px-6 font-bold text-sm rounded-t-2xl transition-all border-t border-x ${
-            activeTab === "activities"
-              ? "bg-white text-indigo-700 border-slate-200 border-b-white shadow-xs -mb-px"
-              : "bg-slate-100 text-slate-600 border-transparent hover:bg-slate-200/70 hover:text-slate-800"
-          }`}
-        >
-          <ListBulletIcon className="w-5 h-5" />
-          <span>سجل العمليات والأنشطة</span>
-          <span
-            className={`text-xs px-2.5 py-0.5 rounded-full font-black ${
-              activeTab === "activities" ? "bg-indigo-100 text-indigo-700" : "bg-slate-300 text-slate-700"
-            }`}
-          >
-            {allActivityLogs.length}
-          </span>
-        </button>
-
-        <button
-          onClick={() => {
-            setActiveTab("logins");
-            setSelectedAction("all");
-            setSelectedDepartment("all");
-            setCurrentPage(1);
-          }}
-          className={`flex items-center gap-2.5 py-3.5 px-6 font-bold text-sm rounded-t-2xl transition-all border-t border-x ${
-            activeTab === "logins"
-              ? "bg-white text-emerald-700 border-slate-200 border-b-white shadow-xs -mb-px"
-              : "bg-slate-100 text-slate-600 border-transparent hover:bg-slate-200/70 hover:text-slate-800"
-          }`}
-        >
-          <KeyIcon className="w-5 h-5" />
-          <span>سجل تسجيلات الدخول</span>
-          <span
-            className={`text-xs px-2.5 py-0.5 rounded-full font-black ${
-              activeTab === "logins" ? "bg-emerald-100 text-emerald-700" : "bg-slate-300 text-slate-700"
-            }`}
-          >
-            {allLoginLogs.length}
-          </span>
-        </button>
-      </div>
-
-      {/* KPI Stats Bar */}
-      {activeTab === "activities" ? (
-        <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 no-print">
-          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-            <div className="text-xs font-bold text-slate-400">إجمالي العمليات</div>
-            <div className="text-2xl font-black text-slate-900 mt-1">{stats.total}</div>
-          </div>
-          <div className="bg-white p-4 rounded-2xl border border-blue-100 shadow-xs">
-            <div className="text-xs font-bold text-blue-600">عمليات الإضافة</div>
-            <div className="text-2xl font-black text-blue-700 mt-1">{stats.creates}</div>
-          </div>
-          <div className="bg-white p-4 rounded-2xl border border-amber-100 shadow-xs">
-            <div className="text-xs font-bold text-amber-600">عمليات التعديل</div>
-            <div className="text-2xl font-black text-amber-700 mt-1">{stats.updates}</div>
-          </div>
-          <div className="bg-white p-4 rounded-2xl border border-rose-100 shadow-xs">
-            <div className="text-xs font-bold text-rose-600">عمليات الحذف</div>
-            <div className="text-2xl font-black text-rose-700 mt-1">{stats.deletes}</div>
-          </div>
-          <div className="bg-white p-4 rounded-2xl border border-purple-100 shadow-xs">
-            <div className="text-xs font-bold text-purple-600">تأجيل الجلسات</div>
-            <div className="text-2xl font-black text-purple-700 mt-1">{stats.postpones}</div>
-          </div>
-          <div className="bg-white p-4 rounded-2xl border border-indigo-100 shadow-xs">
-            <div className="text-xs font-bold text-indigo-600">المكاتب الفاعلة</div>
-            <div className="text-2xl font-black text-indigo-800 mt-1">{stats.officesCount}</div>
-          </div>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 no-print">
-          <div className="bg-white p-5 rounded-2xl border border-emerald-200 shadow-xs flex items-center justify-between">
-            <div>
-              <div className="text-xs font-bold text-slate-400">إجمالي جلسات الدخول</div>
-              <div className="text-2xl font-black text-emerald-800 mt-1">{stats.total}</div>
-            </div>
-            <KeyIcon className="w-8 h-8 text-emerald-500 opacity-80" />
-          </div>
-          <div className="bg-white p-5 rounded-2xl border border-emerald-200 shadow-xs flex items-center justify-between">
-            <div>
-              <div className="text-xs font-bold text-slate-400">المستخدمون النشطون في الفترة</div>
-              <div className="text-2xl font-black text-emerald-800 mt-1">{stats.usersCount}</div>
-            </div>
-            <UserIcon className="w-8 h-8 text-emerald-500 opacity-80" />
-          </div>
-          <div className="bg-white p-5 rounded-2xl border border-emerald-200 shadow-xs flex items-center justify-between">
-            <div>
-              <div className="text-xs font-bold text-slate-400">المكاتب المسجلة دخولاً</div>
-              <div className="text-2xl font-black text-emerald-800 mt-1">{stats.officesCount}</div>
-            </div>
-            <BuildingLibraryIcon className="w-8 h-8 text-emerald-500 opacity-80" />
-          </div>
+          )}
         </div>
       )}
 
-      {/* Advanced Filter Bar */}
-      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4 no-print">
-        {/* Row 1: Search, User, Department, Action */}
-        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-          {/* Keyword Search */}
-          <div className={activeTab === "activities" ? "sm:col-span-4 relative" : "sm:col-span-7 relative"}>
-            <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none text-slate-400">
-              <MagnifyingGlassIcon className="w-4 h-4" />
-            </div>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setCurrentPage(1);
-              }}
-              placeholder="ابحث في التفاصيل، اسم الموكل، المهمة، أو اسم المكتب..."
-              className="w-full pr-10 pl-3 py-2.5 text-sm border border-slate-300 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery("")}
-                className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 hover:text-slate-600"
-              >
-                <XMarkIcon className="w-4 h-4" />
-              </button>
-            )}
-          </div>
+      {/* Tabs Header */}
+      <div className="flex items-center justify-between border-b border-slate-200 no-print">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              setActiveTab("activities");
+              setSelectedAction("all");
+              setSelectedDepartment("all");
+              setCurrentPage(1);
+            }}
+            className={`flex items-center gap-2 py-2.5 px-4 sm:px-6 font-bold text-xs sm:text-sm rounded-t-2xl transition-all border-t border-x ${
+              activeTab === "activities"
+                ? "bg-white text-indigo-700 border-slate-200 border-b-white shadow-xs -mb-px"
+                : "bg-slate-100 text-slate-600 border-transparent hover:bg-slate-200 hover:text-slate-800"
+            }`}
+          >
+            <ListBulletIcon className="w-4 h-4" />
+            <span>سجل العمليات والأنشطة</span>
+            <span
+              className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+                activeTab === "activities" ? "bg-indigo-100 text-indigo-700" : "bg-slate-300 text-slate-700"
+              }`}
+            >
+              {allActivityLogs.length}
+            </span>
+          </button>
 
-          {/* User / Assistant Filter */}
-          <div className={activeTab === "activities" ? "sm:col-span-3" : "sm:col-span-5"}>
-            <div className="relative">
+          <button
+            onClick={() => {
+              setActiveTab("logins");
+              setSelectedAction("all");
+              setSelectedDepartment("all");
+              setCurrentPage(1);
+            }}
+            className={`flex items-center gap-2 py-2.5 px-4 sm:px-6 font-bold text-xs sm:text-sm rounded-t-2xl transition-all border-t border-x ${
+              activeTab === "logins"
+                ? "bg-white text-emerald-700 border-slate-200 border-b-white shadow-xs -mb-px"
+                : "bg-slate-100 text-slate-600 border-transparent hover:bg-slate-200 hover:text-slate-800"
+            }`}
+          >
+            <KeyIcon className="w-4 h-4" />
+            <span>سجل تسجيلات الدخول</span>
+            <span
+              className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+                activeTab === "logins" ? "bg-emerald-100 text-emerald-700" : "bg-slate-300 text-slate-700"
+              }`}
+            >
+              {allLoginLogs.length}
+            </span>
+          </button>
+        </div>
+
+        {/* Floating Page Scroll Control */}
+        <div className="hidden md:flex items-center gap-2 text-xs">
+          <button
+            onClick={scrollToBottom}
+            className="px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 rounded-lg shadow-2xs font-bold"
+          >
+            ⬇️ أسفل الصفحة
+          </button>
+          <button
+            onClick={scrollToTop}
+            className="px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 rounded-lg shadow-2xs font-bold"
+          >
+            ⬆️ أعلى الصفحة
+          </button>
+        </div>
+      </div>
+
+      {/* KPI Stats Bar */}
+      {showFilters && (
+        <div className="no-print">
+          {activeTab === "activities" ? (
+            <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 sm:gap-3">
+              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
+                <div className="text-[11px] font-bold text-slate-400">إجمالي العمليات</div>
+                <div className="text-xl font-black text-slate-900 mt-0.5">{stats.total}</div>
+              </div>
+              <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-xs">
+                <div className="text-[11px] font-bold text-blue-600">عمليات الإضافة</div>
+                <div className="text-xl font-black text-blue-700 mt-0.5">{stats.creates}</div>
+              </div>
+              <div className="bg-white p-3 rounded-xl border border-amber-100 shadow-xs">
+                <div className="text-[11px] font-bold text-amber-600">عمليات التعديل</div>
+                <div className="text-xl font-black text-amber-700 mt-0.5">{stats.updates}</div>
+              </div>
+              <div className="bg-white p-3 rounded-xl border border-rose-100 shadow-xs">
+                <div className="text-[11px] font-bold text-rose-600">عمليات الحذف</div>
+                <div className="text-xl font-black text-rose-700 mt-0.5">{stats.deletes}</div>
+              </div>
+              <div className="bg-white p-3 rounded-xl border border-purple-100 shadow-xs">
+                <div className="text-[11px] font-bold text-purple-600">تأجيل الجلسات</div>
+                <div className="text-xl font-black text-purple-700 mt-0.5">{stats.postpones}</div>
+              </div>
+              <div className="bg-white p-3 rounded-xl border border-indigo-100 shadow-xs">
+                <div className="text-[11px] font-bold text-indigo-600">المكاتب الفاعلة</div>
+                <div className="text-xl font-black text-indigo-800 mt-0.5">{stats.officesCount}</div>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
+              <div className="bg-white p-3.5 rounded-xl border border-emerald-200 shadow-xs flex items-center justify-between">
+                <div>
+                  <div className="text-[11px] font-bold text-slate-400">إجمالي جلسات الدخول</div>
+                  <div className="text-xl font-black text-emerald-800 mt-0.5">{stats.total}</div>
+                </div>
+                <KeyIcon className="w-7 h-7 text-emerald-500 opacity-80" />
+              </div>
+              <div className="bg-white p-3.5 rounded-xl border border-emerald-200 shadow-xs flex items-center justify-between">
+                <div>
+                  <div className="text-[11px] font-bold text-slate-400">المستخدمون النشطون</div>
+                  <div className="text-xl font-black text-emerald-800 mt-0.5">{stats.usersCount}</div>
+                </div>
+                <UserIcon className="w-7 h-7 text-emerald-500 opacity-80" />
+              </div>
+              <div className="bg-white p-3.5 rounded-xl border border-emerald-200 shadow-xs flex items-center justify-between">
+                <div>
+                  <div className="text-[11px] font-bold text-slate-400">المكاتب المسجلة دخولاً</div>
+                  <div className="text-xl font-black text-emerald-800 mt-0.5">{stats.officesCount}</div>
+                </div>
+                <BuildingLibraryIcon className="w-7 h-7 text-emerald-500 opacity-80" />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Filter Bar */}
+      {showFilters && (
+        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3 no-print">
+          <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 sm:gap-3">
+            <div className={activeTab === "activities" ? "sm:col-span-4 relative" : "sm:col-span-7 relative"}>
+              <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-slate-400">
+                <MagnifyingGlassIcon className="w-4 h-4" />
+              </div>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setCurrentPage(1);
+                }}
+                placeholder="ابحث في التفاصيل، اسم الموكل، المهمة..."
+                className="w-full pr-9 pl-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-xl bg-slate-50 focus:bg-white"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 hover:text-slate-600"
+                >
+                  <XMarkIcon className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            <div className={activeTab === "activities" ? "sm:col-span-3" : "sm:col-span-5"}>
               <select
                 value={selectedUser}
                 onChange={(e) => {
                   setSelectedUser(e.target.value);
                   setCurrentPage(1);
                 }}
-                className="w-full py-2.5 pr-9 pl-3 text-sm border border-slate-300 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 appearance-none"
+                className="w-full py-2 px-3 text-xs sm:text-sm border border-slate-300 rounded-xl bg-slate-50 focus:bg-white"
               >
-                <option value="all">👤 جميع المستخدمين والمساعدين ({availableUsers.length})</option>
+                <option value="all">👤 جميع المستخدمين ({availableUsers.length})</option>
                 {availableUsers.map((u) => (
                   <option key={u.id} value={u.id}>
                     {u.name}
                   </option>
                 ))}
               </select>
-              <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-slate-400">
-                <UserIcon className="w-4 h-4" />
-              </div>
             </div>
+
+            {activeTab === "activities" && (
+              <>
+                <div className="sm:col-span-3">
+                  <select
+                    value={selectedDepartment}
+                    onChange={(e) => {
+                      setSelectedDepartment(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="w-full py-2 px-3 text-xs sm:text-sm border border-slate-300 rounded-xl bg-slate-50 focus:bg-white"
+                  >
+                    <option value="all">📁 كل الأقسام</option>
+                    <option value="client">الموكلين</option>
+                    <option value="case">القضايا</option>
+                    <option value="session">الجلسات</option>
+                    <option value="admin_task">المهام</option>
+                    <option value="appointment">المواعيد</option>
+                    <option value="accounting">المحاسبة</option>
+                    <option value="invoice">الفواتير</option>
+                    <option value="document">المستندات</option>
+                  </select>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <select
+                    value={selectedAction}
+                    onChange={(e) => {
+                      setSelectedAction(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="w-full py-2 px-3 text-xs sm:text-sm border border-slate-300 rounded-xl bg-slate-50 focus:bg-white"
+                  >
+                    <option value="all">⚡ الإجراءات</option>
+                    <option value="CREATE">➕ إضافة</option>
+                    <option value="UPDATE">✏️ تعديل</option>
+                    <option value="DELETE">🗑️ حذف</option>
+                    <option value="POSTPONE">⏱️ تأجيل جلسة</option>
+                  </select>
+                </div>
+              </>
+            )}
           </div>
 
-          {/* Activities Specific Filters */}
-          {activeTab === "activities" && (
-            <>
-              {/* Department Filter */}
-              <div className="sm:col-span-3">
-                <select
-                  value={selectedDepartment}
-                  onChange={(e) => {
-                    setSelectedDepartment(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                  className="w-full py-2.5 px-3 text-sm border border-slate-300 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100 text-xs">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="font-bold text-slate-500 text-[11px] ml-1">الفترة:</span>
+              {[
+                { id: "all", label: "الكل" },
+                { id: "today", label: "اليوم" },
+                { id: "yesterday", label: "أمس" },
+                { id: "last7", label: "آخر 7 أيام" },
+                { id: "last30", label: "آخر 30 يوماً" },
+                { id: "thisMonth", label: "هذا الشهر" },
+              ].map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => handleDatePresetChange(p.id)}
+                  className={`px-2.5 py-1 text-xs rounded-lg font-bold transition-all ${
+                    dateFilterPreset === p.id
+                      ? "bg-indigo-600 text-white shadow-2xs"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
                 >
-                  <option value="all">📁 كل الأقسام</option>
-                  <option value="client">الموكلين</option>
-                  <option value="case">القضايا</option>
-                  <option value="session">الجلسات</option>
-                  <option value="admin_task">المهام الإدارية</option>
-                  <option value="appointment">المواعيد</option>
-                  <option value="accounting">المحاسبة والمالية</option>
-                  <option value="invoice">الفواتير</option>
-                  <option value="document">المستندات والوثائق</option>
-                </select>
-              </div>
+                  {p.label}
+                </button>
+              ))}
+            </div>
 
-              {/* Action Filter */}
-              <div className="sm:col-span-2">
-                <select
-                  value={selectedAction}
-                  onChange={(e) => {
-                    setSelectedAction(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                  className="w-full py-2.5 px-3 text-sm border border-slate-300 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                >
-                  <option value="all">⚡ كل الإجراءات</option>
-                  <option value="CREATE">➕ إضافة</option>
-                  <option value="UPDATE">✏️ تعديل</option>
-                  <option value="DELETE">🗑️ حذف</option>
-                  <option value="POSTPONE">⏱️ تأجيل جلسة</option>
-                </select>
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Row 2: Date Selector & Quick Presets */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-1 border-t border-slate-100">
-          {/* Quick Presets */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-xs font-bold text-slate-500 ml-1 flex items-center gap-1">
-              <CalendarIcon className="w-3.5 h-3.5" />
-              النطاق الزمني:
-            </span>
-            {[
-              { id: "all", label: "كل التواريخ" },
-              { id: "today", label: "اليوم" },
-              { id: "yesterday", label: "أمس" },
-              { id: "last7", label: "آخر 7 أيام" },
-              { id: "last30", label: "آخر 30 يوماً" },
-              { id: "thisMonth", label: "هذا الشهر" },
-              { id: "custom", label: "تاريخ مخصص" },
-            ].map((p) => (
-              <button
-                key={p.id}
-                onClick={() => handleDatePresetChange(p.id)}
-                className={`px-3 py-1.5 text-xs rounded-xl font-bold transition-all ${
-                  dateFilterPreset === p.id
-                    ? activeTab === "activities"
-                      ? "bg-indigo-600 text-white shadow-xs"
-                      : "bg-emerald-600 text-white shadow-xs"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                }`}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Custom Date Pickers */}
-          <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
-            <div className="flex items-center gap-1">
-              <span className="text-xs text-slate-500 whitespace-nowrap">من:</span>
+            <div className="flex items-center gap-1.5 bg-slate-50 p-1 rounded-lg border border-slate-200 text-xs">
+              <span>من:</span>
               <input
                 type="date"
                 value={startDate}
@@ -850,11 +875,9 @@ export const AdminActivityLogsPage: React.FC = () => {
                   setDateFilterPreset("custom");
                   setCurrentPage(1);
                 }}
-                className="text-xs p-1 border border-slate-300 rounded-lg bg-white focus:ring-1 focus:ring-indigo-500"
+                className="p-1 border border-slate-300 rounded bg-white"
               />
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="text-xs text-slate-500 whitespace-nowrap">إلى:</span>
+              <span>إلى:</span>
               <input
                 type="date"
                 value={endDate}
@@ -863,198 +886,219 @@ export const AdminActivityLogsPage: React.FC = () => {
                   setDateFilterPreset("custom");
                   setCurrentPage(1);
                 }}
-                className="text-xs p-1 border border-slate-300 rounded-lg bg-white focus:ring-1 focus:ring-indigo-500"
+                className="p-1 border border-slate-300 rounded bg-white"
               />
             </div>
-            {(startDate || endDate) && (
-              <button
-                onClick={() => {
-                  setStartDate("");
-                  setEndDate("");
-                  setDateFilterPreset("all");
-                  setCurrentPage(1);
-                }}
-                className="text-xs text-slate-400 hover:text-rose-600 px-1 font-bold"
-                title="إلغاء التصفية بالتاريخ"
-              >
-                ✕
-              </button>
-            )}
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Main Table Content */}
-      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-        {loading && filteredLogs.length === 0 ? (
-          <div className="flex flex-col justify-center items-center py-24 gap-3">
-            <ArrowPathIcon className="w-10 h-10 text-indigo-600 animate-spin" />
-            <p className="text-sm text-slate-500 font-bold">
-              جاري تحميل سجلات النشاطات من السحابة...
-            </p>
-          </div>
-        ) : filteredLogs.length === 0 ? (
-          <div className="text-center py-20 p-8 space-y-3">
-            <ListBulletIcon className="w-14 h-14 text-slate-300 mx-auto" />
-            <h3 className="text-lg font-bold text-slate-700">لا توجد سجلات مطابقة لمعايير البحث</h3>
-            <p className="text-xs text-slate-500 max-w-md mx-auto">
-              جرب تغيير المكتب المختار، أو تعديل نطاق التاريخ أو إفراغ حقل البحث لعرض السجلات.
-            </p>
-            <button
-              onClick={resetAllFilters}
-              className="mt-2 px-5 py-2.5 text-xs font-bold bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-xl transition-colors"
-            >
-              إعادة ضبط كل الفلاتر
-            </button>
-          </div>
-        ) : activeTab === "activities" ? (
-          /* Operations Table */
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-right">
-              <thead className="bg-slate-100/90 text-slate-700 font-bold border-b border-slate-200">
-                <tr>
-                  <th className="px-4 py-3.5 text-xs w-48">التاريخ والوقت</th>
-                  <th className="px-4 py-3.5 text-xs w-48">المكتب / المحامي</th>
-                  <th className="px-4 py-3.5 text-xs w-44">المستخدم الفاعل</th>
-                  <th className="px-4 py-3.5 text-xs w-32 text-center">نوع الإجراء</th>
-                  <th className="px-4 py-3.5 text-xs w-32">القسم</th>
-                  <th className="px-4 py-3.5 text-xs">تفاصيل وبيانات العملية</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {paginatedLogs.map((log: any) => (
-                  <tr key={log.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="px-4 py-3.5 font-mono text-xs text-slate-500 whitespace-nowrap" dir="ltr">
-                      {formatDate(log.created_at)}
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-1.5">
-                        <BuildingLibraryIcon className="w-4 h-4 text-indigo-500 shrink-0" />
-                        <span className="font-bold text-slate-900 text-xs truncate max-w-[140px]" title={log.office_name}>
-                          {log.office_name}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-[10px] font-bold shrink-0">
-                          {(log.user_name || "م").substring(0, 1)}
-                        </div>
-                        <span className="font-medium text-slate-800 text-xs truncate max-w-[130px]" title={log.user_name}>
-                          {log.user_name}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3.5 text-center whitespace-nowrap">
-                      {getActionBadge(log.action)}
-                    </td>
-                    <td className="px-4 py-3.5 text-xs font-medium whitespace-nowrap">
-                      <span className="px-2.5 py-1 bg-slate-100 rounded-lg text-slate-700 font-semibold border border-slate-200">
-                        {getEntityTypeLabel(log.entity_type)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5 text-slate-700 text-xs">
-                      <div className="font-normal text-slate-800 leading-relaxed break-words" title={log.details}>
-                        {log.details}
-                      </div>
-                      {log.entity_id && (
-                        <div className="text-[10px] font-mono text-slate-400 mt-0.5" dir="ltr">
-                          ID: {log.entity_id}
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          /* Login Sessions Table */
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-right">
-              <thead className="bg-emerald-50/80 text-emerald-950 font-bold border-b border-emerald-100">
-                <tr>
-                  <th className="px-4 py-3.5 text-xs w-48">تاريخ ووقت الدخول</th>
-                  <th className="px-4 py-3.5 text-xs w-48">المكتب التابع له</th>
-                  <th className="px-4 py-3.5 text-xs w-52">المستخدم</th>
-                  <th className="px-4 py-3.5 text-xs w-36 text-center">نوع الجلسة</th>
-                  <th className="px-4 py-3.5 text-xs">البيانات والتفاصيل</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-emerald-50/50">
-                {paginatedLogs.map((log: any) => (
-                  <tr key={log.id} className="hover:bg-emerald-50/30 transition-colors">
-                    <td className="px-4 py-3.5 font-mono text-xs text-slate-600 whitespace-nowrap" dir="ltr">
-                      {formatDate(log.created_at)}
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-1.5">
-                        <BuildingLibraryIcon className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span className="font-bold text-slate-900 text-xs truncate max-w-[140px]" title={log.office_name}>
-                          {log.office_name}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-bold border border-emerald-200 shrink-0">
-                          {(log.user_name || "م").substring(0, 1)}
-                        </div>
-                        <div>
-                          <div className="font-bold text-slate-900 text-xs">{log.user_name}</div>
-                          {log.user_id && (
-                            <div className="text-[10px] font-mono text-slate-400" dir="ltr">
-                              {log.user_id.substring(0, 8)}...
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3.5 text-center whitespace-nowrap">
-                      <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                        <KeyIcon className="w-3.5 h-3.5" />
-                        تسجيل دخول للنظام
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5 text-slate-700 text-xs">
-                      <div className="font-medium text-slate-800">{log.details || "تم تسجيل الدخول بنجاح"}</div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+      {/* Main Table Container Card with Normal Page Flow */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm">
+        
+        {/* Top Pagination Control Bar */}
+        <div className="p-3 px-4 sm:px-6 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 no-print">
+          <div className="flex items-center gap-3">
+            <div>
+              عرض <span className="font-bold text-slate-900">{filteredLogs.length === 0 ? 0 : (currentPage - 1) * pageSize + 1}</span>-
+              <span className="font-bold text-slate-900">{Math.min(currentPage * pageSize, filteredLogs.length)}</span> من أصل{" "}
+              <span className="font-bold text-indigo-700">{filteredLogs.length}</span> سجل
+            </div>
 
-        {/* Pagination & Footer */}
-        <div className="p-4 px-6 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500 no-print">
-          <div>
-            عرض <span className="font-bold text-slate-800">{paginatedLogs.length}</span> من أصل{" "}
-            <span className="font-bold text-slate-800">{filteredLogs.length}</span> سجل
+            <div className="flex items-center gap-1">
+              <span className="text-[11px] text-slate-500">العدد:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="py-1 px-2 border border-slate-300 rounded bg-white font-bold text-slate-800"
+              >
+                <option value={15}>15</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
           </div>
 
           {totalPages > 1 && (
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
               <button
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                onClick={() => {
+                  setCurrentPage((p) => Math.max(1, p - 1));
+                  scrollToTop();
+                }}
                 disabled={currentPage === 1}
-                className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 font-bold disabled:opacity-40 hover:bg-slate-100"
+                className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-slate-700 font-bold disabled:opacity-40 hover:bg-slate-100 flex items-center gap-1"
               >
-                السابق
+                <ChevronRightIcon className="w-3.5 h-3.5" />
+                <span>السابق</span>
               </button>
-              <div className="px-3 py-1.5 font-bold text-slate-700">
+              <span className="px-2 font-bold text-slate-800">
                 صفحة {currentPage} من {totalPages}
-              </div>
+              </span>
               <button
-                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                onClick={() => {
+                  setCurrentPage((p) => Math.min(totalPages, p + 1));
+                  scrollToTop();
+                }}
                 disabled={currentPage === totalPages}
-                className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 font-bold disabled:opacity-40 hover:bg-slate-100"
+                className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-slate-700 font-bold disabled:opacity-40 hover:bg-slate-100 flex items-center gap-1"
               >
-                التالي
+                <span>التالي</span>
+                <ChevronLeftIcon className="w-3.5 h-3.5" />
               </button>
             </div>
           )}
         </div>
+
+        {/* Full Page Flow Table Container */}
+        <div
+          ref={tableContainerRef}
+          className="overflow-x-auto w-full relative scroll-smooth"
+        >
+          {loading && filteredLogs.length === 0 ? (
+            <div className="flex flex-col justify-center items-center py-20 gap-2">
+              <ArrowPathIcon className="w-9 h-9 text-indigo-600 animate-spin" />
+              <p className="text-sm text-slate-500 font-bold">جاري تحميل سجل السحابة...</p>
+            </div>
+          ) : filteredLogs.length === 0 ? (
+            <div className="text-center py-16 p-6 space-y-2">
+              <ListBulletIcon className="w-12 h-12 text-slate-300 mx-auto" />
+              <h3 className="text-base font-bold text-slate-700">لا توجد سجلات مطابقة للبحث</h3>
+              <button
+                onClick={resetAllFilters}
+                className="mt-2 px-4 py-2 text-xs font-bold bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-xl"
+              >
+                إعادة ضبط جميع الفلاتر
+              </button>
+            </div>
+          ) : activeTab === "activities" ? (
+            /* Operations Table */
+            <div className="overflow-x-auto min-w-[700px]">
+              <table className="w-full text-xs sm:text-sm text-right">
+                <thead className="sticky top-0 z-10 bg-slate-100/95 backdrop-blur-xs text-slate-700 font-bold border-b border-slate-200 shadow-2xs">
+                  <tr>
+                    <th className="px-4 py-3 w-44">التاريخ والوقت</th>
+                    <th className="px-4 py-3 w-48">المكتب / المحامي</th>
+                    <th className="px-4 py-3 w-40">المستخدم الفاعل</th>
+                    <th className="px-4 py-3 w-28 text-center">نوع الإجراء</th>
+                    <th className="px-4 py-3 w-32">القسم</th>
+                    <th className="px-4 py-3">تفاصيل العملية</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {paginatedLogs.map((log: any) => (
+                    <tr key={log.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-4 py-3 font-mono text-[11px] sm:text-xs text-slate-500 whitespace-nowrap" dir="ltr">
+                        {formatDate(log.created_at)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1.5">
+                          <BuildingLibraryIcon className="w-4 h-4 text-indigo-500 shrink-0" />
+                          <span className="font-bold text-slate-900 text-xs truncate max-w-[130px]" title={log.office_name}>
+                            {log.office_name}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="font-medium text-slate-800 text-xs truncate max-w-[120px]" title={log.user_name}>
+                          {log.user_name}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center whitespace-nowrap">
+                        {getActionBadge(log.action)}
+                      </td>
+                      <td className="px-4 py-3 text-xs font-semibold text-slate-700 whitespace-nowrap">
+                        <span className="px-2 py-0.5 bg-slate-100 rounded border border-slate-200">
+                          {getEntityTypeLabel(log.entity_type)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-800 text-xs leading-relaxed">
+                        <div>{log.details}</div>
+                        {log.entity_id && (
+                          <div className="text-[10px] font-mono text-slate-400" dir="ltr">
+                            ID: {log.entity_id}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            /* Login Sessions Table */
+            <div className="overflow-x-auto min-w-[600px]">
+              <table className="w-full text-xs sm:text-sm text-right">
+                <thead className="sticky top-0 z-10 bg-emerald-50/95 backdrop-blur-xs text-emerald-950 font-bold border-b border-emerald-100 shadow-2xs">
+                  <tr>
+                    <th className="px-4 py-3 w-44">تاريخ ووقت الدخول</th>
+                    <th className="px-4 py-3 w-48">المكتب التابع له</th>
+                    <th className="px-4 py-3 w-48">المستخدم</th>
+                    <th className="px-4 py-3 w-32 text-center">نوع الجلسة</th>
+                    <th className="px-4 py-3">البيانات والتفاصيل</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-emerald-50/60">
+                  {paginatedLogs.map((log: any) => (
+                    <tr key={log.id} className="hover:bg-emerald-50/30 transition-colors">
+                      <td className="px-4 py-3 font-mono text-[11px] sm:text-xs text-slate-600 whitespace-nowrap" dir="ltr">
+                        {formatDate(log.created_at)}
+                      </td>
+                      <td className="px-4 py-3 font-bold text-slate-900 text-xs">{log.office_name}</td>
+                      <td className="px-4 py-3 font-semibold text-slate-900 text-xs">{log.user_name}</td>
+                      <td className="px-4 py-3 text-center whitespace-nowrap">
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
+                          تسجيل دخول
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-700 text-xs">{log.details || "تم تسجيل الدخول بنجاح"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Bottom Pagination Control Bar */}
+        <div className="p-3 px-4 sm:px-6 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 no-print">
+          <div>
+            صفحة <span className="font-bold text-slate-900">{currentPage}</span> من{" "}
+            <span className="font-bold text-slate-900">{totalPages}</span> (إجمالي {filteredLogs.length} سجل)
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  setCurrentPage((p) => Math.max(1, p - 1));
+                  scrollToTop();
+                }}
+                disabled={currentPage === 1}
+                className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 font-bold disabled:opacity-40 hover:bg-slate-100 flex items-center gap-1"
+              >
+                <ChevronRightIcon className="w-3.5 h-3.5" />
+                <span>السابق</span>
+              </button>
+              <button
+                onClick={() => {
+                  setCurrentPage((p) => Math.min(totalPages, p + 1));
+                  scrollToTop();
+                }}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 font-bold disabled:opacity-40 hover:bg-slate-100 flex items-center gap-1"
+              >
+                <span>التالي</span>
+                <ChevronLeftIcon className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+        </div>
+
       </div>
     </div>
   );

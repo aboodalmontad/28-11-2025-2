@@ -1,4 +1,5 @@
 import * as React from "react";
+import Logo from "../components/Logo";
 import { get_supabase_client } from "../supabaseClient";
 import {
   check_supabase_schema,
@@ -1036,7 +1037,8 @@ const LoginPage: React.FC<auth_page_props> = ({
       dir="rtl"
     >
       <div className="w-full max-w-md">
-        <div className="text-center mb-6">
+        <div className="text-center mb-6 flex flex-col items-center">
+          <Logo size="xl" className="h-28 w-28 mb-3 shadow-lg rounded-2xl border border-slate-700/30" />
           <h1 className="text-3xl font-bold text-gray-800">مكتب المحامي</h1>
           <p className="text-gray-500">إدارة أعمال المحاماة بكفاءة</p>
           <div className="flex flex-col items-center gap-2 mt-2">
