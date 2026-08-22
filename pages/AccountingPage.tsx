@@ -45,7 +45,116 @@ import {
 } from "recharts";
 
 // --- TAB: ENTRIES ---
-const EntriesTab: React.FC = () => {
+
+const TabsHeader: React.FC<{
+  active_tab: string;
+  set_active_tab: (tab: any) => void;
+  children?: React.ReactNode;
+}> = ({ active_tab, set_active_tab, children }) => {
+  const { accounting_entries } = useData();
+
+  const financial_summary = React.useMemo(() => {
+    const total_income = accounting_entries
+      .filter((e) => e.type === "income")
+      .reduce((sum, e) => sum + e.amount, 0);
+    const total_expenses = accounting_entries
+      .filter((e) => e.type === "expense")
+      .reduce((sum, e) => sum + e.amount, 0);
+    return {
+      total_income,
+      total_expenses,
+      balance: total_income - total_expenses,
+    };
+  }, [accounting_entries]);
+
+  return (
+    <div className="sticky top-0 z-20 bg-gray-100 -mx-4 px-4 -mt-4 pt-4 pb-4 shadow-sm border-b border-gray-200 mb-6 space-y-4">
+      {/* Title & Actions Bar */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">المحاسبة</h1>
+        {children && (
+          <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto justify-start sm:justify-end">
+            {children}
+          </div>
+        )}
+      </div>
+
+      {/* Financial Summary Cards in Sticky Header */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="bg-green-50/90 border border-green-200 p-3 rounded-lg shadow-sm flex items-center justify-between">
+          <div>
+            <h3 className="text-xs font-semibold text-green-800">إجمالي المقبوضات</h3>
+            <p className="text-lg sm:text-xl font-bold text-green-700 mt-0.5">
+              {financial_summary.total_income.toLocaleString()} <span className="text-xs font-normal text-green-600">ل.س</span>
+            </p>
+          </div>
+          <div className="w-9 h-9 rounded-full bg-green-100 text-green-600 flex items-center justify-center font-bold">
+            ↓
+          </div>
+        </div>
+
+        <div className="bg-red-50/90 border border-red-200 p-3 rounded-lg shadow-sm flex items-center justify-between">
+          <div>
+            <h3 className="text-xs font-semibold text-red-800">إجمالي المصروفات</h3>
+            <p className="text-lg sm:text-xl font-bold text-red-700 mt-0.5">
+              {financial_summary.total_expenses.toLocaleString()} <span className="text-xs font-normal text-red-600">ل.س</span>
+            </p>
+          </div>
+          <div className="w-9 h-9 rounded-full bg-red-100 text-red-600 flex items-center justify-center font-bold">
+            ↑
+          </div>
+        </div>
+
+        <div className="bg-blue-50/90 border border-blue-200 p-3 rounded-lg shadow-sm flex items-center justify-between">
+          <div>
+            <h3 className="text-xs font-semibold text-blue-800">الرصيد الصافي</h3>
+            <p className={`text-lg sm:text-xl font-bold mt-0.5 ${
+              financial_summary.balance >= 0 ? "text-blue-700" : "text-amber-700"
+            }`}>
+              {financial_summary.balance.toLocaleString()} <span className="text-xs font-normal text-blue-600">ل.س</span>
+            </p>
+          </div>
+          <div className="w-9 h-9 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold">
+            =
+          </div>
+        </div>
+      </div>
+
+      {/* Tabs Navigation */}
+      <div className="flex border-b border-gray-200 overflow-x-auto">
+        <button
+          onClick={() => set_active_tab("entries")}
+          className={`px-6 py-2.5 font-medium text-sm transition-colors border-b-2 whitespace-nowrap ${active_tab === "entries" ? "border-blue-600 text-blue-600 font-semibold" : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"}`}
+        >
+          <div className="flex items-center gap-2">
+            <CalculatorIcon className="w-5 h-5" /> القيود اليومية
+          </div>
+        </button>
+        <button
+          onClick={() => set_active_tab("invoices")}
+          className={`px-6 py-2.5 font-medium text-sm transition-colors border-b-2 whitespace-nowrap ${active_tab === "invoices" ? "border-blue-600 text-blue-600 font-semibold" : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"}`}
+        >
+          <div className="flex items-center gap-2">
+            <DocumentTextIcon className="w-5 h-5" /> الفواتير
+          </div>
+        </button>
+        <button
+          onClick={() => set_active_tab("reports")}
+          className={`px-6 py-2.5 font-medium text-sm transition-colors border-b-2 whitespace-nowrap ${active_tab === "reports" ? "border-blue-600 text-blue-600 font-semibold" : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"}`}
+        >
+          <div className="flex items-center gap-2">
+            <ChartPieIcon className="w-5 h-5" /> التقارير
+          </div>
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const EntriesTab: React.FC<{
+  active_tab: string;
+  set_active_tab: (tab: any) => void;
+}> = ({ active_tab, set_active_tab }) => {
   const {
     accounting_entries,
     set_accounting_entries,
@@ -63,6 +172,7 @@ const EntriesTab: React.FC = () => {
     {},
   );
   const [search_query, set_search_query] = React.useState("");
+  const [selected_entry_ids, set_selected_entry_ids] = React.useState<string[]>([]);
 
   const financial_summary = React.useMemo(() => {
     const total_income = accounting_entries
@@ -110,7 +220,7 @@ const EntriesTab: React.FC = () => {
       entry
         ? { ...entry, date: to_input_date_string(entry.date) as unknown as any }
         : {
-            type: "income",
+            type: "expense",
             date: to_input_date_string(new Date()) as unknown as any,
           },
     );
@@ -118,6 +228,40 @@ const EntriesTab: React.FC = () => {
   };
 
   const handle_close_modal = () => set_modal({ is_open: false });
+
+  const handle_toggle_select_all = () => {
+    if (
+      filtered_and_sorted_entries.length > 0 &&
+      selected_entry_ids.length === filtered_and_sorted_entries.length
+    ) {
+      set_selected_entry_ids([]);
+    } else {
+      set_selected_entry_ids(filtered_and_sorted_entries.map((e) => e.id));
+    }
+  };
+
+  const handle_toggle_select = (id: string) => {
+    set_selected_entry_ids((prev) =>
+      prev.includes(id) ? prev.filter((item_id) => item_id !== id) : [...prev, id],
+    );
+  };
+
+  const handle_delete_selected = () => {
+    if (selected_entry_ids.length === 0) return;
+    confirm({
+      title: "تأكيد حذف القيود المحددة",
+      message: `هل أنت متأكد من حذف ${selected_entry_ids.length} قيد محاسبي محدد؟ لا يمكن التراجع عن هذا الإجراء.`,
+      confirmText: `حذف (${selected_entry_ids.length})`,
+      cancelText: "إلغاء",
+      variant: "danger",
+      onConfirm: () => {
+        selected_entry_ids.forEach((id) => {
+          delete_accounting_entry(id);
+        });
+        set_selected_entry_ids([]);
+      },
+    });
+  };
 
   const handle_form_change = (
     e: React.ChangeEvent<
@@ -145,7 +289,7 @@ const EntriesTab: React.FC = () => {
   const handle_submit = (e: React.FormEvent) => {
     e.preventDefault();
     const entry_data: Omit<AccountingEntry, "id"> = {
-      type: form_data.type as "income" | "expense",
+      type: (form_data.type || "expense") as "income" | "expense",
       amount: Number(form_data.amount),
       date: form_data.date!,
       description: form_data.description!,
@@ -173,53 +317,83 @@ const EntriesTab: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-green-100 p-4 rounded-lg shadow-sm border border-green-200">
-          <h3 className="text-green-800 font-semibold">إجمالي المقبوضات</h3>
-          <p className="text-2xl font-bold text-green-900">
-            {financial_summary.total_income.toLocaleString()} ل.س
-          </p>
-        </div>
-        <div className="bg-red-100 p-4 rounded-lg shadow-sm border border-red-200">
-          <h3 className="text-red-800 font-semibold">إجمالي المصروفات</h3>
-          <p className="text-2xl font-bold text-red-900">
-            {financial_summary.total_expenses.toLocaleString()} ل.س
-          </p>
-        </div>
-        <div className="bg-blue-100 p-4 rounded-lg shadow-sm border border-blue-200">
-          <h3 className="text-blue-800 font-semibold">الرصيد الصافي</h3>
-          <p className="text-2xl font-bold text-blue-900">
-            {financial_summary.balance.toLocaleString()} ل.س
-          </p>
-        </div>
-      </div>
-
-      <div className="bg-white p-4 rounded-lg shadow">
-        <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-4">
-          <div className="relative w-full sm:w-64">
-            <input
-              type="search"
-              placeholder="بحث في القيود..."
-              value={search_query}
-              onChange={(e) => set_search_query(e.target.value)}
-              className="w-full p-2 ps-10 border rounded-lg bg-gray-50 focus:ring-blue-500"
-            />
-            <SearchIcon className="absolute left-3 top-2.5 w-5 h-5 text-gray-400" />
+      <TabsHeader active_tab={active_tab} set_active_tab={set_active_tab}>
+        <div className="relative w-full sm:w-64">
+          <input
+            type="search"
+            placeholder="بحث في القيود..."
+            value={search_query}
+            onChange={(e) => set_search_query(e.target.value)}
+            className="w-full p-2 ps-10 border border-gray-300 rounded-lg bg-white focus:ring-blue-500 focus:border-blue-500 shadow-sm text-sm"
+          />
+          <div className="absolute inset-y-0 start-0 flex items-center ps-3 pointer-events-none">
+            <SearchIcon className="w-4 h-4 text-gray-400" />
           </div>
-          {permissions.can_add_financial_entry && (
-            <button
-              onClick={() => handle_open_modal()}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold"
-            >
-              <PlusIcon className="w-5 h-5" /> <span>قيد جديد</span>
-            </button>
-          )}
         </div>
+        {permissions.can_delete_financial_entry && selected_entry_ids.length > 0 && (
+          <button
+            onClick={handle_delete_selected}
+            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold whitespace-nowrap shadow-sm transition"
+            title="حذف القيود المحددة"
+          >
+            <TrashIcon className="w-5 h-5" />
+            <span>حذف المحدد ({selected_entry_ids.length})</span>
+          </button>
+        )}
+        {permissions.can_add_financial_entry && (
+          <button
+            onClick={() => handle_open_modal()}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold whitespace-nowrap"
+          >
+            <PlusIcon className="w-5 h-5" /> <span>قيد جديد</span>
+          </button>
+        )}
+      </TabsHeader>
+
+      <div className="bg-white p-4 rounded-lg shadow space-y-4">
+        {selected_entry_ids.length > 0 && (
+          <div className="bg-blue-50 border border-blue-200 text-blue-900 px-4 py-2.5 rounded-lg flex items-center justify-between flex-wrap gap-2">
+            <span className="text-sm font-medium">
+              تم تحديد <strong className="font-bold text-blue-700">{selected_entry_ids.length}</strong> من أصل {filtered_and_sorted_entries.length} قيد
+            </span>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => set_selected_entry_ids([])}
+                className="text-xs text-gray-600 hover:text-gray-900 underline font-medium"
+              >
+                إلغاء التحديد
+              </button>
+              {permissions.can_delete_financial_entry && (
+                <button
+                  type="button"
+                  onClick={handle_delete_selected}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white text-xs font-bold rounded-md hover:bg-red-700 transition shadow-sm"
+                >
+                  <TrashIcon className="w-4 h-4" />
+                  <span>حذف المحدد ({selected_entry_ids.length})</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-right text-gray-600">
             <thead className="bg-gray-100 text-gray-700 font-semibold">
               <tr>
+                <th className="px-3 py-3 w-10 text-center">
+                  <input
+                    type="checkbox"
+                    checked={
+                      filtered_and_sorted_entries.length > 0 &&
+                      selected_entry_ids.length === filtered_and_sorted_entries.length
+                    }
+                    onChange={handle_toggle_select_all}
+                    className="w-4 h-4 text-blue-600 bg-white border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                    title="تحديد الكل"
+                  />
+                </th>
                 <th className="px-4 py-3">التاريخ</th>
                 <th className="px-4 py-3">البيان</th>
                 <th className="px-4 py-3">الموكل</th>
@@ -229,51 +403,71 @@ const EntriesTab: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {filtered_and_sorted_entries.map((entry) => (
-                <tr key={entry.id} className="border-b hover:bg-gray-50">
-                  <td className="px-4 py-3">{format_date(entry.date)}</td>
-                  <td className="px-4 py-3">{entry.description}</td>
-                  <td className="px-4 py-3">{entry.client_name || "-"}</td>
-                  <td className="px-4 py-3 font-bold text-green-600">
-                    {entry.type === "income"
-                      ? entry.amount.toLocaleString()
-                      : "-"}
-                  </td>
-                  <td className="px-4 py-3 font-bold text-red-600">
-                    {entry.type === "expense"
-                      ? entry.amount.toLocaleString()
-                      : "-"}
-                  </td>
-                  <td className="px-4 py-3 flex gap-2">
-                    <button
-                      onClick={() => handle_open_modal(entry)}
-                      className="p-1 text-gray-500 hover:text-blue-600"
-                    >
-                      <PencilIcon className="w-4 h-4" />
-                    </button>
-                    {permissions.can_delete_financial_entry && (
-                      <button
-                        onClick={() =>
-                          confirm({
-                            title: "تأكيد الحذف",
-                            message: `هل أنت متأكد من حذف القيد "${entry.description}"؟`,
-                            confirmText: "حذف",
-                            cancelText: "إلغاء",
-                            variant: "danger",
-                            onConfirm: () => delete_accounting_entry(entry.id),
-                          })
-                        }
-                        className="p-1 text-gray-500 hover:text-red-600"
-                      >
-                        <TrashIcon className="w-4 h-4" />
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {filtered_and_sorted_entries.map((entry) => {
+                const is_selected = selected_entry_ids.includes(entry.id);
+                return (
+                  <tr
+                    key={entry.id}
+                    className={`border-b transition-colors ${
+                      is_selected ? "bg-blue-50/80 hover:bg-blue-100/80" : "hover:bg-gray-50"
+                    }`}
+                  >
+                    <td className="px-3 py-3 text-center">
+                      <input
+                        type="checkbox"
+                        checked={is_selected}
+                        onChange={() => handle_toggle_select(entry.id)}
+                        className="w-4 h-4 text-blue-600 bg-white border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                      />
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">{format_date(entry.date)}</td>
+                    <td className="px-4 py-3 font-medium text-gray-800">{entry.description}</td>
+                    <td className="px-4 py-3">{entry.client_name || "-"}</td>
+                    <td className="px-4 py-3 font-bold text-green-600 whitespace-nowrap">
+                      {entry.type === "income"
+                        ? entry.amount.toLocaleString()
+                        : "-"}
+                    </td>
+                    <td className="px-4 py-3 font-bold text-red-600 whitespace-nowrap">
+                      {entry.type === "expense"
+                        ? entry.amount.toLocaleString()
+                        : "-"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handle_open_modal(entry)}
+                          className="p-1 text-gray-500 hover:text-blue-600 rounded transition"
+                          title="تعديل"
+                        >
+                          <PencilIcon className="w-4 h-4" />
+                        </button>
+                        {permissions.can_delete_financial_entry && (
+                          <button
+                            onClick={() =>
+                              confirm({
+                                title: "تأكيد الحذف",
+                                message: `هل أنت متأكد من حذف القيد "${entry.description}"؟`,
+                                confirmText: "حذف",
+                                cancelText: "إلغاء",
+                                variant: "danger",
+                                onConfirm: () => delete_accounting_entry(entry.id),
+                              })
+                            }
+                            className="p-1 text-gray-500 hover:text-red-600 rounded transition"
+                            title="حذف"
+                          >
+                            <TrashIcon className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
               {filtered_and_sorted_entries.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="text-center p-4">
+                  <td colSpan={7} className="text-center p-6 text-gray-500">
                     لا توجد قيود.
                   </td>
                 </tr>
@@ -281,16 +475,17 @@ const EntriesTab: React.FC = () => {
             </tbody>
             <tfoot className="bg-gray-100 font-bold">
               <tr>
+                <td></td>
                 <td colSpan={3} className="px-4 py-3 text-left">
                   الإجمالي
                 </td>
-                <td className="px-4 py-3 text-green-700">
+                <td className="px-4 py-3 text-green-700 whitespace-nowrap">
                   {table_totals.income.toLocaleString()}
                 </td>
-                <td className="px-4 py-3 text-red-700">
+                <td className="px-4 py-3 text-red-700 whitespace-nowrap">
                   {table_totals.expense.toLocaleString()}
                 </td>
-                <td className="px-4 py-3 text-blue-800">
+                <td className="px-4 py-3 text-blue-800 whitespace-nowrap">
                   الفرق:{" "}
                   {(
                     table_totals.income - table_totals.expense
@@ -320,12 +515,12 @@ const EntriesTab: React.FC = () => {
                   <label className="block text-sm font-medium">النوع</label>
                   <select
                     name="type"
-                    value={form_data.type || "income"}
+                    value={form_data.type || "expense"}
                     onChange={handle_form_change}
                     className="w-full p-2 border rounded"
                   >
-                    <option value="income">مقبوضات</option>
                     <option value="expense">مصروفات</option>
+                    <option value="income">مقبوضات</option>
                   </select>
                 </div>
                 <div>
@@ -409,7 +604,9 @@ const EntriesTab: React.FC = () => {
 const InvoicesTab: React.FC<{
   initial_invoice_data?: { client_id: string; case_id?: string };
   clear_initial_invoice_data: () => void;
-}> = ({ initial_invoice_data, clear_initial_invoice_data }) => {
+  active_tab: string;
+  set_active_tab: any;
+}> = ({ initial_invoice_data, clear_initial_invoice_data, active_tab, set_active_tab }) => {
   const { invoices, set_invoices, clients, delete_invoice, permissions } =
     useData();
   const { confirm, showFeedback } = useFeedback();
@@ -481,29 +678,130 @@ const InvoicesTab: React.FC<{
     set_is_print_modal_open(true);
   };
 
+  const [selected_invoice_ids, set_selected_invoice_ids] = React.useState<string[]>([]);
+
+  const handle_toggle_select_all = () => {
+    if (
+      invoices.length > 0 &&
+      selected_invoice_ids.length === invoices.length
+    ) {
+      set_selected_invoice_ids([]);
+    } else {
+      set_selected_invoice_ids(invoices.map((inv) => inv.id));
+    }
+  };
+
+  const handle_toggle_select = (id: string) => {
+    set_selected_invoice_ids((prev) =>
+      prev.includes(id) ? prev.filter((item_id) => item_id !== id) : [...prev, id],
+    );
+  };
+
+  const handle_delete_selected = () => {
+    if (selected_invoice_ids.length === 0) return;
+    confirm({
+      title: "تأكيد حذف الفواتير المحددة",
+      message: `هل أنت متأكد من حذف ${selected_invoice_ids.length} فاتورة محددة؟ لا يمكن التراجع عن هذا الإجراء.`,
+      confirmText: `حذف (${selected_invoice_ids.length})`,
+      cancelText: "إلغاء",
+      variant: "danger",
+      onConfirm: () => {
+        selected_invoice_ids.forEach((id) => {
+          delete_invoice(id);
+        });
+        set_selected_invoice_ids([]);
+      },
+    });
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center bg-white p-4 rounded-lg shadow">
-        <h2 className="text-xl font-bold text-gray-800">سجل الفواتير</h2>
+      <TabsHeader active_tab={active_tab} set_active_tab={set_active_tab}>
+        {permissions.can_manage_invoices && selected_invoice_ids.length > 0 && (
+          <button
+            onClick={handle_delete_selected}
+            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold whitespace-nowrap shadow-sm transition"
+            title="حذف الفواتير المحددة"
+          >
+            <TrashIcon className="w-5 h-5" />
+            <span>حذف المحدد ({selected_invoice_ids.length})</span>
+          </button>
+        )}
         {permissions.can_manage_invoices && (
           <button
             onClick={() => set_modal({ is_open: true })}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold"
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold whitespace-nowrap"
           >
             <PlusIcon className="w-5 h-5" /> <span>فاتورة جديدة</span>
           </button>
         )}
-      </div>
+      </TabsHeader>
+
+      {invoices.length > 0 && (
+        <div className="flex items-center justify-between bg-white p-3 rounded-lg shadow-sm border flex-wrap gap-2">
+          <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={
+                invoices.length > 0 &&
+                selected_invoice_ids.length === invoices.length
+              }
+              onChange={handle_toggle_select_all}
+              className="w-4 h-4 text-blue-600 bg-white border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+            />
+            <span>تحديد الكل ({invoices.length} فاتورة)</span>
+          </label>
+          {selected_invoice_ids.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-blue-700 font-bold bg-blue-50 px-2.5 py-1 rounded-full border border-blue-200">
+                المحدد: {selected_invoice_ids.length}
+              </span>
+              <button
+                type="button"
+                onClick={() => set_selected_invoice_ids([])}
+                className="text-xs text-gray-500 hover:text-gray-800 underline px-1"
+              >
+                إلغاء
+              </button>
+              {permissions.can_manage_invoices && (
+                <button
+                  type="button"
+                  onClick={handle_delete_selected}
+                  className="flex items-center gap-1 px-3 py-1 bg-red-600 text-white text-xs font-bold rounded-md hover:bg-red-700 transition"
+                >
+                  <TrashIcon className="w-3.5 h-3.5" />
+                  <span>حذف ({selected_invoice_ids.length})</span>
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {invoices.length > 0 ? (
-          invoices.map((inv) => (
+          invoices.map((inv) => {
+            const is_selected = selected_invoice_ids.includes(inv.id);
+            return (
             <div
               key={inv.id}
-              className="bg-white border rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow"
+              className={`bg-white border rounded-lg p-4 shadow-sm hover:shadow-md transition-all relative ${
+                is_selected ? "border-blue-500 ring-2 ring-blue-200 bg-blue-50/30" : "border-gray-200"
+              }`}
             >
-              <div className="flex justify-between items-start mb-2">
-                <h3 className="font-bold text-lg">{inv.client_name}</h3>
+              <div className="flex justify-between items-start mb-2 gap-2">
+                <div className="flex items-start gap-2.5">
+                  <input
+                    type="checkbox"
+                    checked={is_selected}
+                    onChange={() => handle_toggle_select(inv.id)}
+                    className="w-4 h-4 mt-1 text-blue-600 bg-white border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                  />
+                  <div>
+                    <h3 className="font-bold text-lg text-gray-800">{inv.client_name}</h3>
+                    <p className="text-xs text-gray-500">رقم: {inv.id}</p>
+                  </div>
+                </div>
                 <span
                   className={`px-2 py-1 text-xs rounded-full font-medium ${
                     inv.status === "paid"
@@ -524,7 +822,6 @@ const InvoicesTab: React.FC<{
                         : "مسودة"}
                 </span>
               </div>
-              <p className="text-sm text-gray-600 mb-1">رقم: {inv.id}</p>
               <p className="text-sm text-gray-600 mb-2">
                 تاريخ: {format_date(inv.issue_date)}
               </p>
@@ -542,7 +839,7 @@ const InvoicesTab: React.FC<{
                 <div className="flex gap-1">
                   <button
                     onClick={() => handle_print_invoice(inv)}
-                    className="p-2 text-gray-500 hover:text-green-600"
+                    className="p-2 text-gray-500 hover:text-green-600 rounded transition"
                     title="طباعة"
                   >
                     <PrintIcon className="w-4 h-4" />
@@ -550,7 +847,7 @@ const InvoicesTab: React.FC<{
                   {permissions.can_manage_invoices && (
                     <button
                       onClick={() => set_modal({ is_open: true, data: inv })}
-                      className="p-2 text-gray-500 hover:text-blue-600"
+                      className="p-2 text-gray-500 hover:text-blue-600 rounded transition"
                       title="تعديل"
                     >
                       <PencilIcon className="w-4 h-4" />
@@ -559,7 +856,7 @@ const InvoicesTab: React.FC<{
                   {permissions.can_manage_invoices && (
                     <button
                       onClick={() => handle_delete_invoice(inv.id)}
-                      className="p-2 text-gray-500 hover:text-red-600"
+                      className="p-2 text-gray-500 hover:text-red-600 rounded transition"
                       title="حذف"
                     >
                       <TrashIcon className="w-4 h-4" />
@@ -568,7 +865,8 @@ const InvoicesTab: React.FC<{
                 </div>
               </div>
             </div>
-          ))
+            );
+          })
         ) : (
           <div className="col-span-full text-center p-8 text-gray-500 bg-gray-50 rounded-lg border border-dashed">
             لا توجد فواتير مسجلة.
@@ -913,7 +1211,7 @@ const InvoiceModal: React.FC<{
 };
 
 // --- TAB: REPORTS ---
-const ReportsTab: React.FC = () => {
+const ReportsTab: React.FC<{active_tab: string; set_active_tab: any}> = ({active_tab, set_active_tab}) => {
   const { accounting_entries } = useData();
   const reports_data = React.useMemo(() => {
     const income = accounting_entries
@@ -930,7 +1228,7 @@ const ReportsTab: React.FC = () => {
 
   return (
     <div className="space-y-8">
-      <h2 className="text-xl font-bold text-gray-800">التقارير المالية</h2>
+      <TabsHeader active_tab={active_tab} set_active_tab={set_active_tab} />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         <div className="bg-white p-6 rounded-lg shadow h-[400px]">
           <h3 className="text-lg font-semibold mb-4 text-center">
@@ -999,45 +1297,15 @@ const AccountingPage: React.FC<{
 
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold text-gray-800">المحاسبة</h1>
-      <div className="bg-white p-4 rounded-lg shadow">
-        <div className="flex border-b">
-          <button
-            onClick={() => set_active_tab("entries")}
-            className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 ${active_tab === "entries" ? "border-blue-500 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}
-          >
-            <div className="flex items-center gap-2">
-              <CalculatorIcon className="w-5 h-5" /> القيود اليومية
-            </div>
-          </button>
-          <button
-            onClick={() => set_active_tab("invoices")}
-            className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 ${active_tab === "invoices" ? "border-blue-500 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}
-          >
-            <div className="flex items-center gap-2">
-              <DocumentTextIcon className="w-5 h-5" /> الفواتير
-            </div>
-          </button>
-          <button
-            onClick={() => set_active_tab("reports")}
-            className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 ${active_tab === "reports" ? "border-blue-500 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}
-          >
-            <div className="flex items-center gap-2">
-              <ChartPieIcon className="w-5 h-5" /> التقارير
-            </div>
-          </button>
-        </div>
-        <div className="p-6">
-          {active_tab === "entries" && <EntriesTab />}
-          {active_tab === "invoices" && (
-            <InvoicesTab
-              initial_invoice_data={initial_invoice_data}
-              clear_initial_invoice_data={clear_initial_invoice_data}
-            />
-          )}
-          {active_tab === "reports" && <ReportsTab />}
-        </div>
-      </div>
+      {active_tab === "entries" && <EntriesTab active_tab={active_tab} set_active_tab={set_active_tab} />}
+      {active_tab === "invoices" && (
+        <InvoicesTab
+          initial_invoice_data={initial_invoice_data}
+          clear_initial_invoice_data={clear_initial_invoice_data}
+          active_tab={active_tab} set_active_tab={set_active_tab}
+        />
+      )}
+      {active_tab === "reports" && <ReportsTab active_tab={active_tab} set_active_tab={set_active_tab} />}
     </div>
   );
 };
