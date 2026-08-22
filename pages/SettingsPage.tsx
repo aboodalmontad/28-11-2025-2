@@ -22,11 +22,12 @@ import {
   DOCS_METADATA_STORE_NAME,
 } from "../utils/db";
 import AssistantsManager from "../components/AssistantsManager";
-import ActivityLogsModal from "../components/ActivityLogsModal";
 
-interface SettingsPageProps {}
+interface SettingsPageProps {
+  onNavigate?: (page: string) => void;
+}
 
-const SettingsPage: React.FC<SettingsPageProps> = () => {
+const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
   const {
     set_full_data,
     assistants,
@@ -47,7 +48,6 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
     message: string;
     type: "success" | "error";
   } | null>(null);
-  const [showActivityLogs, setShowActivityLogs] = React.useState(false);
   const [is_confirm_modal_open, set_is_confirm_modal_open] =
     React.useState(false);
   const [is_delete_assistant_modal_open, set_is_delete_assistant_modal_open] =
@@ -581,7 +581,7 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
             استعرض كافة النشاطات، تسجيلات الدخول، والتعديلات التي تمت على النظام من قبل المستخدمين والمساعدين مع الوقت والتاريخ.
           </p>
           <button
-            onClick={() => setShowActivityLogs(true)}
+            onClick={() => onNavigate && onNavigate("logs")}
             className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 transition-colors"
           >
             <ShieldCheckIcon className="w-5 h-5" />
@@ -647,10 +647,6 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
         <AssistantsManager
           onClose={() => set_is_assistants_manager_open(false)}
         />
-      )}
-      
-      {showActivityLogs && (
-        <ActivityLogsModal onClose={() => setShowActivityLogs(false)} />
       )}
     </div>
   );

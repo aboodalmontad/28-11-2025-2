@@ -5,6 +5,7 @@ import ClientsPage from "./pages/ClientsPage";
 import HomePage from "./pages/HomePage";
 import AccountingPage from "./pages/AccountingPage";
 import SettingsPage from "./pages/SettingsPage";
+import ActivityLogsPage from "./pages/ActivityLogsPage";
 import LoginPage from "./pages/LoginPage";
 import AdminDashboard from "./pages/AdminDashboard";
 import PendingApprovalPage from "./pages/PendingApprovalPage";
@@ -46,7 +47,7 @@ import SyncStatusIndicator from "./components/SyncStatusIndicator";
 import NotificationCenter from "./components/RealtimeNotifier";
 import { AdminTask } from "./types";
 
-type Page = "home" | "admin-tasks" | "clients" | "accounting" | "settings";
+type Page = "home" | "admin-tasks" | "clients" | "accounting" | "settings" | "logs";
 
 interface NavbarProps {
   currentPage: Page;
@@ -96,7 +97,7 @@ const Navbar: React.FC<NavbarProps> = ({
     },
     {
       id: "clients",
-      label: "الموكلين",
+      label: "الموكلين والقضايا",
       icon: UserIcon,
       visible: permissions.can_view_clients,
     },
@@ -196,7 +197,7 @@ const BottomNav: React.FC<BottomNavProps> = ({
     },
     {
       id: "clients",
-      label: "الموكلين",
+      label: "الموكلين والقضايا",
       icon: UserIcon,
       visible: permissions.can_view_clients,
     },
@@ -967,7 +968,8 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
           {currentPage === "accounting" && (
             <AccountingPage clear_initial_invoice_data={() => {}} />
           )}
-          {currentPage === "settings" && <SettingsPage />}
+          {currentPage === "settings" && <SettingsPage onNavigate={(page) => setCurrentPage(page as Page)} />}
+          {currentPage === "logs" && <ActivityLogsPage />}
           {currentPage === "admin-tasks" && (
             <HomePage
               on_open_admin_task_modal={(initialData) => {

@@ -985,6 +985,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({
 
   return (
     <div className="space-y-6">
+      <div className="sticky top-0 z-20 bg-gray-100 -mx-4 px-4 -mt-4 pt-4 pb-4 shadow-sm border-b border-gray-200 mb-6 space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h1 className="text-3xl font-bold text-gray-800">الموكلين والقضايا</h1>
         <div className="flex items-center gap-2">
@@ -1052,6 +1053,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({
             </button>
           ))}
         </div>
+      </div>
       </div>
 
       <div>

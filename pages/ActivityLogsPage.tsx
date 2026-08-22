@@ -13,15 +13,13 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   Bars3Icon,
-} from "./icons";
+} from "../components/icons";
 import { get_supabase_client } from "../supabaseClient";
 import { useData } from "../context/DataContext";
 
-interface ActivityLogsModalProps {
-  onClose: () => void;
-}
+interface ActivityLogsPageProps {}
 
-export const ActivityLogsModal: React.FC<ActivityLogsModalProps> = ({ onClose }) => {
+const ActivityLogsPage: React.FC<ActivityLogsPageProps> = () => {
   const { audit_logs = [], profiles = [], current_user_profile, user_id } = useData();
   const [logs, setLogs] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(false);
@@ -437,8 +435,9 @@ export const ActivityLogsModal: React.FC<ActivityLogsModalProps> = ({ onClose })
   }, [profiles, logs]);
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto p-2 sm:p-6 bg-slate-950/80 backdrop-blur-xs flex justify-center items-start sm:items-center py-6 sm:py-10">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl border border-gray-200 overflow-hidden my-auto">
+    <div className="space-y-6">
+<h1 className="text-3xl font-bold text-gray-800">سجل نشاطات النظام</h1>
+<div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col min-h-[70vh]">
         
         {/* Modal Header */}
         <div className="shrink-0 flex items-center justify-between p-3 sm:px-6 bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white border-b border-slate-700 no-print">
@@ -491,13 +490,7 @@ export const ActivityLogsModal: React.FC<ActivityLogsModalProps> = ({ onClose })
             >
               <ArrowPathIcon className={`w-4 h-4 ${loading ? "animate-spin text-blue-400" : ""}`} />
             </button>
-            <button
-              onClick={onClose}
-              className="p-1.5 text-slate-300 hover:text-white hover:bg-rose-600 rounded-lg transition-colors"
-              title="إغلاق"
-            >
-              <XMarkIcon className="w-5 h-5" />
-            </button>
+            
           </div>
         </div>
 
@@ -913,12 +906,7 @@ export const ActivityLogsModal: React.FC<ActivityLogsModalProps> = ({ onClose })
               </div>
             )}
 
-            <button
-              onClick={onClose}
-              className="px-4 py-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors text-xs shrink-0"
-            >
-              إغلاق
-            </button>
+            
           </div>
         </div>
 
@@ -927,4 +915,4 @@ export const ActivityLogsModal: React.FC<ActivityLogsModalProps> = ({ onClose })
   );
 };
 
-export default ActivityLogsModal;
+export default ActivityLogsPage;
