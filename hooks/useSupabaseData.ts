@@ -347,13 +347,23 @@ export const useSupabaseData = (
     }
   }, [is_data_loading]);
 
-  const [admin_viewing_user_id, set_admin_viewing_user_id] = React.useState<
+  const [admin_viewing_user_id, set_admin_viewing_user_id_internal] = React.useState<
     string | null
   >(null);
 
+  const set_admin_viewing_user_id = React.useCallback(
+    (id: string | null) => {
+      if (id === null && admin_viewing_user_id !== null) {
+        set_is_data_loading(true); // Prevent race condition when leaving user view
+      }
+      set_admin_viewing_user_id_internal(id);
+    },
+    [admin_viewing_user_id],
+  );
+
   // Reset admin viewing mode when user changes (e.g. logout)
   React.useEffect(() => {
-    set_admin_viewing_user_id(null);
+    set_admin_viewing_user_id_internal(null);
   }, [user?.id]);
 
   // Check for updates by fetching version.json from server

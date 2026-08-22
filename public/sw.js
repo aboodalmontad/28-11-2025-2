@@ -1,5 +1,5 @@
 // sw.js - Unified Service Worker for Offline-First Lawyer Management App
-const CACHE_NAME = "lawyer-app-cache-v2026-06-24";
+const CACHE_NAME = "lawyer-app-cache-v2026-08-22-offline-v4";
 
 // The list of URLs to cache (App Shell). Will be populated dynamically during build.
 const urlsToCache = [

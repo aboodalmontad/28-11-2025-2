@@ -1,7 +1,7 @@
 import { openDB, IDBPDatabase } from "idb";
 
 export const DB_NAME = "LawyerAppData";
-export const DB_VERSION = 12; // Incremented version
+export const DB_VERSION = 13; // Incremented version
 export const DATA_STORE_NAME = "app_data";
 export const DELETED_IDS_STORE_NAME = "deleted_ids";
 export const DOCS_FILES_STORE_NAME = "case_document_files";

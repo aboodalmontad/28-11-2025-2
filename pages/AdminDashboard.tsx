@@ -297,7 +297,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div className="flex justify-between items-center h-16">
             {/* Logo & Title */}
             <div className="flex items-center gap-3">
-              <Logo size="sm" className="h-9 w-9 shadow-sm rounded-lg border border-slate-200" />
+              <Logo size="sm" className="h-9 w-9" />
               <span className="font-bold text-slate-800 hidden md:block">
                 لوحة الإدارة - مكتب المحامي
               </span>

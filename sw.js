@@ -1,5 +1,5 @@
 // sw.js - Unified Service Worker for Offline-First Lawyer Management App
-const CACHE_NAME = "lawyer-app-cache-v2026-08-08-offline-v2";
+const CACHE_NAME = "lawyer-app-cache-v2026-08-22-offline-v3";
 
 // App Shell URLs to precache during Service Worker installation
 const urlsToCache = [

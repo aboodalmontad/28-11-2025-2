@@ -112,7 +112,7 @@ const Navbar: React.FC<NavbarProps> = ({
     <header className="bg-white shadow-md p-2 sm:p-4 flex justify-between items-center no-print sticky top-0 z-30">
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2 cursor-pointer" onClick={() => onNavigate("home")}>
-          <Logo size="sm" className="h-9 w-9 shadow-sm rounded-lg border border-slate-200" />
+          <Logo size="sm" className="h-9 w-9" />
           <h1 className="text-lg font-bold text-gray-800">
             مكتب المحامي
           </h1>
@@ -894,11 +894,14 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
     <DataProvider value={data}>
       <div className="flex flex-col h-screen print:h-auto bg-gray-50 print:bg-white">
         {data.admin_viewing_user_id && (
-          <div className="bg-red-600 text-white p-2 text-center text-sm font-bold flex justify-center items-center gap-4">
-            <span>أنت الآن تتصفح مكتب مستخدم آخر كمسؤول</span>
+          <div className="bg-red-600 text-white p-2 text-center text-sm font-bold flex justify-center items-center gap-4 z-50 sticky top-0">
+            <span>
+              أنت الآن تتصفح بيانات مكتب:{" "}
+              {data.profiles.find((p) => p.id === data.admin_viewing_user_id)?.full_name || "مستخدم آخر"}
+            </span>
             <button
               onClick={() => data.set_admin_viewing_user_id(null)}
-              className="bg-white text-red-600 px-3 py-1 rounded-md text-xs hover:bg-red-50 transition-colors"
+              className="bg-white text-red-600 px-3 py-1 rounded-md text-xs hover:bg-red-50 transition-colors shadow-sm"
             >
               العودة للوحة الإدارة
             </button>

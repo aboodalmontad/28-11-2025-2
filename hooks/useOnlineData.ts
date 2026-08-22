@@ -171,6 +171,10 @@ export const fetch_data_from_supabase = async (
   const query = (table: string, all_user_ids?: string[]) => {
     let q = supabase.from(table).select("*");
 
+    if (table === "profiles" && is_admin_user) {
+      return q;
+    }
+
     if (all_user_ids && all_user_ids.length > 0) {
       // Specific user backup (including assistants if applicable)
       if (table !== "profiles" && table !== "assistants") {

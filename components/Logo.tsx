@@ -22,7 +22,7 @@ const Logo: React.FC<LogoProps> = ({ className, size = "md" }) => {
     <img
       src={logoBase64}
       alt="شعار مكتب المحامي"
-      className={`object-contain rounded-xl shadow-md border border-slate-700/50 ${finalClass}`}
+      className={`object-contain ${finalClass}`}
       onError={(e) => {
         // Fallback to static URL
         e.currentTarget.src = "/logo.jpg";
