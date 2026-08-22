@@ -153,46 +153,114 @@ const construct_data = (flat_data: Partial<FlatData>): AppData => {
   };
 };
 
+const getLastSyncKey = (uid: string | null | undefined) =>
+  uid ? `last_synced_time_${uid}` : "last_synced_time_global";
+
+const getStoredLastSyncTime = (uid: string | null | undefined): number => {
+  try {
+    const val = localStorage.getItem(getLastSyncKey(uid));
+    if (val) return parseInt(val, 10) || 0;
+  } catch (e) {}
+  return 0;
+};
+
+const setStoredLastSyncTime = (
+  uid: string | null | undefined,
+  timeMs: number,
+) => {
+  try {
+    localStorage.setItem(getLastSyncKey(uid), timeMs.toString());
+  } catch (e) {}
+};
+
 const merge_for_refresh = <T extends { id: any; updated_at?: Date | string }>(
   local: T[],
   remote: T[],
   key?: string,
+  last_synced_time?: number,
+  local_deleted_ids?: Set<string>,
 ): T[] => {
   const final_items = new Map<any, T>();
-  for (const local_item of local) {
-    final_items.set(local_item.id ?? (local_item as any).name, local_item);
-  }
+  const remote_map = new Map<any, T>();
+
   for (const remote_item of remote) {
     const id = remote_item.id ?? (remote_item as any).name;
-    const existing_item = final_items.get(id);
-    if (existing_item) {
-      const remote_date = safe_revive_date(remote_item.updated_at || 0);
-      const local_date = safe_revive_date(existing_item.updated_at || 0);
+    remote_map.set(id, remote_item);
+  }
+
+  // 1. Process all local items
+  for (const local_item of local) {
+    const id = local_item.id ?? (local_item as any).name;
+
+    if (local_deleted_ids && local_deleted_ids.has(id)) {
+      continue;
+    }
+
+    const remote_item = remote_map.get(id);
+
+    if (remote_item) {
+      const remote_date = safe_revive_date(
+        remote_item.updated_at || 0,
+      ).getTime();
+      const local_date = safe_revive_date(
+        local_item.updated_at || 0,
+      ).getTime();
+
       if (remote_date > local_date) {
         const merged = {
-          ...existing_item,
+          ...local_item,
           ...remote_item,
-          image_url: (remote_item as any).image_url || (existing_item as any).image_url,
-          tasks: (remote_item as any).tasks || (existing_item as any).tasks,
+          image_url:
+            (remote_item as any).image_url || (local_item as any).image_url,
+          tasks: (remote_item as any).tasks || (local_item as any).tasks,
         };
         if (key === "case_documents") {
-          // If remote is newer, it might need download if it's a new version
-          // But usually we want to preserve local_state if it was already synced
-          // For now, let's assume if it's newer on remote, it's a new file version
-          (merged as any).local_state = "pending_download";
+          (merged as any).local_state =
+            (local_item as any).local_state === "synced"
+              ? "synced"
+              : "pending_download";
         }
         final_items.set(id, merged);
       } else {
-        // Keep local to preserve local_state and image_url
         const merged = {
           ...remote_item,
-          ...existing_item,
-          image_url: (existing_item as any).image_url || (remote_item as any).image_url,
-          tasks: (existing_item as any).tasks || (remote_item as any).tasks,
+          ...local_item,
+          image_url:
+            (local_item as any).image_url || (remote_item as any).image_url,
+          tasks: (local_item as any).tasks || (remote_item as any).tasks,
         };
         final_items.set(id, merged);
       }
     } else {
+      // Local item is NOT in remote.
+      // Has it been created / modified locally after the last sync?
+      const local_date = safe_revive_date(
+        local_item.updated_at || 0,
+      ).getTime();
+      const is_locally_created_after_sync =
+        last_synced_time && last_synced_time > 0
+          ? local_date > last_synced_time + 2000
+          : false;
+
+      if (is_locally_created_after_sync) {
+        final_items.set(id, local_item);
+      } else {
+        // Existed at/before last sync and is missing from remote -> Remotely deleted!
+        console.log(
+          `[Realtime Sync] Dropped remotely deleted item from ${key}:`,
+          id,
+        );
+      }
+    }
+  }
+
+  // 2. Add remaining remote items
+  for (const remote_item of remote) {
+    const id = remote_item.id ?? (remote_item as any).name;
+    if (!final_items.has(id)) {
+      if (local_deleted_ids && local_deleted_ids.has(id)) {
+        continue;
+      }
       const merged = { ...remote_item };
       if (key === "case_documents") {
         (merged as any).local_state = "pending_download";
@@ -200,6 +268,7 @@ const merge_for_refresh = <T extends { id: any; updated_at?: Date | string }>(
       final_items.set(id, merged);
     }
   }
+
   return Array.from(final_items.values());
 };
 
@@ -218,12 +287,13 @@ const apply_deletions_to_local = (
     return items.filter((item) => {
       const id = item.id ?? item.name;
       const key = `${table_name}:${id}`;
-      const deleted_at_str = deletion_map.get(key);
 
-      if (deleted_at_str) {
+      if (deletion_map.has(key)) {
+        const deleted_at_str = deletion_map.get(key);
+        if (!deleted_at_str) return false;
         const deleted_at = safe_revive_date(deleted_at_str).getTime();
         const updated_at = safe_revive_date(item.updated_at || 0).getTime();
-        if (updated_at < deleted_at + 2000) {
+        if (updated_at <= deleted_at + 2000 || !item.updated_at) {
           return false;
         }
       }
@@ -763,7 +833,7 @@ export const use_sync = ({
                 remote_item.updated_at || 0,
               ).getTime();
 
-              if (local_date > remote_date) {
+              if (local_date > remote_date + 1000) {
                 items_to_upsert.push(local_item);
                 final_merged_items.set(id, local_item);
               } else if (remote_date > local_date) {
@@ -775,7 +845,10 @@ export const use_sync = ({
                   tasks: remote_item.tasks || local_item.tasks,
                 };
                 if (key === "case_documents") {
-                  merged.local_state = "pending_download";
+                  merged.local_state =
+                    (local_item as any).local_state === "synced"
+                      ? "synced"
+                      : "pending_download";
                 }
                 final_merged_items.set(id, merged);
               } else {
@@ -789,8 +862,33 @@ export const use_sync = ({
                 final_merged_items.set(id, merged);
               }
             } else {
-              items_to_upsert.push(local_item);
-              final_merged_items.set(id, local_item);
+              // Local item is NOT in remote_map
+              const local_date = safe_revive_date(
+                local_item.updated_at || 0,
+              ).getTime();
+              const is_deleted =
+                (deleted_ids_sets as any)[key]?.has(id) ||
+                (deleted_ids_sets as any)[
+                  key === "case_documents" ? "documents" : key
+                ]?.has(id);
+
+              const storedLastSync = getStoredLastSyncTime(current_user.id);
+              // If we have synced previously, and this item was updated before/at the last sync,
+              // it means it was previously in the cloud and was deleted on the cloud by another user!
+              const is_remotely_deleted =
+                !is_deleted &&
+                storedLastSync > 0 &&
+                local_date <= storedLastSync + 2000;
+
+              if (!is_deleted && !is_remotely_deleted) {
+                // Genuinely new local offline item
+                items_to_upsert.push(local_item);
+                final_merged_items.set(id, local_item);
+              } else {
+                console.log(
+                  `[Sync] Skipping upload of deleted item in ${key}: ${id} (remotely_deleted=${is_remotely_deleted})`,
+                );
+              }
             }
           }
 
@@ -990,6 +1088,7 @@ export const use_sync = ({
         }
 
         const final_merged_data = construct_data(merged_flat_data as FlatData);
+        setStoredLastSyncTime(current_user.id, Date.now());
         on_data_synced_ref.current(final_merged_data);
         on_deletions_synced_ref.current(successful_deletions);
         set_status("synced");
@@ -1048,7 +1147,9 @@ export const use_sync = ({
           fetch_data_from_supabase(
             effective_user_id_ref.current || current_user.id,
           ),
-          fetch_deletions_from_supabase(),
+          fetch_deletions_from_supabase(
+            effective_user_id_ref.current || current_user.id,
+          ),
         ]);
 
         const remote_flat_data_untyped =
@@ -1094,16 +1195,24 @@ export const use_sync = ({
         await cleanup_local_files(remote_deletions);
 
         const merged_flat_data: Partial<FlatData> = {};
+        const storedLastSync = getStoredLastSyncTime(current_user.id);
 
         for (const key of Object.keys(remote_flat_data) as (keyof FlatData)[]) {
           const remote_items = (remote_flat_data as any)[key] || [];
           const local_items = (local_flat_data as any)[key] || [];
 
-          const merged_items = merge_for_refresh(local_items, remote_items, key);
+          const merged_items = merge_for_refresh(
+            local_items,
+            remote_items,
+            key,
+            storedLastSync,
+            (deleted_ids_sets as any)[key],
+          );
           (merged_flat_data as any)[key] = merged_items;
         }
 
         const final_merged_data = construct_data(merged_flat_data as FlatData);
+        setStoredLastSyncTime(current_user.id, Date.now());
         on_data_synced_ref.current(final_merged_data);
         set_status("synced");
       } catch (err: any) {
