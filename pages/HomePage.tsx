@@ -1628,11 +1628,8 @@ const HomePage: React.FC<HomePageProps> = ({
             <div className="flex flex-row gap-4 pt-4">
               {location_order.length > 0 && (
                 <div className="flex flex-col gap-2 w-32 sm:w-40 flex-shrink-0 sticky top-32 self-start">
-                  <div className="flex items-center justify-between pb-2 px-1 border-b border-gray-200 mb-1">
+                  <div className="flex items-center pb-2 px-1 border-b border-gray-200 mb-1">
                     <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">المكان</span>
-                    <span className="text-[11px] font-semibold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full" title="إجمالي الأماكن">
-                      {location_order.length}
-                    </span>
                   </div>
                   <nav
                     className="flex flex-col gap-1.5"
@@ -1695,16 +1692,16 @@ const HomePage: React.FC<HomePageProps> = ({
                               set_saved_location_order(newOrder);
                             }
                           }}
-                          className={`whitespace-normal break-words w-full text-right px-2.5 py-2 border-r-4 font-medium text-sm transition-colors duration-150 focus:outline-none rounded-l-md flex items-center justify-between gap-1.5 ${
+                          className={`whitespace-normal break-words w-full text-right px-3 py-2.5 border-r-4 font-semibold text-sm transition-all duration-150 focus:outline-none rounded-l-lg flex items-center justify-between gap-2 shadow-xs ${
                             active_task_tab === "pending" ? "cursor-grab" : ""
                           } ${
                             hasUrgentTask
                               ? isSelected
-                                ? "border-red-500 bg-red-100 text-red-900 font-bold shadow-xs"
+                                ? "border-red-700 bg-red-600 text-white font-bold shadow-md shadow-red-500/20"
                                 : "border-red-400 bg-red-50 text-red-800 hover:bg-red-100 font-medium"
                               : isSelected
-                                ? "border-blue-500 bg-blue-50 text-blue-600 font-semibold"
-                                : "border-transparent text-gray-600 hover:bg-gray-100 bg-white"
+                                ? "border-blue-700 bg-blue-600 text-white font-bold shadow-md shadow-blue-500/20"
+                                : "border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100 hover:text-gray-900"
                           } ${
                             dragged_group_location === location
                               ? "opacity-30"
@@ -1715,7 +1712,9 @@ const HomePage: React.FC<HomePageProps> = ({
                             {location}
                             {hasUrgentTask && (
                               <span
-                                className="w-2 h-2 rounded-full bg-red-600 animate-pulse flex-shrink-0"
+                                className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                                  isSelected ? "bg-white" : "bg-red-600 animate-pulse"
+                                }`}
                                 title="يوجد مهمة عاجلة في هذا المكان"
                               />
                             )}
@@ -1826,16 +1825,16 @@ const HomePage: React.FC<HomePageProps> = ({
                               set_saved_location_order(newOrder);
                             }
                           }}
-                          className={`whitespace-nowrap py-2.5 px-3.5 border font-medium text-sm rounded-t-lg transition-colors duration-150 focus:outline-none flex items-center gap-2 ${
+                          className={`whitespace-nowrap py-2 px-3.5 border font-semibold text-sm rounded-t-lg transition-all duration-150 focus:outline-none flex items-center gap-2 shadow-xs ${
                             active_task_tab === "pending" ? "cursor-grab" : ""
                           } ${
                             hasUrgentTask
                               ? isSelected
-                                ? "bg-red-100 border-red-400 border-b-red-100 text-red-900 font-bold shadow-xs"
+                                ? "bg-red-600 border-red-600 text-white font-bold shadow-md shadow-red-500/20 -mb-px z-10"
                                 : "bg-red-50 border-red-300 border-b-gray-200 text-red-800 hover:bg-red-100 font-medium"
                               : isSelected
-                                ? "bg-gray-50 border-gray-200 border-b-gray-50 text-blue-600 font-semibold"
-                                : "bg-white border-transparent border-b-gray-200 text-gray-500 hover:text-gray-700"
+                                ? "bg-blue-600 border-blue-600 text-white font-bold shadow-md shadow-blue-500/20 -mb-px z-10"
+                                : "bg-gray-100 border-gray-200 border-b-gray-200 text-gray-700 hover:bg-gray-200 hover:text-gray-900"
                           } ${
                             dragged_group_location === location
                               ? "opacity-30"
@@ -1846,7 +1845,9 @@ const HomePage: React.FC<HomePageProps> = ({
                             {location}
                             {hasUrgentTask && (
                               <span
-                                className="w-2 h-2 rounded-full bg-red-600 animate-pulse flex-shrink-0"
+                                className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                                  isSelected ? "bg-white" : "bg-red-600 animate-pulse"
+                                }`}
                                 title="يوجد مهمة عاجلة في هذا المكان"
                               />
                             )}
