@@ -11,6 +11,7 @@ import {
 } from "../utils/dateUtils";
 import { Session, Appointment } from "../types";
 import { ChevronLeftIcon } from "./icons";
+import { useFeedback } from "../context/FeedbackContext";
 
 interface CalendarProps {
   onDateSelect: (date: Date) => void;
@@ -29,6 +30,7 @@ const Calendar: React.FC<CalendarProps> = ({
   currentDate,
   setCurrentDate,
 }) => {
+  const { showFeedback } = useFeedback();
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
 
@@ -168,7 +170,12 @@ const Calendar: React.FC<CalendarProps> = ({
           return (
             <div
               key={day.toString()}
-              onClick={() => onDateSelect(day)}
+              onClick={() => {
+                onDateSelect(day);
+                if (holidayName) {
+                  showFeedback(`عطلة رسمية: ${holidayName}`, "info");
+                }
+              }}
               className={dayClasses}
               title={title}
             >
