@@ -205,15 +205,15 @@ export const parse_input_date_string = (
 // List of fixed Syrian public holidays (Month is 0-indexed)
 const fixed_holidays: { month: number; day: number; name: string }[] = [
   { month: 0, day: 1, name: "رأس السنة الميلادية" },
-  { month: 2, day: 21, name: "عيد الأم" },
+  { month: 2, day: 18, name: "عيد الثورة السورية" },
+  { month: 2, day: 21, name: "عيد الأم ونيروز" },
   { month: 3, day: 17, name: "عيد الجلاء" },
   { month: 4, day: 1, name: "عيد العمال العالمي" },
-  { month: 4, day: 6, name: "عيد الشهداء" },
-  { month: 9, day: 6, name: "ذكرى حرب تشرين" },
+  { month: 11, day: 8, name: "عيد التحرير" },
   { month: 11, day: 25, name: "عيد الميلاد المجيد" },
 ];
 
-// Approximations for floating holidays for 2024-2025.
+// Approximations for floating holidays for 2024-2026.
 const floating_holidays: {
   [year: number]: {
     month: number;
@@ -236,6 +236,14 @@ const floating_holidays: {
     { month: 5, day: 26, name: "رأس السنة الهجرية" },
     { month: 8, day: 4, name: "المولد النبوي الشريف" },
     { month: 3, day: 20, name: "عيد الفصح (غربي وشرقي)" },
+  ],
+  2026: [
+    { month: 2, day: 20, name: "عيد الفطر", length: 3 },
+    { month: 4, day: 27, name: "عيد الأضحى", length: 4 },
+    { month: 5, day: 16, name: "رأس السنة الهجرية" },
+    { month: 7, day: 26, name: "المولد النبوي الشريف" },
+    { month: 3, day: 5, name: "عيد الفصح (غربي)" },
+    { month: 3, day: 12, name: "عيد الفصح (شرقي)" },
   ],
 };
 
