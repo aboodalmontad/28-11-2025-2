@@ -660,8 +660,9 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
       />
     );
   if (
-    data.sync_status === "unconfigured" ||
-    data.sync_status === "uninitialized"
+    (data.sync_status === "unconfigured" ||
+      data.sync_status === "uninitialized") &&
+    data.is_local_empty
   )
     return (
       <ConfigurationModal onRetry={() => data.manual_sync({ force: true })} />

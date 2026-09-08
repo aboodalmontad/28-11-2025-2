@@ -532,6 +532,17 @@ export const delete_data_from_supabase = async (
       while (attempt < max_retries) {
         try {
           if (table !== "profiles") {
+            // Pre-emptively update user_id of the rows to delete to prevent database triggers
+            // from receiving NULL OLD.user_id and violating the NOT NULL constraint on sync_deletions.user_id.
+            try {
+              await supabase
+                .from(table)
+                .update({ user_id: user_id_to_use })
+                .in(primary_key_column, ids);
+            } catch (update_err) {
+              console.warn(`[SyncDeletions Update] Non-fatal pre-delete update warning for ${table}:`, update_err);
+            }
+
             const deletions_log = ids.map((id: string) => ({
               table_name: table,
               record_id: id,

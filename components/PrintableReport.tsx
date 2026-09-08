@@ -154,10 +154,7 @@ const PrintableReport: React.FC<PrintableReportProps> = ({ reportData }) => {
                           }`}
                         >
                           <span>
-                            {location}{" "}
-                            <span className="text-sm font-normal text-gray-500">
-                              ({taskList.length} مهام)
-                            </span>
+                            {location}
                           </span>
                           {hasUrgent && (
                             <span className="text-xs bg-red-100 text-red-800 px-2.5 py-1 rounded-full font-bold border border-red-200">

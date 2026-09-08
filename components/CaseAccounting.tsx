@@ -32,7 +32,7 @@ const CaseAccounting: React.FC<CaseAccountingProps> = ({
   set_accounting_entries,
   on_fee_agreement_change,
 }) => {
-  const { permissions, effective_user_id } = useData();
+  const { permissions, effective_user_id, delete_accounting_entry } = useData();
   const { confirm } = useFeedback();
   const [is_editing_fee, set_is_editing_fee] = React.useState(false);
   const [fee_agreement, set_fee_agreement] = React.useState(
@@ -147,7 +147,7 @@ const CaseAccounting: React.FC<CaseAccountingProps> = ({
       cancelText: "إلغاء",
       variant: "danger",
       onConfirm: () => {
-        set_accounting_entries((prev) => prev.filter((item) => item.id !== id));
+        delete_accounting_entry(id);
       },
     });
   };
