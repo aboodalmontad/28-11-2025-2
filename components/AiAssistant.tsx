@@ -77,7 +77,7 @@ const AiAssistant: React.FC = () => {
       )
       .join("\n");
     const task_summary = admin_tasks
-      .filter((t) => !t.completed)
+      .filter((t) => !t.completed && (t.task_type || "admin") === "admin")
       .slice(0, 5)
       .map((t) => `- ${t.task} (${t.location})`)
       .join("\n");

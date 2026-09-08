@@ -185,6 +185,7 @@ export interface AdminTask {
   image_url?: string;
   updated_at?: string;
   order_index?: number;
+  task_type?: "admin" | "office";
 }
 
 export interface Appointment {

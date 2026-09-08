@@ -90,6 +90,7 @@ CREATE TABLE IF NOT EXISTS public.admin_tasks (
     location TEXT,
     image_url TEXT,
     order_index INTEGER DEFAULT 0,
+    task_type TEXT DEFAULT 'admin',
     user_id UUID REFERENCES auth.users NOT NULL,
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );

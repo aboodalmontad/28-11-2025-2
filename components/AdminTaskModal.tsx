@@ -15,6 +15,7 @@ interface AdminTaskModalProps {
     id?: string;
     case_id?: string;
     image_url?: string;
+    task_type?: "admin" | "office";
   };
   assistants: (string | { name: string; user_id?: string })[];
 }
@@ -77,6 +78,7 @@ const AdminTaskModal: React.FC<AdminTaskModalProps> = ({
     location: "",
     image_url: undefined as string | undefined,
     case_id: undefined as string | undefined,
+    task_type: "admin" as "admin" | "office",
   });
 
   const [isProcessingImage, setIsProcessingImage] = React.useState(false);
@@ -94,7 +96,9 @@ const AdminTaskModal: React.FC<AdminTaskModalProps> = ({
         location: "",
         image_url: undefined as string | undefined,
         case_id: undefined as string | undefined,
+        task_type: "admin" as "admin" | "office",
       };
+      const initialTaskType = initialData?.task_type || "admin";
       set_task_form_data({
         ...defaultState,
         ...initialData,
@@ -103,6 +107,8 @@ const AdminTaskModal: React.FC<AdminTaskModalProps> = ({
           : defaultState.due_date,
         case_id: initialData?.case_id,
         image_url: initialData?.image_url,
+        task_type: initialTaskType,
+        location: initialData?.location || (initialTaskType === "office" ? "المكتب" : ""),
       });
     }
   }, [isOpen, initialData]);
@@ -113,7 +119,13 @@ const AdminTaskModal: React.FC<AdminTaskModalProps> = ({
     >,
   ) => {
     const { name, value } = e.target;
-    set_task_form_data((prev) => ({ ...prev, [name]: value }));
+    set_task_form_data((prev) => {
+      const updated = { ...prev, [name]: value };
+      if (name === "task_type" && value === "office" && (!prev.location || prev.location === "")) {
+        updated.location = "المكتب";
+      }
+      return updated;
+    });
   };
 
   const handle_image_select = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -308,6 +320,21 @@ const AdminTaskModal: React.FC<AdminTaskModalProps> = ({
                 <option value="urgent">عاجل</option>
               </select>
             </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">
+              نوع المهمة
+            </label>
+            <select
+              name="task_type"
+              value={task_form_data.task_type || "admin"}
+              onChange={handle_task_form_change}
+              className="w-full p-2 border rounded"
+              required
+            >
+              <option value="admin">مهمة إدارية عامة</option>
+              <option value="office">مهمة مكتب</option>
+            </select>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700">

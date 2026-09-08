@@ -679,6 +679,7 @@ export const upsert_data_to_supabase = async (
         image_url: task.image_url,
         updated_at: task.updated_at,
         order_index: task.order_index,
+        task_type: task.task_type || "admin",
         user_id: task.user_id || user_id_to_use,
       };
     }),
@@ -1018,6 +1019,7 @@ export const transform_remote_to_local = (remote: any): Partial<FlatData> => {
         ...task,
         task: cleanTask,
         image_url: img,
+        task_type: task.task_type || "admin",
       };
     }),
     appointments: remote.appointments || [],
