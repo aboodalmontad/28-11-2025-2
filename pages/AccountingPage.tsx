@@ -68,7 +68,7 @@ const TabsHeader: React.FC<{
   }, [accounting_entries]);
 
   return (
-    <div className="sticky top-0 z-20 bg-gray-100 -mx-4 px-4 -mt-4 pt-4 pb-4 shadow-sm border-b border-gray-200 mb-6 space-y-4">
+    <div className="bg-gray-100 -mx-4 px-4 -mt-4 pt-4 pb-4 shadow-sm border-b border-gray-200 mb-6 space-y-4">
       {/* Title & Actions Bar */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">المحاسبة</h1>
