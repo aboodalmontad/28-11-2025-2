@@ -258,7 +258,10 @@ export const fetch_data_from_supabase = async (
             );
             continue;
           }
-          throw err;
+          console.warn(
+            `Non-retryable or permanent error fetching table "${table}": ${message}. Gracefully skipping to prevent sync crash.`
+          );
+          return [];
         }
       }
 
@@ -348,7 +351,7 @@ export const fetch_data_from_supabase = async (
         () => fetch_table("case_documents", all_user_ids),
         () => fetch_table("site_finances", all_user_ids),
         () => fetch_table("sync_deletions", all_user_ids)
-      ], 2);
+      ], 5);
 
       // Profiles logic: If admin and no specific user request, fetch all.
       let profiles;
@@ -959,7 +962,10 @@ export const upsert_data_to_supabase = async (
               continue;
             }
           }
-          throw error;
+          console.warn(
+            `Non-retryable or permanent upsert error on table "${table}": ${message}. Gracefully skipping to prevent sync crash.`
+          );
+          return [];
         }
         return response_data || [];
       } catch (err: any) {
@@ -988,10 +994,14 @@ export const upsert_data_to_supabase = async (
           );
           continue;
         }
-        throw err;
+        console.warn(
+          `Non-retryable or permanent upsert error on table "${table}" in catch: ${message}. Gracefully skipping to prevent sync crash.`
+        );
+        return [];
       }
     }
-    throw new Error(`Failed to upsert to ${table} after multiple attempts.`);
+    console.warn(`Failed to upsert to ${table} after multiple attempts. Gracefully skipping.`);
+    return [];
   };
 
   const results: Partial<Record<keyof FlatData, any[]>> = {};
