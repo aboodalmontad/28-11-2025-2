@@ -267,27 +267,29 @@ const AdminTaskModal: React.FC<AdminTaskModalProps> = ({
             )}
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              المكان
-            </label>
-            <input
-              type="text"
-              name="location"
-              list="locations"
-              value={task_form_data.location || ""}
-              onChange={handle_task_form_change}
-              className="w-full p-2 border rounded"
-              placeholder="مثال: القصر العدلي"
-            />
-            <datalist id="locations">
-              <option value="القصر العدلي" />
-              <option value="المكتب" />
-              <option value="السجل العقاري" />
-              <option value="السجل المدني" />
-              <option value="المالية" />
-            </datalist>
-          </div>
+          {task_form_data.task_type !== "office" && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700">
+                المكان
+              </label>
+              <input
+                type="text"
+                name="location"
+                list="locations"
+                value={task_form_data.location || ""}
+                onChange={handle_task_form_change}
+                className="w-full p-2 border rounded"
+                placeholder="مثال: القصر العدلي"
+              />
+              <datalist id="locations">
+                <option value="القصر العدلي" />
+                <option value="المكتب" />
+                <option value="السجل العقاري" />
+                <option value="السجل المدني" />
+                <option value="المالية" />
+              </datalist>
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700">

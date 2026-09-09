@@ -1126,6 +1126,22 @@ const HomePage: React.FC<HomePageProps> = ({
     );
   }, [admin_tasks, active_task_tab, debounced_admin_task_search]);
 
+  const office_tasks_list = React.useMemo(() => {
+    const isCompleted = active_task_tab === "office_completed";
+    return admin_tasks
+      .filter((task) => {
+        const taskType = task.task_type || "admin";
+        if (taskType !== "office") return false;
+        const searchLower = debounced_admin_task_search.toLowerCase();
+        const matchesSearch =
+          searchLower === "" ||
+          task.task.toLowerCase().includes(searchLower) ||
+          (task.assignee && task.assignee.toLowerCase().includes(searchLower));
+        return task.completed === isCompleted && matchesSearch;
+      })
+      .sort((a, b) => (a.order_index ?? Infinity) - (b.order_index ?? Infinity));
+  }, [admin_tasks, active_task_tab, debounced_admin_task_search]);
+
   React.useEffect(() => {
     const allKnownLocations = new Set(Object.keys(grouped_tasks));
     const currentSavedOrder = saved_location_order || [];
@@ -1672,7 +1688,21 @@ const HomePage: React.FC<HomePageProps> = ({
              </div>
           </div>
 
-          {admin_tasks_layout === "vertical" ? (
+          {active_task_tab.startsWith("office") ? (
+            <div className="pt-4">
+              <div
+                className="p-4 space-y-3 rounded-lg min-h-[200px] bg-gray-50 border border-gray-200"
+              >
+                {office_tasks_list.length > 0 ? (
+                  office_tasks_list.map((task) => render_task_item(task, "المكتب"))
+                ) : (
+                  <p className="text-center text-gray-500 py-8">
+                    لا توجد مهام مكتبية لعرضها.
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : admin_tasks_layout === "vertical" ? (
             <div className="flex flex-row gap-4 pt-4">
               {location_order.length > 0 && (
                 <div className="flex flex-col gap-2 w-32 sm:w-40 flex-shrink-0 sticky top-32 self-start">
