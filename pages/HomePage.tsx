@@ -1586,7 +1586,7 @@ const HomePage: React.FC<HomePageProps> = ({
             <div className="flex justify-between items-center flex-wrap gap-4">
               <div className="flex items-center gap-4">
                 <h2 className="text-2xl font-semibold">
-                  {active_task_tab.startsWith("office") ? "مهام المكتب" : "خارج المكتب"}
+                  المهام
                 </h2>
                 {permissions.can_add_admin_task && (
                   <button
@@ -1636,21 +1636,29 @@ const HomePage: React.FC<HomePageProps> = ({
               </div>
             </div>
 
-             <div className="border-b border-gray-100 pt-1 space-y-2">
-               <nav className="-mb-px flex space-x-4 space-x-reverse" aria-label="Tabs">
+             <div className="border-b border-gray-100 pt-1 space-y-3">
+               <div className="inline-flex p-1.5 bg-gray-100 rounded-xl gap-2 shadow-inner">
                  <button
                    onClick={() => set_active_task_tab("pending")}
-                   className={`whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm ${!active_task_tab.startsWith("office") ? "border-blue-500 text-blue-600 font-semibold" : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"}`}
+                   className={`flex items-center gap-2 px-6 py-2.5 rounded-lg font-bold text-sm transition-all duration-200 ${
+                     !active_task_tab.startsWith("office")
+                       ? "bg-blue-600 text-white shadow-md shadow-blue-500/25"
+                       : "text-gray-600 hover:text-gray-900 hover:bg-gray-200/60"
+                   }`}
                  >
-                   خارج المكتب
+                   <span>خارج المكتب</span>
                  </button>
                  <button
                    onClick={() => set_active_task_tab("office_pending")}
-                   className={`whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm ${active_task_tab.startsWith("office") ? "border-indigo-500 text-indigo-600 font-semibold" : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"}`}
+                   className={`flex items-center gap-2 px-6 py-2.5 rounded-lg font-bold text-sm transition-all duration-200 ${
+                     active_task_tab.startsWith("office")
+                       ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/25"
+                       : "text-gray-600 hover:text-gray-900 hover:bg-gray-200/60"
+                   }`}
                  >
-                   مهام المكتب
+                   <span>مهام المكتب</span>
                  </button>
-               </nav>
+               </div>
                {!active_task_tab.startsWith("office") && (
                  <div className="flex items-center gap-2 pt-2 pb-1 animate-fade-in">
                    <span className="text-xs font-semibold text-gray-600">حالة المهام:</span>
