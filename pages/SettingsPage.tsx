@@ -12,9 +12,11 @@ import {
   ShieldCheckIcon,
   UserGroupIcon,
   PencilIcon,
+  KeyIcon,
 } from "../components/icons";
 import { Client, AdminTask, Appointment, AccountingEntry } from "../types";
 import { useData } from "../context/DataContext";
+import { get_supabase_client } from "../supabaseClient";
 import {
   get_db,
   DATA_STORE_NAME,
@@ -33,6 +35,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
     assistants,
     set_assistants,
     user_id,
+    user,
     is_auto_sync_enabled,
     set_auto_sync_enabled,
     is_auto_backup_enabled,
@@ -44,6 +47,13 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
     permissions,
     is_update_available,
   } = useData();
+
+  // Password change state
+  const [currentPassword, setCurrentPassword] = React.useState("");
+  const [newPassword, setNewPassword] = React.useState("");
+  const [confirmPassword, setConfirmPassword] = React.useState("");
+  const [isChangingPassword, setIsChangingPassword] = React.useState(false);
+
   const [feedback, set_feedback] = React.useState<{
     message: string;
     type: "success" | "error";
@@ -68,6 +78,61 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
   const show_feedback = (message: string, type: "success" | "error") => {
     set_feedback({ message, type });
     setTimeout(() => set_feedback(null), 4000);
+  };
+
+  const handle_change_password = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user?.email) {
+      show_feedback("لم يتم العثور على بريد إلكتروني للمستخدم", "error");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      show_feedback("كلمة المرور الجديدة غير متطابقة", "error");
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      show_feedback("كلمة المرور يجب أن تكون 6 أحرف على الأقل", "error");
+      return;
+    }
+
+    setIsChangingPassword(true);
+    try {
+      const supabase = get_supabase_client();
+      if (!supabase) throw new Error("Supabase client not initialized");
+
+      // 1. Verify current password by signing in
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: currentPassword,
+      });
+
+      if (signInError) {
+        show_feedback("كلمة المرور الحالية غير صحيحة", "error");
+        setIsChangingPassword(false);
+        return;
+      }
+
+      // 2. Update to new password
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      show_feedback("تم تغيير كلمة المرور بنجاح", "success");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (error: any) {
+      console.error("Change password error:", error);
+      show_feedback(error.message || "فشل تغيير كلمة المرور", "error");
+    } finally {
+      setIsChangingPassword(false);
+    }
   };
 
   // ... (existing handlers: handle_confirm_clear_data, handle_export_data, handle_import_data, handle_add_assistant, handle_delete_assistant, handle_confirm_delete_assistant, handle_inspect_db)
@@ -589,6 +654,72 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
           </button>
         </div>
       )}
+
+      {/* Password Change Section */}
+      <div className="bg-white p-6 rounded-lg shadow space-y-4">
+        <h2 className="text-xl font-bold text-gray-800 border-b pb-3 flex items-center gap-2">
+          <KeyIcon className="w-6 h-6 text-indigo-600" />
+          تغيير كلمة المرور
+        </h2>
+        <form onSubmit={handle_change_password} className="space-y-4 max-w-md">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              كلمة المرور الحالية
+            </label>
+            <input
+              type="password"
+              required
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              placeholder="••••••••"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              كلمة المرور الجديدة
+            </label>
+            <input
+              type="password"
+              required
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              placeholder="••••••••"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              تأكيد كلمة المرور الجديدة
+            </label>
+            <input
+              type="password"
+              required
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              placeholder="••••••••"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={isChangingPassword}
+            className="w-full sm:w-auto bg-indigo-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {isChangingPassword ? (
+              <>
+                <ArrowPathIcon className="w-5 h-5 animate-spin" />
+                جاري التغيير...
+              </>
+            ) : (
+              "تغيير كلمة المرور"
+            )}
+          </button>
+        </form>
+      </div>
 
       <div className="bg-white p-6 rounded-lg shadow space-y-4">
         <h2 className="text-xl font-bold text-gray-800 border-b pb-3">خطر</h2>

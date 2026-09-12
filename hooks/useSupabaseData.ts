@@ -1483,6 +1483,7 @@ export const useSupabaseData = (
     effective_user_id: effective_user_id,
     permissions: current_user_permissions,
     user_id: user?.id || "",
+    user: user,
     is_online: is_online,
     is_auto_sync_enabled: is_auto_sync_enabled,
     set_auto_sync_enabled: set_auto_sync_enabled,
