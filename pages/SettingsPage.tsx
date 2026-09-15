@@ -82,6 +82,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
 
   const handle_change_password = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const confirmed = window.confirm("هل أنت متأكد من رغبتك في تغيير كلمة المرور؟");
+    if (!confirmed) return;
+
     if (!user?.email) {
       show_feedback("لم يتم العثور على بريد إلكتروني للمستخدم", "error");
       return;
