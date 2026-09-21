@@ -22,11 +22,16 @@ import {
   ShareIcon,
   ClockIcon,
   DatabaseIcon,
+  ShieldCheckIcon,
 } from "../components/icons";
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import {
   normalize_mobile_for_db,
   normalize_mobile_to_e164,
+  convert_arabic_digits_to_latin,
+  extract_clean_digits,
+  get_possible_auth_emails,
+  get_possible_db_mobiles,
 } from "../utils/mobileUtils";
 import { to_input_date_string } from "../utils/dateUtils";
 import type { User } from "@supabase/supabase-js";
@@ -99,6 +104,10 @@ const LoginPage: React.FC<auth_page_props> = ({
   const [show_password, set_show_password] = React.useState(false);
   const [otp_code, set_otp_code] = React.useState("");
   const [waiting_approval, set_waiting_approval] = React.useState(false);
+  const [office_lawyer_info, set_office_lawyer_info] = React.useState<{
+    name: string;
+    mobile: string;
+  } | null>(null);
   const [new_password, set_new_password] = React.useState("");
   const [is_assistant_signup, set_is_assistant_signup] = React.useState(false);
   const [db_status, set_db_status] = React.useState<
@@ -242,47 +251,25 @@ const LoginPage: React.FC<auth_page_props> = ({
     try {
       console.log("Starting forced cloud-to-local sync...");
 
-      // 1. Find user ID by mobile first to ensure we only fetch THEIR data
-      const normalized_mobile = normalize_mobile_for_db(form.mobile);
-      const raw_mobile = form.mobile;
+      const rawInput = form.mobile?.trim() || "";
+      const cleanMobile = convert_arabic_digits_to_latin(rawInput);
+      const possibleMobiles = get_possible_db_mobiles(cleanMobile);
 
       let profile = null;
       let p_error = null;
 
-      // Try normalized first
-      if (normalized_mobile) {
+      // Try searching by all possible mobile formats in profiles table
+      if (possibleMobiles.length > 0) {
+        const filter = possibleMobiles
+          .map((m) => `mobile_number.eq.${m}`)
+          .join(",");
         const res = await supabase
           .from("profiles")
           .select("id")
-          .eq("mobile_number", normalized_mobile)
+          .or(filter)
           .maybeSingle();
         profile = res.data;
         p_error = res.error;
-      }
-
-      // If not found, try raw
-      if (!profile && !p_error) {
-        const res = await supabase
-          .from("profiles")
-          .select("id")
-          .eq("mobile_number", raw_mobile)
-          .maybeSingle();
-        profile = res.data;
-        p_error = res.error;
-      }
-
-      // If still not found, try E164
-      if (!profile && !p_error) {
-        const e164_mobile = normalize_mobile_to_e164(raw_mobile);
-        if (e164_mobile) {
-          const res = await supabase
-            .from("profiles")
-            .select("id")
-            .eq("mobile_number", e164_mobile)
-            .maybeSingle();
-          profile = res.data;
-          p_error = res.error;
-        }
       }
 
       if (p_error)
@@ -318,11 +305,13 @@ const LoginPage: React.FC<auth_page_props> = ({
     set_diagnostic_profiles_loading(true);
     try {
       // Try to find user_id by mobile first
-      const normalized_mobile = normalize_mobile_for_db(form.mobile);
+      const cleanMobile = convert_arabic_digits_to_latin(form.mobile?.trim() || "");
+      const possibleMobiles = get_possible_db_mobiles(cleanMobile);
+      const filter = possibleMobiles.map((m) => `mobile_number.eq.${m}`).join(",");
       const { data: profile } = await supabase!
         .from("profiles")
         .select("id")
-        .eq("mobile_number", normalized_mobile || form.mobile)
+        .or(filter)
         .maybeSingle();
 
       const user_id = profile?.id;
@@ -368,7 +357,11 @@ const LoginPage: React.FC<auth_page_props> = ({
   };
 
   const handle_input_change = (e: React.ChangeEvent<HTMLInputElement>) => {
-    set_form((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+    let value = e.target.value;
+    if (e.target.name === "mobile" || e.target.name === "lawyer_mobile") {
+      value = convert_arabic_digits_to_latin(value);
+    }
+    set_form((prev) => ({ ...prev, [e.target.name]: value }));
     if (error) set_error(null);
     if (auth_failed) set_auth_failed(false);
   };
@@ -379,7 +372,8 @@ const LoginPage: React.FC<auth_page_props> = ({
     set_error(null);
     set_message(null);
 
-    const normalized_mobile = normalize_mobile_for_db(form.mobile);
+    const cleanMobile = convert_arabic_digits_to_latin(form.mobile?.trim() || "");
+    const normalized_mobile = normalize_mobile_for_db(cleanMobile) || cleanMobile;
     if (!normalized_mobile) {
       set_error("رقم الجوال غير صالح.");
       set_loading(false);
@@ -394,15 +388,23 @@ const LoginPage: React.FC<auth_page_props> = ({
 
     try {
       // Step 1: Call RPC to generate the code in the system so the Admin can see it
-      // The RPC now returns an object { code: string, full_name: string }
-      const { data: res, error: otp_error } = await supabase.rpc(
-        "generate_otp_by_mobile",
-        {
-          mobile_to_check: normalized_mobile,
-        },
-      );
+      // The RPC returns an object { code: string, full_name: string }
+      let res: any = null;
+      let otp_error: any = null;
 
-      if (otp_error) {
+      const possibleMobiles = get_possible_db_mobiles(cleanMobile);
+      for (const mob of possibleMobiles) {
+        const { data, error } = await supabase.rpc("generate_otp_by_mobile", {
+          mobile_to_check: mob,
+        });
+        if (!error && data?.code) {
+          res = data;
+          break;
+        }
+        otp_error = error;
+      }
+
+      if (!res && otp_error) {
         if (
           otp_error.code === "PGRST202" ||
           String(otp_error.message).includes("Could not find the function")
@@ -453,14 +455,17 @@ const LoginPage: React.FC<auth_page_props> = ({
     set_loading(true);
     set_error(null);
 
-    const normalized_mobile = normalize_mobile_for_db(form.mobile);
+    const cleanMobile = convert_arabic_digits_to_latin(form.mobile?.trim() || "");
+    const normalized_mobile = normalize_mobile_for_db(cleanMobile) || cleanMobile;
+    const cleanOtp = convert_arabic_digits_to_latin(otp_code.trim());
+
     if (!normalized_mobile) {
       set_error("رقم الجوال غير صالح.");
       set_loading(false);
       return;
     }
     if (new_password.length < 6) {
-      set_error("كلمة المرور يجب أن تكون 6 أحرف على الأقل.");
+      set_error("كلمة المرور يجب أن تكون 6 رموز على الأقل.");
       set_loading(false);
       return;
     }
@@ -472,16 +477,23 @@ const LoginPage: React.FC<auth_page_props> = ({
     }
 
     try {
-      const { data: success, error: rpc_error } = await supabase.rpc(
-        "reset_password_with_otp",
-        {
-          target_mobile: normalized_mobile,
-          code_to_check: otp_code.trim(),
-          new_password: new_password,
-        },
-      );
+      let success = false;
+      const possibleMobiles = get_possible_db_mobiles(cleanMobile);
 
-      if (rpc_error) throw rpc_error;
+      for (const mob of possibleMobiles) {
+        const { data, error: rpc_error } = await supabase.rpc(
+          "reset_password_with_otp",
+          {
+            target_mobile: mob,
+            code_to_check: cleanOtp,
+            new_password: new_password,
+          },
+        );
+        if (!rpc_error && data) {
+          success = true;
+          break;
+        }
+      }
 
       if (success) {
         set_message("تم تغيير كلمة المرور بنجاح. يمكنك الآن تسجيل الدخول.");
@@ -511,21 +523,31 @@ const LoginPage: React.FC<auth_page_props> = ({
     set_error(null);
     try {
       if (!supabase) throw new Error("Client not initialized");
-      const normalized_mobile = normalize_mobile_for_db(form.mobile) || form.mobile;
-      const e164_phone = normalize_mobile_to_e164(form.mobile) || form.mobile;
+      const cleanMobile = convert_arabic_digits_to_latin(form.mobile?.trim() || "");
+      const normalized_mobile = normalize_mobile_for_db(cleanMobile) || cleanMobile;
+      const cleanOtp = convert_arabic_digits_to_latin(otp_code.trim());
+      const possibleMobiles = get_possible_db_mobiles(cleanMobile);
+
       if (!normalized_mobile) throw new Error("رقم الجوال غير صالح.");
 
-      const { data: is_verified, error: rpc_error } = await supabase.rpc(
-        "verify_mobile_otp",
-        { target_mobile: normalized_mobile, code_to_check: otp_code.trim() },
-      );
-      if (rpc_error) throw rpc_error;
+      let is_verified = false;
+      for (const mob of possibleMobiles) {
+        const { data, error } = await supabase.rpc("verify_mobile_otp", {
+          target_mobile: mob,
+          code_to_check: cleanOtp,
+        });
+        if (!error && data) {
+          is_verified = true;
+          break;
+        }
+      }
+
       if (is_verified) {
-        // Fetch current profile to check if trial was already used (search all mobile formats)
+        const filter = possibleMobiles.map((m) => `mobile_number.eq.${m}`).join(",");
         const { data: profileData } = await supabase
           .from("profiles")
           .select("*")
-          .or(`mobile_number.eq.${normalized_mobile},mobile_number.eq.${form.mobile},mobile_number.eq.${e164_phone}`)
+          .or(filter)
           .maybeSingle();
 
         const hasUsedTrial = Boolean(
@@ -542,8 +564,89 @@ const LoginPage: React.FC<auth_page_props> = ({
         const startDateStr = to_input_date_string(now);
         const endDateStr = to_input_date_string(fortyFiveDaysLater);
 
+        const isOfficeAssistant = Boolean(
+          profileData?.lawyer_id ||
+          profileData?.role === "assistant" ||
+          is_assistant_signup
+        );
+
+        if (isOfficeAssistant) {
+          // Assistant / Lawyer in an office: verify mobile but DO NOT auto-approve!
+          const updatePayload: any = {
+            mobile_verified: true,
+            updated_at: now.toISOString(),
+          };
+
+          if (profileData?.id) {
+            await supabase
+              .from("profiles")
+              .update(updatePayload)
+              .eq("id", profileData.id);
+          } else {
+            await supabase
+              .from("profiles")
+              .update(updatePayload)
+              .or(filter);
+          }
+
+          // Check if lawyer has already approved them from control panel
+          if (profileData?.is_approved) {
+            set_message("تم تأكيد الحساب بنجاح، ومكتبك معتمد وموافق عليه من المحامي. جاري تسجيل الدخول...");
+            if (on_verification_success) {
+              on_verification_success();
+            } else if (form.password) {
+              const candidateEmails = get_possible_auth_emails(cleanMobile);
+              for (const email of candidateEmails) {
+                const { data: sign_in_data } = await supabase.auth.signInWithPassword({
+                  email,
+                  password: form.password,
+                });
+                if (sign_in_data?.user) {
+                  sessionStorage.setItem(`just_logged_in_user_${sign_in_data.user.id}`, "true");
+                  on_login_success(sign_in_data.user);
+                  return;
+                }
+              }
+            }
+            set_auth_step("login");
+            set_otp_code("");
+            return;
+          }
+
+          // Not approved yet by the office lawyer!
+          let lawyer_name = "المحامي صاحب المكتب";
+          let lawyer_mobile = "";
+          if (profileData?.lawyer_id) {
+            try {
+              const { data: lData } = await supabase
+                .from("profiles")
+                .select("full_name, mobile_number")
+                .eq("id", profileData.lawyer_id)
+                .maybeSingle();
+              if (lData) {
+                lawyer_name = lData.full_name;
+                lawyer_mobile = lData.mobile_number;
+              }
+            } catch (e) {}
+          } else if (office_lawyer_info) {
+            lawyer_name = office_lawyer_info.name;
+            lawyer_mobile = office_lawyer_info.mobile;
+          }
+
+          set_office_lawyer_info({
+            name: lawyer_name,
+            mobile: lawyer_mobile,
+          });
+          set_waiting_approval(true);
+          set_message(
+            `تم تأكيد رقم جوالك بنجاح. حسابك مرتبط بمكتب المحامي (${lawyer_name})، وبانتظار موافقة صاحب المكتب من لوحة التحكم (إدارة المساعدين) للسماح لك بالدخول إلى المكتب.`
+          );
+          set_loading(false);
+          return;
+        }
+
         if (!hasUsedTrial) {
-          // First-time activation: Automatically approve and activate for 45 full days
+          // First-time activation for independent lawyer: Automatically approve and activate for 45 full days
           const updatePayload: any = {
             is_approved: true,
             is_active: true,
@@ -574,7 +677,7 @@ const LoginPage: React.FC<auth_page_props> = ({
           await supabase
             .from("profiles")
             .update(updatePayload)
-            .or(`mobile_number.eq.${normalized_mobile},mobile_number.eq.${form.mobile},mobile_number.eq.${e164_phone}`);
+            .or(filter);
 
           set_message(
             `تم تفعيل حسابك تلقائياً بنجاح لفترة تجريبية مجانية لمدة 45 يوماً كاملة (حتى ${endDateStr}). جاري الدخول...`
@@ -584,22 +687,28 @@ const LoginPage: React.FC<auth_page_props> = ({
             on_verification_success();
           } else {
             if (form.password) {
-              const phone = normalize_mobile_to_e164(form.mobile);
-              const email = `sy${phone!.substring(1)}@email.com`;
-              const { data: sign_in_data } =
-                await supabase.auth.signInWithPassword({
+              const candidateEmails = get_possible_auth_emails(cleanMobile);
+              let signedIn = false;
+              for (const email of candidateEmails) {
+                const { data: sign_in_data } = await supabase.auth.signInWithPassword({
                   email,
                   password: form.password,
                 });
-              if (sign_in_data.user) {
-                // Ensure profile updated by user.id as well
-                await supabase
-                  .from("profiles")
-                  .update(updatePayload)
-                  .eq("id", sign_in_data.user.id);
+                if (sign_in_data?.user) {
+                  await supabase
+                    .from("profiles")
+                    .update(updatePayload)
+                    .eq("id", sign_in_data.user.id);
 
-                sessionStorage.setItem(`just_logged_in_user_${sign_in_data.user.id}`, "true");
-                on_login_success(sign_in_data.user);
+                  sessionStorage.setItem(`just_logged_in_user_${sign_in_data.user.id}`, "true");
+                  on_login_success(sign_in_data.user);
+                  signedIn = true;
+                  break;
+                }
+              }
+              if (!signedIn) {
+                set_auth_step("login");
+                set_otp_code("");
               }
             } else {
               set_auth_step("login");
@@ -608,7 +717,6 @@ const LoginPage: React.FC<auth_page_props> = ({
           }
         } else {
           // Trial has already been used in the past -> Only admin can activate
-          const phoneFilter = `mobile_number.eq.${normalized_mobile},mobile_number.eq.${form.mobile},mobile_number.eq.${e164_phone}`;
           if (profileData?.id) {
             await supabase
               .from("profiles")
@@ -624,7 +732,7 @@ const LoginPage: React.FC<auth_page_props> = ({
                 mobile_verified: true,
                 updated_at: new Date().toISOString(),
               })
-              .or(phoneFilter);
+              .or(filter);
           }
 
           if (profileData?.is_approved) {
@@ -633,16 +741,17 @@ const LoginPage: React.FC<auth_page_props> = ({
             if (on_verification_success) {
               on_verification_success();
             } else if (form.password) {
-              const phone = normalize_mobile_to_e164(form.mobile);
-              const email = `sy${phone!.substring(1)}@email.com`;
-              const { data: sign_in_data } =
-                await supabase.auth.signInWithPassword({
+              const candidateEmails = get_possible_auth_emails(cleanMobile);
+              for (const email of candidateEmails) {
+                const { data: sign_in_data } = await supabase.auth.signInWithPassword({
                   email,
                   password: form.password,
                 });
-              if (sign_in_data.user) {
-                sessionStorage.setItem(`just_logged_in_user_${sign_in_data.user.id}`, "true");
-                on_login_success(sign_in_data.user);
+                if (sign_in_data?.user) {
+                  sessionStorage.setItem(`just_logged_in_user_${sign_in_data.user.id}`, "true");
+                  on_login_success(sign_in_data.user);
+                  break;
+                }
               }
             }
           } else {
@@ -676,14 +785,22 @@ const LoginPage: React.FC<auth_page_props> = ({
     set_auth_failed(false);
     set_waiting_approval(false);
 
-    const phone = normalize_mobile_to_e164(form.mobile);
-    if (!phone) {
-      set_error("رقم الجوال غير صالح.");
+    const rawInput = form.mobile?.trim() || "";
+    const cleanInput = convert_arabic_digits_to_latin(rawInput);
+    if (!cleanInput) {
+      set_error("يرجى إدخال رقم الجوال أو البريد الإلكتروني.");
       set_loading(false);
       set_auth_failed(true);
       return;
     }
-    const email = `sy${phone.substring(1)}@email.com`;
+
+    const candidateEmails = get_possible_auth_emails(cleanInput);
+    if (candidateEmails.length === 0) {
+      set_error("يرجى إدخال رقم جوال أو بريد إلكتروني صالح.");
+      set_loading(false);
+      set_auth_failed(true);
+      return;
+    }
 
     if (!supabase) {
       set_error("Supabase client is not available.");
@@ -693,24 +810,97 @@ const LoginPage: React.FC<auth_page_props> = ({
 
     if (auth_step === "login") {
       try {
-        const { data: sign_in_data, error: sign_in_error } =
-          await supabase.auth.signInWithPassword({
-            email,
-            password: form.password,
-          });
-        if (sign_in_error) throw sign_in_error;
-        if (sign_in_data.user) {
+        let loggedInUser: User | null = null;
+        let lastAuthError: any = null;
+
+        // Try candidate emails in prioritized sequence
+        for (const candidateEmail of candidateEmails) {
+          try {
+            // Try exact password
+            const { data: sign_in_data, error: sign_in_error } =
+              await supabase.auth.signInWithPassword({
+                email: candidateEmail,
+                password: form.password,
+              });
+
+            if (!sign_in_error && sign_in_data?.user) {
+              loggedInUser = sign_in_data.user;
+              break;
+            }
+
+            // If failed and password has spaces, try trimmed password
+            if (form.password && form.password.trim() !== form.password) {
+              const { data: sign_in_data_trim, error: sign_in_error_trim } =
+                await supabase.auth.signInWithPassword({
+                  email: candidateEmail,
+                  password: form.password.trim(),
+                });
+
+              if (!sign_in_error_trim && sign_in_data_trim?.user) {
+                loggedInUser = sign_in_data_trim.user;
+                break;
+              }
+            }
+
+            if (sign_in_error) {
+              lastAuthError = sign_in_error;
+            }
+          } catch (err: any) {
+            lastAuthError = err;
+          }
+        }
+
+        // If not logged in yet, try looking up the profile to find the user's specific email or confirm existence
+        if (!loggedInUser && is_online) {
+          const possibleMobiles = get_possible_db_mobiles(cleanInput);
+          const filter = possibleMobiles.map((m) => `mobile_number.eq.${m}`).join(",");
+          const { data: existingProfile } = await supabase
+            .from("profiles")
+            .select("id, full_name, mobile_number, email")
+            .or(filter)
+            .maybeSingle();
+
+          if (existingProfile?.email && !candidateEmails.includes(existingProfile.email)) {
+            const { data: alt_data } = await supabase.auth.signInWithPassword({
+              email: existingProfile.email,
+              password: form.password,
+            });
+            if (alt_data?.user) {
+              loggedInUser = alt_data.user;
+            }
+          }
+
+          if (!loggedInUser) {
+            if (existingProfile) {
+              throw new Error(
+                "كلمة المرور غير صحيحة. يرجى التأكد من كلمة المرور أو استخدام خيار (نسيت كلمة المرور) في الأسفل."
+              );
+            } else if (lastAuthError?.message?.toLowerCase().includes("invalid login credentials")) {
+              throw new Error(
+                "رقم الهاتف أو كلمة المرور غير صحيحة. يرجى التحقق من الرقم أو إنشاء حساب جديد إذا لم تكن مسجلاً."
+              );
+            } else if (lastAuthError) {
+              throw lastAuthError;
+            } else {
+              throw new Error(
+                "لم يتم العثور على حساب مسجل بهذا الرقم. يرجى إنشاء حساب جديد."
+              );
+            }
+          }
+        }
+
+        if (loggedInUser) {
           let { data: profile, error: profile_error } = await supabase
             .from("profiles")
             .select("*")
-            .eq("id", sign_in_data.user.id)
+            .eq("id", loggedInUser.id)
             .maybeSingle();
 
           // If profile is missing, try to create it on the fly (Self-healing)
           if (!profile) {
             console.log("Profile missing for user, creating one...");
             const normalized_mobile =
-              normalize_mobile_for_db(form.mobile) || form.mobile;
+              normalize_mobile_for_db(cleanInput) || cleanInput;
             const now = new Date();
             const oneYearLater = new Date(
               now.getFullYear() + 1,
@@ -718,13 +908,14 @@ const LoginPage: React.FC<auth_page_props> = ({
               now.getDate(),
             );
             const new_profile = {
-              id: sign_in_data.user.id,
-              full_name: sign_in_data.user.user_metadata?.full_name || "مستخدم",
+              id: loggedInUser.id,
+              full_name: loggedInUser.user_metadata?.full_name || "مستخدم",
               mobile_number: normalized_mobile,
               role:
-                email === "nahwiabdo@gmail.com" ||
-                email === "avocat.nahwi@gmail.com" ||
-                email === "sy963958932922@email.com"
+                loggedInUser.email === "nahwiabdo@gmail.com" ||
+                loggedInUser.email === "avocat.nahwi@gmail.com" ||
+                loggedInUser.email === "sy963958932922@email.com" ||
+                loggedInUser.email === "sy0958932922@email.com"
                   ? "admin"
                   : "user",
               is_approved: true,
@@ -754,7 +945,30 @@ const LoginPage: React.FC<auth_page_props> = ({
             return;
           }
           if (profile && profile.lawyer_id && !profile.is_approved) {
-            set_error("حسابك بانتظار موافقة المحامي الرئيسي.");
+            let lawyer_name = "المحامي صاحب المكتب";
+            let lawyer_mobile = "";
+            try {
+              const { data: lData } = await supabase
+                .from("profiles")
+                .select("full_name, mobile_number")
+                .eq("id", profile.lawyer_id)
+                .maybeSingle();
+              if (lData) {
+                lawyer_name = lData.full_name;
+                lawyer_mobile = lData.mobile_number;
+              }
+            } catch (e) {}
+
+            set_office_lawyer_info({
+              name: lawyer_name,
+              mobile: lawyer_mobile,
+            });
+            set_waiting_approval(true);
+            set_auth_step("otp");
+            set_error(null);
+            set_message(
+              `حسابك مسجل في مكتب (${lawyer_name}) وبانتظار موافقة صاحب المكتب من لوحة التحكم للسماح لك بالدخول.`
+            );
             set_loading(false);
             await supabase.auth.signOut();
             return;
@@ -765,12 +979,12 @@ const LoginPage: React.FC<auth_page_props> = ({
           );
           localStorage.setItem(
             "lawyerAppLastUserData",
-            JSON.stringify(sign_in_data.user),
+            JSON.stringify(loggedInUser),
           );
 
           // استدعاء نجاح تسجيل الدخول لتغيير واجهة التطبيق
-          sessionStorage.setItem(`just_logged_in_user_${sign_in_data.user.id}`, "true");
-          on_login_success(sign_in_data.user);
+          sessionStorage.setItem(`just_logged_in_user_${loggedInUser.id}`, "true");
+          on_login_success(loggedInUser);
         }
       } catch (err: any) {
         let error_message = err.message || "فشل تسجيل الدخول.";
@@ -795,8 +1009,9 @@ const LoginPage: React.FC<auth_page_props> = ({
           if (cached_creds_str && cached_user_str) {
             try {
               const cached_creds = JSON.parse(cached_creds_str);
+              const cachedMobileClean = convert_arabic_digits_to_latin(cached_creds.mobile || "");
               if (
-                cached_creds.mobile === form.mobile &&
+                (cached_creds.mobile === form.mobile || cachedMobileClean === cleanInput) &&
                 cached_creds.password === form.password
               ) {
                 const cached_user = JSON.parse(cached_user_str);
@@ -826,7 +1041,7 @@ const LoginPage: React.FC<auth_page_props> = ({
       try {
         if (!is_online)
           throw new Error("لا يمكن إنشاء حساب جديد بدون اتصال بالإنترنت.");
-        const normalized_mobile = normalize_mobile_for_db(form.mobile);
+        const normalized_mobile = normalize_mobile_for_db(cleanInput);
         if (!normalized_mobile) {
           set_error("رقم الجوال غير صالح.");
           set_loading(false);
@@ -834,26 +1049,63 @@ const LoginPage: React.FC<auth_page_props> = ({
           return;
         }
 
+        const primaryEmail = candidateEmails[0];
+
         let meta_data: any = {
           full_name: form.full_name,
-          mobile_number: form.mobile,
+          mobile_number: normalized_mobile,
         };
 
+        let target_lawyer_id: string | null = null;
+        let target_lawyer_name = "";
+        let target_lawyer_phone = "";
+        let target_lawyer_sub_start: string | null = null;
+        let target_lawyer_sub_end: string | null = null;
+
         if (is_assistant_signup) {
-          const normalized_lawyer_mobile = normalize_mobile_for_db(
-            form.lawyer_mobile,
-          );
-          if (!normalized_lawyer_mobile) {
-            set_error("رقم جوال المحامي غير صالح.");
+          const cleanLawyerMobile = convert_arabic_digits_to_latin(form.lawyer_mobile || "").trim();
+          const candidateLawyerMobiles = get_possible_db_mobiles(cleanLawyerMobile);
+          if (candidateLawyerMobiles.length === 0) {
+            set_error("يرجى إدخال رقم جوال صالح للمحامي صاحب المكتب.");
             set_loading(false);
             return;
           }
-          meta_data.lawyer_mobile_number = normalized_lawyer_mobile;
+
+          const lawyerFilter = candidateLawyerMobiles.map((m) => `mobile_number.eq.${m}`).join(",");
+          const { data: foundLawyers, error: lawyerSearchError } = await supabase
+            .from("profiles")
+            .select("id, full_name, mobile_number, lawyer_id, subscription_start_date, subscription_end_date")
+            .or(lawyerFilter);
+
+          if (lawyerSearchError || !foundLawyers || foundLawyers.length === 0) {
+            set_error(
+              `لم يتم العثور على أي مكتب محامي مسجل برقم الجوال المدخل (${form.lawyer_mobile}). يرجى التأكد من كتابة رقم جوال المحامي صاحب المكتب الصحيح المسجل في التطبيق.`
+            );
+            set_loading(false);
+            return;
+          }
+
+          const lawyerProfile = foundLawyers[0];
+          target_lawyer_id = lawyerProfile.lawyer_id || lawyerProfile.id;
+          target_lawyer_name = lawyerProfile.full_name;
+          target_lawyer_phone = lawyerProfile.mobile_number;
+          target_lawyer_sub_start = lawyerProfile.subscription_start_date;
+          target_lawyer_sub_end = lawyerProfile.subscription_end_date;
+
+          meta_data.lawyer_id = target_lawyer_id;
+          meta_data.lawyer_name = target_lawyer_name;
+          meta_data.lawyer_mobile_number = target_lawyer_phone;
+          meta_data.is_assistant = true;
+
+          set_office_lawyer_info({
+            name: target_lawyer_name,
+            mobile: target_lawyer_phone,
+          });
         }
 
         const { data, error: sign_up_error } =
           await supabase.auth.admin.createUser({
-            email,
+            email: primaryEmail,
             password: form.password,
             email_confirm: true,
             user_metadata: meta_data,
@@ -867,7 +1119,7 @@ const LoginPage: React.FC<auth_page_props> = ({
           );
           const { data: standard_data, error: standard_error } =
             await supabase.auth.signUp({
-              email,
+              email: primaryEmail,
               password: form.password,
               options: { data: meta_data },
             });
@@ -887,18 +1139,18 @@ const LoginPage: React.FC<auth_page_props> = ({
                 mobile_number: normalized_mobile,
                 role: is_assistant_signup
                   ? "assistant"
-                  : email === "nahwiabdo@gmail.com" ||
-                      email === "avocat.nahwi@gmail.com" ||
-                      email === "sy963958932922@email.com"
+                  : primaryEmail === "nahwiabdo@gmail.com" ||
+                      primaryEmail === "avocat.nahwi@gmail.com" ||
+                      primaryEmail === "sy963958932922@email.com"
                     ? "admin"
                     : "user",
-                is_approved: false, // All new users must enter verification code to activate
+                is_approved: false, // strictly false! Must be approved by owner or OTP
                 is_active: true,
                 mobile_verified: false,
                 trial_used: false,
-                lawyer_id: null,
-                subscription_start_date: to_input_date_string(now),
-                subscription_end_date: to_input_date_string(fortyFiveDaysLater),
+                lawyer_id: is_assistant_signup ? target_lawyer_id : null,
+                subscription_start_date: target_lawyer_sub_start || to_input_date_string(now),
+                subscription_end_date: target_lawyer_sub_end || to_input_date_string(fortyFiveDaysLater),
               },
             ]);
 
@@ -908,7 +1160,9 @@ const LoginPage: React.FC<auth_page_props> = ({
               });
             } catch (e) {}
             set_message(
-              "تم إنشاء الحساب بنجاح. يرجى طلب كود التفعيل من المدير عبر واتساب.",
+              is_assistant_signup
+                ? `تم إنشاء الحساب بنجاح وربطه بمكتب الأستاذ (${target_lawyer_name}). يرجى تأكيد كود التحقق. لن تتمكن من الدخول حتى يوافق صاحب المكتب على طلبك.`
+                : "تم إنشاء الحساب بنجاح. يرجى طلب كود التفعيل من المدير عبر واتساب."
             );
             set_auth_step("otp");
           }
@@ -927,18 +1181,18 @@ const LoginPage: React.FC<auth_page_props> = ({
               mobile_number: normalized_mobile,
               role: is_assistant_signup
                 ? "assistant"
-                : email === "nahwiabdo@gmail.com" ||
-                    email === "avocat.nahwi@gmail.com" ||
-                    email === "sy963958932922@email.com"
+                : primaryEmail === "nahwiabdo@gmail.com" ||
+                    primaryEmail === "avocat.nahwi@gmail.com" ||
+                    primaryEmail === "sy963958932922@email.com"
                   ? "admin"
                   : "user",
-              is_approved: false, // All new users must enter verification code to activate
+              is_approved: false, // strictly false!
               is_active: true,
               mobile_verified: false, // Set to false so they go through activation
               trial_used: false,
-              lawyer_id: null,
-              subscription_start_date: to_input_date_string(now),
-              subscription_end_date: to_input_date_string(fortyFiveDaysLater),
+              lawyer_id: is_assistant_signup ? target_lawyer_id : null,
+              subscription_start_date: target_lawyer_sub_start || to_input_date_string(now),
+              subscription_end_date: target_lawyer_sub_end || to_input_date_string(fortyFiveDaysLater),
             },
           ]);
 
@@ -948,7 +1202,9 @@ const LoginPage: React.FC<auth_page_props> = ({
             });
           } catch (e) {}
           set_message(
-            "تم إنشاء الحساب بنجاح. يرجى طلب كود التفعيل من المدير عبر واتساب.",
+            is_assistant_signup
+              ? `تم إنشاء الحساب بنجاح وربطه بمكتب الأستاذ (${target_lawyer_name}). يرجى تأكيد كود التحقق. لن تتمكن من الدخول حتى يوافق صاحب المكتب على طلبك.`
+              : "تم إنشاء الحساب بنجاح. يرجى طلب كود التفعيل من المدير عبر واتساب."
           );
           set_auth_step("otp");
         }
@@ -1177,6 +1433,94 @@ const LoginPage: React.FC<auth_page_props> = ({
                     </button>
                   </form>
                 </>
+              ) : office_lawyer_info ? (
+                <div className="text-center space-y-4 py-4">
+                  <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto shadow-sm">
+                    <UserGroupIcon className="w-9 h-9" />
+                  </div>
+                  <h3 className="text-xl font-bold text-gray-800">
+                    بانتظار موافقة صاحب المكتب
+                  </h3>
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-right text-xs text-amber-900 space-y-2">
+                    <div className="flex items-center gap-2 font-bold text-sm text-amber-950">
+                      <ShieldCheckIcon className="w-5 h-5 text-amber-600 flex-shrink-0" />
+                      <span>مرتبط بمكتب المحامي: {office_lawyer_info.name}</span>
+                    </div>
+                    <p className="leading-relaxed">
+                      تم تأكيد رقم جوالك بنجاح. لدواعي سرية وأمان بيانات المكتب، لا يمكنك الدخول إلى ملفات وقضايا المكتب حتى يوافق المحامي صاحب المكتب على انضمامك من لوحة التحكم (إدارة المساعدين والصلاحيات).
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const lawyer_clean = office_lawyer_info.mobile ? office_lawyer_info.mobile.replace(/\D/g, "") : "";
+                      const formatted = lawyer_clean.startsWith("0")
+                        ? "963" + lawyer_clean.slice(1)
+                        : lawyer_clean.startsWith("963")
+                        ? lawyer_clean
+                        : "963" + lawyer_clean;
+                      const msg = `السلام عليكم أستاذ ${office_lawyer_info.name}، لقد قمت بالتسجيل في مكتبكم على تطبيق مكتب المحامي باسم (${form.full_name || "محامي/مساعد جديد"}) برقم (${form.mobile}). أرجو من حضرتكم التكرم بالموافقة على حسابي من الإعدادات > إدارة المساعدين والصلاحيات لأتمكن من الدخول للمكتب. شكراً جزيلاً.`;
+                      const url = lawyer_clean
+                        ? `https://wa.me/${formatted}?text=${encodeURIComponent(msg)}`
+                        : `https://wa.me/?text=${encodeURIComponent(msg)}`;
+                      window.open(url, "_blank");
+                    }}
+                    className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white p-3 rounded-xl font-bold transition-all shadow-md hover:shadow-lg active:scale-95 text-sm"
+                  >
+                    <ShareIcon className="w-5 h-5" />
+                    <span>إشعار الأستاذ {office_lawyer_info.name} للموافقة (واتساب)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={async () => {
+                      set_loading(true);
+                      set_error(null);
+                      try {
+                        const cleanMobile = form.mobile ? convert_arabic_digits_to_latin(form.mobile).trim() : "";
+                        const possibleMobiles = get_possible_db_mobiles(cleanMobile);
+                        const filter = possibleMobiles.map((m) => `mobile_number.eq.${m}`).join(",");
+                        const { data: liveProfile } = await supabase
+                          .from("profiles")
+                          .select("*")
+                          .or(filter)
+                          .maybeSingle();
+
+                        if (liveProfile && liveProfile.is_approved) {
+                          set_message("تمت الموافقة على حسابك بنجاح من صاحب المكتب! جاري تسجيل الدخول...");
+                          if (form.password) {
+                            const candidateEmails = get_possible_auth_emails(cleanMobile);
+                            for (const email of candidateEmails) {
+                              const { data: sign_in_data } = await supabase.auth.signInWithPassword({
+                                email,
+                                password: form.password,
+                              });
+                              if (sign_in_data?.user) {
+                                sessionStorage.setItem(`just_logged_in_user_${sign_in_data.user.id}`, "true");
+                                on_login_success(sign_in_data.user);
+                                return;
+                              }
+                            }
+                          }
+                          set_auth_step("login");
+                          set_waiting_approval(false);
+                        } else {
+                          set_message("لم يتم اعتماد الحساب بعد من المحامي صاحب المكتب. يرجى تذكيره عبر واتساب للموافقة.");
+                        }
+                      } catch (e: any) {
+                        set_error(e.message || "حدث خطأ أثناء فحص حالة الموافقة.");
+                      } finally {
+                        set_loading(false);
+                      }
+                    }}
+                    className="w-full flex items-center justify-center gap-2 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 p-2.5 rounded-xl font-bold text-xs transition-colors"
+                  >
+                    <ArrowPathIcon className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+                    <span>فحص حالة الموافقة والدخول الآن</span>
+                  </button>
+                </div>
               ) : (
                 <div className="text-center space-y-4 py-6">
                   <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto">
