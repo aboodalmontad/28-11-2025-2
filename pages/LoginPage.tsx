@@ -32,6 +32,7 @@ import {
   extract_clean_digits,
   get_possible_auth_emails,
   get_possible_db_mobiles,
+  is_platform_admin,
 } from "../utils/mobileUtils";
 import { to_input_date_string } from "../utils/dateUtils";
 import type { User } from "@supabase/supabase-js";
@@ -911,13 +912,9 @@ const LoginPage: React.FC<auth_page_props> = ({
               id: loggedInUser.id,
               full_name: loggedInUser.user_metadata?.full_name || "مستخدم",
               mobile_number: normalized_mobile,
-              role:
-                loggedInUser.email === "nahwiabdo@gmail.com" ||
-                loggedInUser.email === "avocat.nahwi@gmail.com" ||
-                loggedInUser.email === "sy963958932922@email.com" ||
-                loggedInUser.email === "sy0958932922@email.com"
-                  ? "admin"
-                  : "user",
+              role: is_platform_admin(loggedInUser)
+                ? "admin"
+                : "user",
               is_approved: true,
               is_active: true,
               mobile_verified: true,
@@ -934,9 +931,20 @@ const LoginPage: React.FC<auth_page_props> = ({
             else console.error("Error creating profile:", create_error);
           }
 
+          const isAdminUser = is_platform_admin(loggedInUser, profile);
+          if (profile && isAdminUser && profile.role !== "admin") {
+            profile = { ...profile, role: "admin" };
+            supabase
+              .from("profiles")
+              .update({ role: "admin" })
+              .eq("id", loggedInUser.id)
+              .then(() => {});
+          }
+
           if (
             profile &&
             profile.mobile_verified === false &&
+            !isAdminUser &&
             profile.role !== "admin"
           ) {
             set_message("يرجى تأكيد رقم الجوال للمتابعة.");
@@ -944,7 +952,7 @@ const LoginPage: React.FC<auth_page_props> = ({
             set_loading(false);
             return;
           }
-          if (profile && profile.lawyer_id && !profile.is_approved) {
+          if (profile && profile.lawyer_id && !profile.is_approved && !isAdminUser) {
             let lawyer_name = "المحامي صاحب المكتب";
             let lawyer_mobile = "";
             try {
@@ -973,18 +981,48 @@ const LoginPage: React.FC<auth_page_props> = ({
             await supabase.auth.signOut();
             return;
           }
+
+          if (profile) {
+            localStorage.setItem(
+              "lawyerAppLastUserProfile",
+              JSON.stringify(profile),
+            );
+          }
+
+          const enrichedUser: User = {
+            ...loggedInUser,
+            user_metadata: {
+              ...loggedInUser.user_metadata,
+              full_name:
+                profile?.full_name ||
+                loggedInUser.user_metadata?.full_name,
+              mobile_number:
+                profile?.mobile_number ||
+                loggedInUser.user_metadata?.mobile_number,
+              role: isAdminUser
+                ? "admin"
+                : profile?.role ||
+                  loggedInUser.user_metadata?.role ||
+                  "user",
+            },
+          };
+
           localStorage.setItem(
             LAST_USER_CREDENTIALS_CACHE_KEY,
             JSON.stringify({ mobile: form.mobile, password: form.password }),
           );
           localStorage.setItem(
             "lawyerAppLastUserData",
-            JSON.stringify(loggedInUser),
+            JSON.stringify(enrichedUser),
+          );
+          localStorage.setItem(
+            "lawyerAppLastUser",
+            JSON.stringify(enrichedUser),
           );
 
           // استدعاء نجاح تسجيل الدخول لتغيير واجهة التطبيق
-          sessionStorage.setItem(`just_logged_in_user_${loggedInUser.id}`, "true");
-          on_login_success(loggedInUser);
+          sessionStorage.setItem(`just_logged_in_user_${enrichedUser.id}`, "true");
+          on_login_success(enrichedUser);
         }
       } catch (err: any) {
         let error_message = err.message || "فشل تسجيل الدخول.";

@@ -43,6 +43,7 @@ import {
   to_input_date_string,
 } from "./utils/dateUtils";
 import { printElement } from "./utils/printUtils";
+import { is_platform_admin } from "./utils/mobileUtils";
 import SyncStatusIndicator from "./components/SyncStatusIndicator";
 import NotificationCenter from "./components/RealtimeNotifier";
 import { AdminTask } from "./types";
@@ -472,10 +473,7 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
       const { user } = session;
       console.log("Attempting to create missing profile for:", user.id);
 
-      const is_admin =
-        user.email === "nahwiabdo@gmail.com" ||
-        user.email === "avocat.nahwi@gmail.com" ||
-        user.email === "sy963958932922@email.com";
+      const is_admin = is_platform_admin(user);
       const now = new Date();
       const fortyFiveDaysLater = new Date(
         now.getFullYear(),
@@ -576,54 +574,92 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
     return () => subscription.unsubscribe();
   }, [supabase]);
 
-  const is_admin_email =
-    session?.user?.email &&
-    [
-      "nahwiabdo@gmail.com",
-      "avocat.nahwi@gmail.com",
-      "sy963958932922@email.com",
-      "sy0958932922@email.com",
-      "963958932922@email.com",
-      "0958932922@email.com",
-      "958932922@email.com",
-    ].includes(session.user.email);
+  const [directProfile, setDirectProfile] = useState<any>(() => {
+    try {
+      const cached = localStorage.getItem("lawyerAppLastUserProfile");
+      if (cached) return JSON.parse(cached);
+    } catch (e) {}
+    return null;
+  });
+
+  useEffect(() => {
+    if (!session?.user?.id || !supabase) return;
+    let isMounted = true;
+    supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", session.user.id)
+      .maybeSingle()
+      .then(({ data: fetchedProfile }) => {
+        if (isMounted && fetchedProfile) {
+          const normalizedProfile = {
+            ...fetchedProfile,
+            role: is_platform_admin(session.user, fetchedProfile)
+              ? "admin"
+              : fetchedProfile.role || "user",
+          };
+          setDirectProfile(normalizedProfile);
+          try {
+            localStorage.setItem(
+              "lawyerAppLastUserProfile",
+              JSON.stringify(normalizedProfile),
+            );
+          } catch (e) {}
+        }
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [session?.user?.id, supabase]);
+
+  const matchedDbProfile = session
+    ? data.profiles.find((p) => p.id === session.user.id) ||
+      (directProfile?.id === session.user.id ? directProfile : null)
+    : null;
+
+  const is_admin_email = session?.user
+    ? is_platform_admin(session.user, matchedDbProfile)
+    : false;
 
   // Effective Display Name Logic
   const profile = session
-    ? (data.profiles.find((p) => p.id === session.user.id) || {
-        id: session.user.id,
-        full_name:
-          session.user.user_metadata?.full_name ||
-          session.user.email ||
-          "مستخدم",
-        mobile_number: session.user.user_metadata?.mobile_number || "",
-        role: (is_admin_email
-          ? "admin"
-          : session.user.user_metadata?.role || "user") as "user" | "admin",
-        is_approved: true,
-        is_active: true,
-        mobile_verified: true,
-        subscription_start_date: new Date().toISOString(),
-        subscription_end_date: new Date(
-          Date.now() + 365 * 24 * 60 * 60 * 1000,
-        ).toISOString(),
-      })
+    ? matchedDbProfile
+      ? {
+          ...matchedDbProfile,
+          role: (is_admin_email ? "admin" : matchedDbProfile.role || "user") as
+            | "user"
+            | "admin",
+        }
+      : {
+          id: session.user.id,
+          full_name:
+            session.user.user_metadata?.full_name ||
+            session.user.email ||
+            "مستخدم",
+          mobile_number: session.user.user_metadata?.mobile_number || "",
+          role: (is_admin_email
+            ? "admin"
+            : session.user.user_metadata?.role || "user") as "user" | "admin",
+          is_approved: true,
+          is_active: true,
+          mobile_verified: true,
+          subscription_start_date: new Date().toISOString(),
+          subscription_end_date: new Date(
+            Date.now() + 365 * 24 * 60 * 60 * 1000,
+          ).toISOString(),
+        }
     : null;
 
-  // Admin Role Sync Watchdog: Ensure designated emails always have admin role in DB
+  // Admin Role Sync Watchdog: Ensure designated admin accounts always have admin role in DB
   useEffect(() => {
     const syncAdminRole = async () => {
       if (!session?.user || !supabase || !profile) return;
-      const adminEmails = [
-        "nahwiabdo@gmail.com",
-        "avocat.nahwi@gmail.com",
-        "sy963958932922@email.com",
-      ];
       if (
-        adminEmails.includes(session.user.email || "") &&
-        profile.role !== "admin"
+        is_platform_admin(session.user, profile) &&
+        matchedDbProfile &&
+        matchedDbProfile.role !== "admin"
       ) {
-        console.log("Upgrading user to admin role based on email...");
+        console.log("Upgrading user to admin role...");
         const { error } = await supabase
           .from("profiles")
           .update({ role: "admin" })
@@ -638,7 +674,7 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
       }
     };
     syncAdminRole();
-  }, [session?.user?.id, profile?.role]);
+  }, [session?.user?.id, matchedDbProfile?.role]);
 
   useEffect(() => {
     if (session) {
@@ -656,6 +692,9 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
   const handleLogout = async () => {
     sessionStorage.clear();
     localStorage.removeItem("lawyerAppLastUser");
+    localStorage.removeItem("lawyerAppLastUserProfile");
+    localStorage.removeItem("lawyerAppLastUserData");
+    setDirectProfile(null);
     setSession(null);
     if (supabase) await supabase.auth.signOut();
     onRefresh();
@@ -850,7 +889,11 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
     );
   }
 
-  if (profile && profile.role === "admin" && !data.admin_viewing_user_id) {
+  if (
+    profile &&
+    (profile.role === "admin" || is_admin_email) &&
+    !data.admin_viewing_user_id
+  ) {
     return (
       <DataProvider value={data}>
         <AdminDashboard

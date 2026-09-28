@@ -1093,12 +1093,34 @@ const HomePage: React.FC<HomePageProps> = ({
   }, [unpostponed_sessions, selected_date]);
   const targetType = active_task_tab.startsWith("office") ? "office" : "admin";
 
+  // Check if current user is an assistant restricted to viewing only assigned tasks
+  const isAssistant = !!current_user_profile?.lawyer_id;
+  const isRestrictedToAssignedTasks =
+    isAssistant &&
+    !!permissions.can_view_only_assigned_tasks &&
+    !!current_user_profile?.full_name;
+
+  const currentUserName = current_user_profile?.full_name?.trim().toLowerCase() || "";
+
+  // Helper to determine if a task is assigned to the current assistant
+  const isTaskAssignedToMe = (assignee?: string | null) => {
+    if (!assignee) return false;
+    const taskAssignee = assignee.trim().toLowerCase();
+    if (!currentUserName) return false;
+    return taskAssignee === currentUserName || taskAssignee.includes(currentUserName);
+  };
+
   const grouped_tasks: Record<string, AdminTask[]> = React.useMemo(() => {
     const isCompleted = active_task_tab === "completed" || active_task_tab === "office_completed";
 
     const filtered = admin_tasks.filter((task) => {
       const taskType = task.task_type || "admin";
       if (taskType !== targetType) return false;
+
+      // Restrict to assigned tasks only if assistant permission is active
+      if (isRestrictedToAssignedTasks && !isTaskAssignedToMe(task.assignee)) {
+        return false;
+      }
 
       const searchLower = debounced_admin_task_search.toLowerCase();
       const matchesSearch =
@@ -1124,7 +1146,7 @@ const HomePage: React.FC<HomePageProps> = ({
       },
       {} as Record<string, AdminTask[]>,
     );
-  }, [admin_tasks, active_task_tab, debounced_admin_task_search]);
+  }, [admin_tasks, active_task_tab, debounced_admin_task_search, isRestrictedToAssignedTasks, currentUserName]);
 
   const office_tasks_list = React.useMemo(() => {
     const isCompleted = active_task_tab === "office_completed";
@@ -1132,6 +1154,12 @@ const HomePage: React.FC<HomePageProps> = ({
       .filter((task) => {
         const taskType = task.task_type || "admin";
         if (taskType !== "office") return false;
+
+        // Restrict to assigned tasks only if assistant permission is active
+        if (isRestrictedToAssignedTasks && !isTaskAssignedToMe(task.assignee)) {
+          return false;
+        }
+
         const searchLower = debounced_admin_task_search.toLowerCase();
         const matchesSearch =
           searchLower === "" ||
@@ -1140,7 +1168,7 @@ const HomePage: React.FC<HomePageProps> = ({
         return task.completed === isCompleted && matchesSearch;
       })
       .sort((a, b) => (a.order_index ?? Infinity) - (b.order_index ?? Infinity));
-  }, [admin_tasks, active_task_tab, debounced_admin_task_search]);
+  }, [admin_tasks, active_task_tab, debounced_admin_task_search, isRestrictedToAssignedTasks, currentUserName]);
 
   React.useEffect(() => {
     const allKnownLocations = new Set(Object.keys(grouped_tasks));
@@ -1588,6 +1616,12 @@ const HomePage: React.FC<HomePageProps> = ({
                 <h2 className="text-2xl font-semibold">
                   المهام
                 </h2>
+                {isRestrictedToAssignedTasks && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded-full text-xs font-medium">
+                    <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                    مهامك الموكلة إليك فقط
+                  </span>
+                )}
                 {permissions.can_add_admin_task && (
                   <button
                     onClick={() => {
@@ -1731,7 +1765,8 @@ const HomePage: React.FC<HomePageProps> = ({
                             (t.location || "غير محدد") === location &&
                             !t.completed &&
                             t.importance === "urgent" &&
-                            (t.task_type || "admin") === targetType,
+                            (t.task_type || "admin") === targetType &&
+                            (!isRestrictedToAssignedTasks || isTaskAssignedToMe(t.assignee)),
                         );
                       const isSelected = active_location_tab === location;
                       return (
@@ -1863,7 +1898,8 @@ const HomePage: React.FC<HomePageProps> = ({
                             (t.location || "غير محدد") === location &&
                             !t.completed &&
                             t.importance === "urgent" &&
-                            (t.task_type || "admin") === targetType,
+                            (t.task_type || "admin") === targetType &&
+                            (!isRestrictedToAssignedTasks || isTaskAssignedToMe(t.assignee)),
                         );
                       const isSelected = active_location_tab === location;
                       return (

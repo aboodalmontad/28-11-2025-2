@@ -181,3 +181,92 @@ export const get_possible_db_mobiles = (input: string): string[] => {
   return Array.from(new Set(variants.filter(Boolean)));
 };
 
+export const DESIGNATED_ADMIN_EMAILS = [
+  "nahwiabdo@gmail.com",
+  "avocat.nahwi@gmail.com",
+  "sy963958932922@email.com",
+  "sy0958932922@email.com",
+  "963958932922@email.com",
+  "0958932922@email.com",
+  "958932922@email.com",
+  "sy958932922@email.com",
+  "sy963958333333@email.com",
+  "sy0958333333@email.com",
+  "963958333333@email.com",
+  "0958333333@email.com",
+  "958333333@email.com",
+  "sy958333333@email.com",
+  "sy963987654321@email.com",
+  "sy0987654321@email.com",
+  "963987654321@email.com",
+  "0987654321@email.com",
+  "987654321@email.com",
+  "sy987654321@email.com",
+];
+
+const DESIGNATED_ADMIN_IDS = [
+  "0fbfa850-2daf-43e8-99e8-7aea7af06c03",
+  "fb4b2bc8-591d-423f-829b-266b31d4526a",
+  "fdf70b78-417d-4f3c-87b0-e585d053652a",
+];
+
+const DESIGNATED_ADMIN_MOBILE_SUFFIXES = [
+  "958932922",
+  "958333333",
+  "987654321",
+];
+
+const DESIGNATED_ADMIN_NAMES = [
+  "المدير",
+  "المدير العام",
+  "مدير المنصة",
+  "مدير النظام",
+];
+
+/**
+ * Reliably determines whether a user/profile belongs to a platform administrator.
+ */
+export const is_platform_admin = (user?: any, profile?: any): boolean => {
+  if (!user && !profile) return false;
+
+  if (profile?.role === "admin") return true;
+  if (user?.user_metadata?.role === "admin" || user?.app_metadata?.role === "admin") {
+    return true;
+  }
+
+  const uid = user?.id || profile?.id;
+  if (uid && DESIGNATED_ADMIN_IDS.includes(uid)) {
+    return true;
+  }
+
+  const email = (user?.email || user?.user_metadata?.email || "").trim().toLowerCase();
+  if (email && DESIGNATED_ADMIN_EMAILS.includes(email)) {
+    return true;
+  }
+
+  const fullName = (profile?.full_name || user?.user_metadata?.full_name || "").trim();
+  if (fullName && DESIGNATED_ADMIN_NAMES.includes(fullName)) {
+    return true;
+  }
+
+  const rawMobiles = [
+    profile?.mobile_number,
+    user?.user_metadata?.mobile_number,
+    user?.phone,
+    email,
+  ].filter(Boolean);
+
+  for (const m of rawMobiles) {
+    const digits = extract_clean_digits(String(m));
+    if (digits.length >= 9) {
+      const lastNine = digits.slice(-9);
+      if (DESIGNATED_ADMIN_MOBILE_SUFFIXES.includes(lastNine)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+};
+
+

@@ -36,6 +36,7 @@ import {
   is_today,
 } from "../utils/dateUtils";
 import { generateId } from "../utils/idUtils";
+import { is_platform_admin } from "../utils/mobileUtils";
 import { RealtimeAlert } from "../components/RealtimeNotifier";
 import {
   get_db,
@@ -249,7 +250,7 @@ const migrate_data = (old_data: any): AppData => {
     subscription_start_date:
       p.subscription_start_date || p.subscriptionStartDate,
     subscription_end_date: p.subscription_end_date || p.subscriptionEndDate,
-    role: p.role || "user",
+    role: is_platform_admin(undefined, p) ? "admin" : p.role || "user",
     permissions: p.permissions,
     lawyer_id: p.lawyer_id || p.lawyerId,
     admin_tasks_layout:
@@ -465,7 +466,7 @@ export const useSupabaseData = (
   const is_admin = React.useMemo(() => {
     if (!user) return false;
     const current_user_profile = data.profiles.find((p) => p.id === user.id);
-    return current_user_profile?.role === "admin";
+    return is_platform_admin(user, current_user_profile);
   }, [user, data.profiles]);
 
   const filtered_data = React.useMemo(() => {
@@ -553,6 +554,7 @@ export const useSupabaseData = (
       can_add_admin_task: true,
       can_edit_admin_task: true,
       can_delete_admin_task: true,
+      can_view_only_assigned_tasks: false,
       can_view_reports: true,
     };
   }, [user, data.profiles]);
@@ -620,7 +622,10 @@ export const useSupabaseData = (
           set_deleted_ids(get_initial_deleted_ids());
         }
         
-        if (cached_data) {
+        const has_valid_cache =
+          cached_data &&
+          ((cached_data.profiles?.length || 0) > 0 || has_local_data);
+        if (has_valid_cache) {
           set_is_data_loading(false);
           set_sync_status("synced");
         }
@@ -758,6 +763,21 @@ export const useSupabaseData = (
       sync_status: sync_status,
       is_dirty: is_dirty,
     });
+
+  // Automatically fetch latest profiles and data on login/session start or when admin switches viewed user
+  React.useEffect(() => {
+    if (!user?.id || !is_online || is_auth_loading) return;
+    const timer = setTimeout(() => {
+      fetch_and_refresh();
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [
+    user?.id,
+    is_online,
+    is_auth_loading,
+    admin_viewing_user_id,
+    fetch_and_refresh,
+  ]);
 
 
 

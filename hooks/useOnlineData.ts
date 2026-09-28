@@ -14,6 +14,7 @@ import {
 } from "../types";
 import type { User } from "@supabase/supabase-js";
 import { safe_revive_date, to_input_date_string } from "../utils/dateUtils";
+import { is_platform_admin } from "../utils/mobileUtils";
 
 export type FlatData = {
   clients: Omit<Client, "cases">[];
@@ -137,24 +138,11 @@ export const fetch_data_from_supabase = async (
   if (currentUser) {
     const { data: profile } = await supabase
       .from("profiles")
-      .select("role, lawyer_id")
+      .select("role, lawyer_id, full_name, mobile_number")
       .eq("id", currentUser.id)
       .maybeSingle();
-    is_admin_user = profile?.role === "admin";
+    is_admin_user = is_platform_admin(currentUser, profile);
     lawyer_id = profile?.lawyer_id;
-
-    const adminEmails = [
-      "nahwiabdo@gmail.com",
-      "avocat.nahwi@gmail.com",
-      "sy963958932922@email.com",
-    ];
-    if (
-      !is_admin_user &&
-      currentUser.email &&
-      adminEmails.includes(currentUser.email)
-    ) {
-      is_admin_user = true;
-    }
   }
 
   // If a user_id is provided AND it's different from the requester,
@@ -631,15 +619,8 @@ export const upsert_data_to_supabase = async (
 
   // Priority: 1. effective_user_id (passed from context, e.g. admin viewing user), 2. lawyer_id (if assistant), 3. user.id
   const user_id_to_use = effective_user_id || profile?.lawyer_id || user.id;
-  const is_admin_user = profile?.role === "admin";
-
-  const DESIGNATED_ADMIN_EMAILS = [
-    "nahwiabdo@gmail.com",
-    "avocat.nahwi@gmail.com",
-    "sy963958932922@email.com",
-  ];
-  const is_admin_frontend =
-    DESIGNATED_ADMIN_EMAILS.includes(user.email || "") || is_admin_user;
+  const is_admin_user = is_platform_admin(user, profile);
+  const is_admin_frontend = is_admin_user;
 
   const data_to_upsert = {
     clients: data.clients?.map((client) => ({
@@ -784,8 +765,8 @@ export const upsert_data_to_supabase = async (
       subscription_start_date: profile.subscription_start_date,
       subscription_end_date: profile.subscription_end_date,
       role:
-        DESIGNATED_ADMIN_EMAILS.includes(user.email || "") &&
-        profile.id === user.id
+        (is_admin_frontend && profile.id === user.id) ||
+        is_platform_admin(undefined, profile)
           ? "admin"
           : profile.role,
       permissions: profile.permissions,

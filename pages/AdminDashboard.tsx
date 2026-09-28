@@ -75,6 +75,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     unfiltered_data,
     is_update_available,
     manual_sync,
+    fetch_and_refresh,
     sync_status,
   } = useData();
   const { showFeedback, confirm } = useFeedback();
@@ -85,6 +86,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const is_online = useOnlineStatus();
 
   const isSyncActive = is_syncing || sync_status === "syncing";
+
+  React.useEffect(() => {
+    if (is_online && profiles.length <= 1 && sync_status !== "syncing") {
+      fetch_and_refresh();
+    }
+  }, [is_online, profiles.length, sync_status, fetch_and_refresh]);
 
   const handle_admin_sync = async () => {
     if (isSyncActive) return;
@@ -247,7 +254,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  if (loading) {
+  if (loading && profiles.length === 0) {
     return (
       <div className="flex justify-center items-center h-screen">
         جاري تحميل...

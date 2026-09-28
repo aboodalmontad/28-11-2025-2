@@ -62,12 +62,21 @@ const PermissionsEditor: React.FC<{
       ],
     },
     {
-      title: "المهام الإدارية والمالية والتقارير",
+      title: "المهام الإدارية والمكتبية",
       items: [
-        { key: "can_view_admin_tasks", label: "عرض المهام الإدارية" },
-        { key: "can_add_admin_task", label: "إضافة مهمة إدارية" },
-        { key: "can_edit_admin_task", label: "تعديل مهمة إدارية" },
-        { key: "can_delete_admin_task", label: "حذف مهمة إدارية" },
+        { key: "can_view_admin_tasks", label: "عرض المهام الإدارية والمكتبية" },
+        {
+          key: "can_view_only_assigned_tasks",
+          label: "🔒 عرض المهام الموكلة له فقط (إخفاء باقي مهام المكتب)",
+        },
+        { key: "can_add_admin_task", label: "إضافة مهمة إدارية ومكتبية" },
+        { key: "can_edit_admin_task", label: "تعديل المهام" },
+        { key: "can_delete_admin_task", label: "حذف المهام" },
+      ],
+    },
+    {
+      title: "المالية والتقارير",
+      items: [
         { key: "can_view_finance", label: "عرض قسم المالية" },
         { key: "can_add_financial_entry", label: "إضافة قيود مالية" },
         { key: "can_delete_financial_entry", label: "حذف قيود مالية" },
