@@ -215,9 +215,17 @@ const merge_for_refresh = <T extends { id: any; updated_at?: Date | string }>(
           tasks: (remote_item as any).tasks || (local_item as any).tasks,
         };
         if (key === "case_documents") {
+          const prev_state = (local_item as any).local_state;
+          const is_expired_doc =
+            safe_revive_date((remote_item as any).added_at || 0).getTime() <
+            Date.now() - 72 * 60 * 60 * 1000;
           (merged as any).local_state =
-            (local_item as any).local_state === "synced"
-              ? "synced"
+            prev_state === "synced" ||
+            prev_state === "error" ||
+            prev_state === "downloading"
+              ? prev_state
+              : is_expired_doc
+              ? "error"
               : "pending_download";
         }
         final_items.set(id, merged);
@@ -248,7 +256,12 @@ const merge_for_refresh = <T extends { id: any; updated_at?: Date | string }>(
       }
       const merged = { ...remote_item };
       if (key === "case_documents") {
-        (merged as any).local_state = "pending_download";
+        const is_expired_doc =
+          safe_revive_date((remote_item as any).added_at || 0).getTime() <
+          Date.now() - 72 * 60 * 60 * 1000;
+        (merged as any).local_state = is_expired_doc
+          ? "error"
+          : "pending_download";
       }
       final_items.set(id, merged);
     }
@@ -361,7 +374,11 @@ const cleanup_local_files = async (deletions: SyncDeletion[]) => {
   }
 };
 
-const cleanup_expired_documents = async (remote_docs: any[], supabase: any) => {
+const cleanup_expired_documents = async (
+  remote_docs: any[],
+  supabase: any,
+): Promise<Set<string>> => {
+  const expired_set = new Set<string>();
   try {
     const hours_72_ago = safe_revive_date(Date.now() - 72 * 60 * 60 * 1000);
     const expired_docs = remote_docs.filter(
@@ -373,6 +390,7 @@ const cleanup_expired_documents = async (remote_docs: any[], supabase: any) => {
         `Cleaning up ${expired_docs.length} expired documents from cloud...`,
       );
       const expired_ids = expired_docs.map((d: any) => d.id);
+      expired_ids.forEach((id: string) => expired_set.add(id));
       const expired_paths = expired_docs
         .map((d: any) => d.storage_path)
         .filter((p: any) => !!p);
@@ -401,6 +419,7 @@ const cleanup_expired_documents = async (remote_docs: any[], supabase: any) => {
   } catch (err) {
     console.warn("Exception during background cleanup of expired documents:", err);
   }
+  return expired_set;
 };
 
 export const use_sync = ({
@@ -428,6 +447,8 @@ export const use_sync = ({
   // Track sync_status via ref to break dependency loop in useCallback
   const sync_status_ref = React.useRef(sync_status);
   const is_dirty_ref = React.useRef(is_dirty);
+  const is_sync_in_progress_ref = React.useRef(false);
+  const last_sync_completed_at_ref = React.useRef(0);
 
   // Callbacks refs
   const on_data_synced_ref = React.useRef(on_data_synced);
@@ -464,18 +485,21 @@ export const use_sync = ({
       inv.items.map((item) => ({ ...item, invoice_id: inv.id })),
     );
 
-    const assistants_with_user_id = data.assistants.map((a) => {
-      const user_id_to_use =
-        effective_user_id_ref.current || user_ref.current?.id;
-      if (typeof a === "string")
-        return { name: a, user_id: user_id_to_use || undefined };
-      const assistant_obj =
-        typeof a === "object" && a !== null ? a : { name: String(a) };
-      return {
-        ...assistant_obj,
-        user_id: (assistant_obj as any).user_id || user_id_to_use || undefined,
-      };
-    });
+    const assistants_with_user_id = data.assistants
+      .map((a) => {
+        const user_id_to_use =
+          effective_user_id_ref.current || user_ref.current?.id;
+        if (typeof a === "string")
+          return { name: a, user_id: user_id_to_use || undefined };
+        const assistant_obj =
+          typeof a === "object" && a !== null ? a : { name: String(a) };
+        return {
+          ...assistant_obj,
+          user_id:
+            (assistant_obj as any).user_id || user_id_to_use || undefined,
+        };
+      })
+      .filter((a) => a.name && a.name !== "بدون تخصيص");
 
     return {
       clients: data.clients.map(({ cases, ...client }) => client),
@@ -510,7 +534,11 @@ export const use_sync = ({
 
   const manual_sync = React.useCallback(
     async (options?: { force?: boolean }) => {
-      if (sync_status_ref.current === "syncing") return;
+      if (
+        is_sync_in_progress_ref.current ||
+        sync_status_ref.current === "syncing"
+      )
+        return;
       if (is_auth_loading) return;
 
       const has_pending_deletions = Object.values(
@@ -543,10 +571,12 @@ export const use_sync = ({
         return;
       }
 
+      is_sync_in_progress_ref.current = true;
       log("info", "بدء المزامنة... التحقق من الاتصال.");
       set_status("syncing", "التحقق من الخادم...");
       const schema_check = await check_supabase_schema();
       if (!schema_check.success) {
+        is_sync_in_progress_ref.current = false;
         if (schema_check.error === "unconfigured") {
           set_status("unconfigured");
           log("error", "Supabase غير مهيأ.");
@@ -686,11 +716,18 @@ export const use_sync = ({
 
         // 1.5 Cloud Cleanup (72h Rule)
         const supabase = get_supabase_client();
+        let expired_doc_ids = new Set<string>();
         if (supabase && remote_data_raw.case_documents) {
-          await cleanup_expired_documents(
+          expired_doc_ids = await cleanup_expired_documents(
             remote_data_raw.case_documents,
             supabase,
           );
+          if (expired_doc_ids.size > 0 && remote_flat_data.case_documents) {
+            remote_flat_data.case_documents =
+              remote_flat_data.case_documents.filter(
+                (d: any) => !expired_doc_ids.has(d.id),
+              );
+          }
         }
 
         // 2. Prepare Local Data
@@ -756,19 +793,32 @@ export const use_sync = ({
         };
 
         for (const key of Object.keys(local_flat_data) as (keyof FlatData)[]) {
+          if (key === "audit_logs" || key === "sync_deletions") {
+            (merged_flat_data as any)[key] =
+              (remote_flat_data as any)[key] ||
+              (local_flat_data as any)[key] ||
+              [];
+            continue;
+          }
+          const getItemKey = (i: any) =>
+            key === "assistants"
+              ? `${i.user_id || ""}:${i.name}`
+              : (i.id ?? i.name);
+
           const local_items = (local_flat_data as any)[key] as any[];
           const remote_items = ((remote_flat_data as any)[key] as any[]) || [];
           const local_map = new Map(
-            local_items.map((i) => [i.id ?? i.name, i]),
+            local_items.map((i) => [getItemKey(i), i]),
           );
           const remote_map = new Map(
-            remote_items.map((i) => [i.id ?? i.name, i]),
+            remote_items.map((i) => [getItemKey(i), i]),
           );
           const final_merged_items = new Map<string, any>();
           const items_to_upsert: any[] = [];
 
           for (const local_item of local_items) {
-            const id = local_item.id ?? local_item.name;
+            const id = getItemKey(local_item);
+            const raw_id = local_item.id ?? local_item.name;
 
             if (key === "case_documents") {
               const doc = local_item as CaseDocument;
@@ -830,9 +880,17 @@ export const use_sync = ({
                   tasks: remote_item.tasks || local_item.tasks,
                 };
                 if (key === "case_documents") {
+                  const prev_state = (local_item as any).local_state;
+                  const is_expired_doc =
+                    safe_revive_date(remote_item.added_at || 0).getTime() <
+                    Date.now() - 72 * 60 * 60 * 1000;
                   merged.local_state =
-                    (local_item as any).local_state === "synced"
-                      ? "synced"
+                    prev_state === "synced" ||
+                    prev_state === "error" ||
+                    prev_state === "downloading"
+                      ? prev_state
+                      : is_expired_doc
+                      ? "error"
                       : "pending_download";
                 }
                 final_merged_items.set(id, merged);
@@ -848,18 +906,32 @@ export const use_sync = ({
               }
             } else {
               // Local item is NOT in remote_map
-              const local_date = safe_revive_date(
-                local_item.updated_at || 0,
-              ).getTime();
               const is_deleted =
-                (deleted_ids_sets as any)[key]?.has(id) ||
+                (deleted_ids_sets as any)[key]?.has(raw_id) ||
                 (deleted_ids_sets as any)[
                   key === "case_documents" ? "documents" : key
-                ]?.has(id);
+                ]?.has(raw_id);
 
-              // We rely on the sync_deletions table to track actual remote deletions.
-              // Timestamp heuristics are dangerous because newly created offline items might 
-              // have timestamps close to the last sync time and get falsely flagged and dropped.
+              // Do not re-upload expired documents (>72h old) that were cleaned up from cloud
+              if (key === "case_documents") {
+                const is_expired_doc =
+                  expired_doc_ids.has(raw_id) ||
+                  safe_revive_date(local_item.added_at || 0).getTime() <
+                    Date.now() - 72 * 60 * 60 * 1000;
+                if (is_expired_doc) {
+                  if (!is_deleted) {
+                    final_merged_items.set(id, {
+                      ...local_item,
+                      local_state:
+                        local_item.local_state === "synced"
+                          ? "synced"
+                          : "error",
+                    });
+                  }
+                  continue;
+                }
+              }
+
               const is_remotely_deleted = false;
 
               if (!is_deleted && !is_remotely_deleted) {
@@ -875,21 +947,27 @@ export const use_sync = ({
           }
 
           for (const remote_item of remote_items) {
-            const id = remote_item.id ?? remote_item.name;
+            const id = getItemKey(remote_item);
+            const raw_id = remote_item.id ?? remote_item.name;
             if (!local_map.has(id)) {
               let is_deleted = false;
               const deleted_set = (deleted_ids_sets as any)[key];
-              if (deleted_set) is_deleted = deleted_set.has(id);
+              if (deleted_set) is_deleted = deleted_set.has(raw_id);
               if (
                 key === "case_documents" &&
                 excluded_doc_ids_ref.current &&
-                excluded_doc_ids_ref.current.has(id)
+                excluded_doc_ids_ref.current.has(raw_id)
               )
                 is_deleted = true;
               if (!is_deleted) {
                 const merged = { ...remote_item };
                 if (key === "case_documents") {
-                  merged.local_state = "pending_download";
+                  const is_expired_doc =
+                    safe_revive_date(remote_item.added_at || 0).getTime() <
+                    Date.now() - 72 * 60 * 60 * 1000;
+                  merged.local_state = is_expired_doc
+                    ? "error"
+                    : "pending_download";
                 }
                 final_merged_items.set(id, merged);
               }
@@ -1106,6 +1184,9 @@ export const use_sync = ({
         }
         if (err.table) error_message = `[جدول: ${err.table}] ${error_message}`;
         set_status("error", `فشل المزامنة: ${error_message}`);
+      } finally {
+        is_sync_in_progress_ref.current = false;
+        last_sync_completed_at_ref.current = Date.now();
       }
     },
     [is_online, is_auth_loading],
@@ -1119,10 +1200,23 @@ export const use_sync = ({
     }
 
     fetch_timeout_ref.current = setTimeout(async () => {
-      if (sync_status_ref.current === "syncing" || is_auth_loading) return;
+      if (
+        is_sync_in_progress_ref.current ||
+        sync_status_ref.current === "syncing" ||
+        is_auth_loading
+      )
+        return;
+      // Prevent back-to-back echo refreshes immediately after a completed sync
+      if (
+        !is_dirty_ref.current &&
+        Date.now() - last_sync_completed_at_ref.current < 2500
+      ) {
+        return;
+      }
       const current_user = user_ref.current;
       if (!is_online || !current_user) return;
 
+      is_sync_in_progress_ref.current = true;
       set_status("syncing", "جاري تحديث البيانات...");
 
       try {
@@ -1214,6 +1308,9 @@ export const use_sync = ({
           console.error("Fetch error:", err);
         }
         set_status("error", `فشل التحديث: ${error_message}`);
+      } finally {
+        is_sync_in_progress_ref.current = false;
+        last_sync_completed_at_ref.current = Date.now();
       }
     }, 500);
   }, [is_online, is_auth_loading]);

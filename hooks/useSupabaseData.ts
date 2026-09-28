@@ -36,7 +36,7 @@ import {
   is_today,
 } from "../utils/dateUtils";
 import { generateId } from "../utils/idUtils";
-import { is_platform_admin } from "../utils/mobileUtils";
+import { is_admin_account, is_designated_admin_identifier } from "../utils/mobileUtils";
 import { RealtimeAlert } from "../components/RealtimeNotifier";
 import {
   get_db,
@@ -250,7 +250,12 @@ const migrate_data = (old_data: any): AppData => {
     subscription_start_date:
       p.subscription_start_date || p.subscriptionStartDate,
     subscription_end_date: p.subscription_end_date || p.subscriptionEndDate,
-    role: is_platform_admin(undefined, p) ? "admin" : p.role || "user",
+    role:
+      p.role === "admin" ||
+      is_designated_admin_identifier(p.mobile_number || p.mobileNumber) ||
+      is_designated_admin_identifier(p.email)
+        ? "admin"
+        : p.role || "user",
     permissions: p.permissions,
     lawyer_id: p.lawyer_id || p.lawyerId,
     admin_tasks_layout:
@@ -344,10 +349,23 @@ export const useSupabaseData = (
       const timer = setTimeout(() => {
         console.warn("Initial data load timed out, forcing UI unlock.");
         set_is_data_loading(false);
+        set_sync_status((prev) => (prev === "loading" ? "synced" : prev));
       }, 7000);
       return () => clearTimeout(timer);
     }
   }, [is_data_loading]);
+
+  // Safety Watchdog: Prevent sync_status from staying stuck in "syncing" or "loading" forever
+  React.useEffect(() => {
+    if (sync_status === "syncing" || sync_status === "loading") {
+      const timer = setTimeout(() => {
+        console.warn("Sync status watchdog triggered, resetting status to synced.");
+        set_sync_status("synced");
+        set_is_data_loading(false);
+      }, 25000);
+      return () => clearTimeout(timer);
+    }
+  }, [sync_status]);
 
   const [admin_viewing_user_id, set_admin_viewing_user_id_internal] = React.useState<
     string | null
@@ -466,7 +484,7 @@ export const useSupabaseData = (
   const is_admin = React.useMemo(() => {
     if (!user) return false;
     const current_user_profile = data.profiles.find((p) => p.id === user.id);
-    return is_platform_admin(user, current_user_profile);
+    return is_admin_account(user, current_user_profile);
   }, [user, data.profiles]);
 
   const filtered_data = React.useMemo(() => {
@@ -622,16 +640,16 @@ export const useSupabaseData = (
           set_deleted_ids(get_initial_deleted_ids());
         }
         
-        const has_valid_cache =
-          cached_data &&
-          ((cached_data.profiles?.length || 0) > 0 || has_local_data);
-        if (has_valid_cache) {
+        if (cached_data) {
           set_is_data_loading(false);
+          set_sync_status("synced");
+        } else if (!user || !is_online) {
           set_sync_status("synced");
         }
       } catch (err) {
         console.error("Failed to load local data:", err);
         set_data(get_initial_data());
+        set_sync_status("synced");
       } finally {
         // If we are offline or not logged in, we should stop loading here
         if (!user || !is_online) {
@@ -738,7 +756,6 @@ export const useSupabaseData = (
           }
           return next;
         });
-        set_dirty(true); // Trigger a save to IndexedDB
       },
       on_sync_status_change: (status, err) => {
         set_sync_status(status);
@@ -764,20 +781,11 @@ export const useSupabaseData = (
       is_dirty: is_dirty,
     });
 
-  // Automatically fetch latest profiles and data on login/session start or when admin switches viewed user
+  // Automatically fetch and refresh cloud data when user logs in or admin switches view
   React.useEffect(() => {
     if (!user?.id || !is_online || is_auth_loading) return;
-    const timer = setTimeout(() => {
-      fetch_and_refresh();
-    }, 150);
-    return () => clearTimeout(timer);
-  }, [
-    user?.id,
-    is_online,
-    is_auth_loading,
-    admin_viewing_user_id,
-    fetch_and_refresh,
-  ]);
+    fetch_and_refresh();
+  }, [user?.id, is_online, is_auth_loading, admin_viewing_user_id, fetch_and_refresh]);
 
 
 
@@ -1233,8 +1241,8 @@ export const useSupabaseData = (
       if (!supabase) return null;
 
       try {
-        // Set state to downloading
-        set_full_data((prev) => ({
+        // Set local_state to downloading without marking data as dirty (to avoid triggering cloud upload sync)
+        set_data((prev) => ({
           ...prev,
           documents: prev.documents.map((d) =>
             d.id === doc.id ? { ...d, local_state: "downloading" } : d,
@@ -1260,8 +1268,8 @@ export const useSupabaseData = (
           const file = new File([data], doc.name, { type: doc.type });
           await db.put(DOCS_FILES_STORE_NAME, file, doc.id);
 
-          // Update local state to synced
-          set_full_data((prev) => ({
+          // Update local state to synced without marking data as dirty
+          set_data((prev) => ({
             ...prev,
             documents: prev.documents.map((d) =>
               d.id === doc.id ? { ...d, local_state: "synced" } : d,
@@ -1278,7 +1286,7 @@ export const useSupabaseData = (
         if (!isNotFound) {
           console.error("Error downloading document:", e);
         }
-        set_full_data((prev) => ({
+        set_data((prev) => ({
           ...prev,
           documents: prev.documents.map((d) =>
             d.id === doc.id ? { ...d, local_state: "error" } : d,
@@ -1287,16 +1295,23 @@ export const useSupabaseData = (
       }
       return null;
     },
-    [set_full_data],
+    [],
   );
 
   // Background downloader for remote documents
   React.useEffect(() => {
-    if (!is_online || is_data_loading) return;
+    if (!is_online || is_data_loading || sync_status === "syncing") return;
+    // Do not auto-download all users' documents when Admin is in AdminDashboard
+    if (is_admin && !admin_viewing_user_id) return;
 
-    // Find documents that are pending download
+    const hours_72_ago_ms = Date.now() - 72 * 60 * 60 * 1000;
+
+    // Find documents that are pending download for the current office and not expired
     const pending_docs = data.documents.filter(
-      (d) => d.local_state === "pending_download",
+      (d) =>
+        d.local_state === "pending_download" &&
+        (!effective_user_id || d.user_id === effective_user_id) &&
+        safe_revive_date(d.added_at || 0).getTime() >= hours_72_ago_ms,
     );
 
     if (pending_docs.length > 0) {
@@ -1309,7 +1324,16 @@ export const useSupabaseData = (
 
       return () => clearTimeout(timer);
     }
-  }, [data.documents, is_online, is_data_loading, download_document_file]);
+  }, [
+    data.documents,
+    is_online,
+    is_data_loading,
+    sync_status,
+    is_admin,
+    admin_viewing_user_id,
+    effective_user_id,
+    download_document_file,
+  ]);
 
   const get_document_file = React.useCallback(async (id: string) => {
     const db = await get_db();

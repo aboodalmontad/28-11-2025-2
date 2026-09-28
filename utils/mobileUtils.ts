@@ -186,84 +186,82 @@ export const DESIGNATED_ADMIN_EMAILS = [
   "avocat.nahwi@gmail.com",
   "sy963958932922@email.com",
   "sy0958932922@email.com",
+  "sy958932922@email.com",
+  "sy00963958932922@email.com",
   "963958932922@email.com",
   "0958932922@email.com",
   "958932922@email.com",
-  "sy958932922@email.com",
-  "sy963958333333@email.com",
-  "sy0958333333@email.com",
-  "963958333333@email.com",
-  "0958333333@email.com",
-  "958333333@email.com",
-  "sy958333333@email.com",
-  "sy963987654321@email.com",
-  "sy0987654321@email.com",
-  "963987654321@email.com",
-  "0987654321@email.com",
-  "987654321@email.com",
-  "sy987654321@email.com",
+  "00963958932922@email.com",
 ];
 
-const DESIGNATED_ADMIN_IDS = [
-  "0fbfa850-2daf-43e8-99e8-7aea7af06c03",
-  "fb4b2bc8-591d-423f-829b-266b31d4526a",
-  "fdf70b78-417d-4f3c-87b0-e585d053652a",
-];
-
-const DESIGNATED_ADMIN_MOBILE_SUFFIXES = [
+export const DESIGNATED_ADMIN_MOBILES = [
+  "0958932922",
   "958932922",
-  "958333333",
-  "987654321",
-];
-
-const DESIGNATED_ADMIN_NAMES = [
-  "المدير",
-  "المدير العام",
-  "مدير المنصة",
-  "مدير النظام",
+  "963958932922",
+  "+963958932922",
+  "00963958932922",
 ];
 
 /**
- * Reliably determines whether a user/profile belongs to a platform administrator.
+ * Checks whether an email or phone number string belongs to the platform administrator.
  */
-export const is_platform_admin = (user?: any, profile?: any): boolean => {
-  if (!user && !profile) return false;
+export const is_designated_admin_identifier = (
+  identifier?: string | null,
+): boolean => {
+  if (!identifier) return false;
+  const clean = convert_arabic_digits_to_latin(String(identifier).trim()).toLowerCase();
+  if (!clean) return false;
 
-  if (profile?.role === "admin") return true;
-  if (user?.user_metadata?.role === "admin" || user?.app_metadata?.role === "admin") {
+  if (DESIGNATED_ADMIN_EMAILS.includes(clean)) {
     return true;
   }
+
+  const digits = extract_clean_digits(clean);
+  if (digits && digits.length >= 9 && digits.endsWith("958932922")) {
+    return true;
+  }
+
+  if (DESIGNATED_ADMIN_MOBILES.includes(clean)) {
+    return true;
+  }
+
+  return false;
+};
+
+/**
+ * Determines accurately whether a user/profile represents a platform administrator
+ * by checking role="admin", metadata, cached flags, and all admin emails/phone numbers.
+ */
+export const is_admin_account = (user?: any, profile?: any): boolean => {
+  if (profile?.role === "admin") return true;
+  if (user?.role === "admin") return true;
+  if (user?.user_metadata?.role === "admin") return true;
+  if (user?.app_metadata?.role === "admin") return true;
+
+  if (is_designated_admin_identifier(user?.email)) return true;
+  if (is_designated_admin_identifier(user?.phone)) return true;
+  if (is_designated_admin_identifier(user?.user_metadata?.mobile_number)) return true;
+  if (is_designated_admin_identifier(user?.user_metadata?.phone)) return true;
+  if (is_designated_admin_identifier(profile?.mobile_number)) return true;
+  if (is_designated_admin_identifier(profile?.email)) return true;
 
   const uid = user?.id || profile?.id;
-  if (uid && DESIGNATED_ADMIN_IDS.includes(uid)) {
-    return true;
-  }
-
-  const email = (user?.email || user?.user_metadata?.email || "").trim().toLowerCase();
-  if (email && DESIGNATED_ADMIN_EMAILS.includes(email)) {
-    return true;
-  }
-
-  const fullName = (profile?.full_name || user?.user_metadata?.full_name || "").trim();
-  if (fullName && DESIGNATED_ADMIN_NAMES.includes(fullName)) {
-    return true;
-  }
-
-  const rawMobiles = [
-    profile?.mobile_number,
-    user?.user_metadata?.mobile_number,
-    user?.phone,
-    email,
-  ].filter(Boolean);
-
-  for (const m of rawMobiles) {
-    const digits = extract_clean_digits(String(m));
-    if (digits.length >= 9) {
-      const lastNine = digits.slice(-9);
-      if (DESIGNATED_ADMIN_MOBILE_SUFFIXES.includes(lastNine)) {
+  if (uid && typeof window !== "undefined") {
+    try {
+      if (localStorage.getItem(`lawyerAppIsAdmin_${uid}`) === "true") {
         return true;
       }
-    }
+      const cachedProfileStr = localStorage.getItem(`lawyerAppUserProfile_${uid}`);
+      if (cachedProfileStr) {
+        const cachedProfile = JSON.parse(cachedProfileStr);
+        if (
+          cachedProfile?.role === "admin" ||
+          is_designated_admin_identifier(cachedProfile?.mobile_number)
+        ) {
+          return true;
+        }
+      }
+    } catch (e) {}
   }
 
   return false;

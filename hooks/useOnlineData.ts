@@ -14,7 +14,7 @@ import {
 } from "../types";
 import type { User } from "@supabase/supabase-js";
 import { safe_revive_date, to_input_date_string } from "../utils/dateUtils";
-import { is_platform_admin } from "../utils/mobileUtils";
+import { is_admin_account, is_designated_admin_identifier } from "../utils/mobileUtils";
 
 export type FlatData = {
   clients: Omit<Client, "cases">[];
@@ -138,11 +138,11 @@ export const fetch_data_from_supabase = async (
   if (currentUser) {
     const { data: profile } = await supabase
       .from("profiles")
-      .select("role, lawyer_id, full_name, mobile_number")
+      .select("role, lawyer_id, mobile_number")
       .eq("id", currentUser.id)
       .maybeSingle();
-    is_admin_user = is_platform_admin(currentUser, profile);
     lawyer_id = profile?.lawyer_id;
+    is_admin_user = is_admin_account(currentUser, profile);
   }
 
   // If a user_id is provided AND it's different from the requester,
@@ -281,9 +281,6 @@ export const fetch_data_from_supabase = async (
 
   while (attempt < max_retries) {
     try {
-      // Ensure session is fresh before parallel calls to avoid lock stealing
-      await supabase.auth.getSession();
-
       // Determine all relevant user IDs if a specific user_id is provided
       let all_user_ids: string[] | undefined = undefined;
       let all_profile_ids: string[] | undefined = undefined;
@@ -612,14 +609,14 @@ export const upsert_data_to_supabase = async (
   // Fetch profile to determine the correct user_id (lawyer_id if assistant) and role
   const { data: profile, error: profile_error } = await supabase
     .from("profiles")
-    .select("lawyer_id, role")
+    .select("lawyer_id, role, mobile_number")
     .eq("id", user.id)
     .maybeSingle();
   if (profile_error) throw profile_error;
 
   // Priority: 1. effective_user_id (passed from context, e.g. admin viewing user), 2. lawyer_id (if assistant), 3. user.id
   const user_id_to_use = effective_user_id || profile?.lawyer_id || user.id;
-  const is_admin_user = is_platform_admin(user, profile);
+  const is_admin_user = is_admin_account(user, profile);
   const is_admin_frontend = is_admin_user;
 
   const data_to_upsert = {
@@ -765,8 +762,8 @@ export const upsert_data_to_supabase = async (
       subscription_start_date: profile.subscription_start_date,
       subscription_end_date: profile.subscription_end_date,
       role:
-        (is_admin_frontend && profile.id === user.id) ||
-        is_platform_admin(undefined, profile)
+        (is_admin_account(user, profile) && profile.id === user.id) ||
+        is_designated_admin_identifier(profile.mobile_number)
           ? "admin"
           : profile.role,
       permissions: profile.permissions,
@@ -1063,7 +1060,10 @@ export const transform_remote_to_local = (remote: any): Partial<FlatData> => {
     }),
     appointments: remote.appointments || [],
     accounting_entries: remote.accounting_entries || [],
-    assistants: (remote.assistants || []).map((a: any) => ({ name: a.name })),
+    assistants: (remote.assistants || []).map((a: any) => ({
+      name: a.name,
+      user_id: a.user_id,
+    })),
     invoices: remote.invoices || [],
     invoice_items: remote.invoice_items || [],
     case_documents: remote.case_documents || [],
