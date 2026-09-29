@@ -23,7 +23,7 @@ import {
   SyncDeletion,
 } from "../types";
 import { get_db, DOCS_FILES_STORE_NAME } from "../utils/db";
-import { safe_revive_date } from "../utils/dateUtils";
+import { safe_revive_date, to_input_date_string } from "../utils/dateUtils";
 
 export type SyncStatus =
   | "loading"
@@ -46,7 +46,10 @@ interface UseSyncProps {
   effective_user_id: string | null;
   local_data: AppData;
   deleted_ids: DeletedIds;
-  on_data_synced: (merged_data: AppData) => void;
+  on_data_synced: (
+    merged_data: AppData,
+    options?: { clear_dirty?: boolean; synced_version?: number },
+  ) => void;
   on_deletions_synced: (synced_deletions: Partial<DeletedIds>) => void;
   on_sync_status_change: (status: SyncStatus, error: string | null) => void;
   on_documents_uploaded?: (uploaded_doc_ids: string[]) => void;
@@ -56,7 +59,54 @@ interface UseSyncProps {
   is_auth_loading: boolean;
   sync_status: SyncStatus;
   is_dirty: boolean;
+  mutation_version?: number;
 }
+
+const normalize_stage_sessions = (sessions: Session[]): Session[] => {
+  if (!sessions || sessions.length === 0) return [];
+  const sorted = [...sessions].sort((a, b) => {
+    const diff =
+      safe_revive_date(a.date).getTime() - safe_revive_date(b.date).getTime();
+    if (diff !== 0) return diff;
+    if (Boolean(a.is_postponed) !== Boolean(b.is_postponed)) {
+      return a.is_postponed ? -1 : 1;
+    }
+    return String(a.id || "").localeCompare(String(b.id || ""));
+  });
+
+  return sorted.map((s, idx) => {
+    const s_date = to_input_date_string(s.date);
+    const later_session = sorted
+      .slice(idx + 1)
+      .find((next_s) => to_input_date_string(next_s.date) > s_date);
+    if (later_session) {
+      const next_date_norm =
+        to_input_date_string(later_session.date) || later_session.date;
+      const s_time = safe_revive_date(s.updated_at || 0).getTime();
+      const later_time = safe_revive_date(
+        later_session.updated_at || 0,
+      ).getTime();
+      const healed_updated_at =
+        !s.is_postponed && later_time > s_time
+          ? later_session.updated_at
+          : s.updated_at;
+      return {
+        ...s,
+        is_postponed: true,
+        next_session_date: s.next_session_date || next_date_norm,
+        next_postponement_reason:
+          s.next_postponement_reason ||
+          later_session.postponement_reason ||
+          undefined,
+        updated_at: healed_updated_at,
+      };
+    }
+    return {
+      ...s,
+      is_postponed: Boolean(s.is_postponed || s.next_session_date),
+    };
+  });
+};
 
 const construct_data = (flat_data: Partial<FlatData>): AppData => {
   const session_map = new Map<string, Session[]>();
@@ -70,7 +120,10 @@ const construct_data = (flat_data: Partial<FlatData>): AppData => {
 
   const stage_map = new Map<string, Stage[]>();
   (flat_data.stages || []).forEach((st) => {
-    const stage = { ...st, sessions: session_map.get(st.id) || [] } as Stage;
+    const stage = {
+      ...st,
+      sessions: normalize_stage_sessions(session_map.get(st.id) || []),
+    } as Stage;
     const case_id = st.case_id;
     if (case_id) {
       if (!stage_map.has(case_id)) stage_map.set(case_id, []);
@@ -214,6 +267,21 @@ const merge_for_refresh = <T extends { id: any; updated_at?: Date | string }>(
             (remote_item as any).image_url || (local_item as any).image_url,
           tasks: (remote_item as any).tasks || (local_item as any).tasks,
         };
+        if (key === "sessions") {
+          const is_postponed = Boolean(
+            (remote_item as any).is_postponed ||
+              (local_item as any).is_postponed ||
+              (remote_item as any).next_session_date ||
+              (local_item as any).next_session_date,
+          );
+          (merged as any).is_postponed = is_postponed;
+          (merged as any).next_session_date =
+            (remote_item as any).next_session_date ||
+            (local_item as any).next_session_date;
+          (merged as any).next_postponement_reason =
+            (remote_item as any).next_postponement_reason ||
+            (local_item as any).next_postponement_reason;
+        }
         if (key === "case_documents") {
           const prev_state = (local_item as any).local_state;
           const is_expired_doc =
@@ -237,6 +305,21 @@ const merge_for_refresh = <T extends { id: any; updated_at?: Date | string }>(
             (local_item as any).image_url || (remote_item as any).image_url,
           tasks: (local_item as any).tasks || (remote_item as any).tasks,
         };
+        if (key === "sessions") {
+          const is_postponed = Boolean(
+            (local_item as any).is_postponed ||
+              (remote_item as any).is_postponed ||
+              (local_item as any).next_session_date ||
+              (remote_item as any).next_session_date,
+          );
+          (merged as any).is_postponed = is_postponed;
+          (merged as any).next_session_date =
+            (local_item as any).next_session_date ||
+            (remote_item as any).next_session_date;
+          (merged as any).next_postponement_reason =
+            (local_item as any).next_postponement_reason ||
+            (remote_item as any).next_postponement_reason;
+        }
         final_items.set(id, merged);
       }
     } else {
@@ -437,6 +520,7 @@ export const use_sync = ({
   is_auth_loading,
   sync_status,
   is_dirty,
+  mutation_version,
 }: UseSyncProps) => {
   // Refs to store the latest values of data without triggering re-creation of manual_sync
   const user_ref = React.useRef(user);
@@ -447,6 +531,7 @@ export const use_sync = ({
   // Track sync_status via ref to break dependency loop in useCallback
   const sync_status_ref = React.useRef(sync_status);
   const is_dirty_ref = React.useRef(is_dirty);
+  const mutation_version_ref = React.useRef(mutation_version || 0);
   const is_sync_in_progress_ref = React.useRef(false);
   const last_sync_completed_at_ref = React.useRef(0);
 
@@ -465,6 +550,7 @@ export const use_sync = ({
   excluded_doc_ids_ref.current = excluded_doc_ids;
   sync_status_ref.current = sync_status;
   is_dirty_ref.current = is_dirty;
+  mutation_version_ref.current = mutation_version || 0;
   on_data_synced_ref.current = on_data_synced;
   on_deletions_synced_ref.current = on_deletions_synced;
   on_sync_status_change_ref.current = on_sync_status_change;
@@ -731,6 +817,7 @@ export const use_sync = ({
         }
 
         // 2. Prepare Local Data
+        const sync_start_version = mutation_version_ref.current;
         let local_flat_data = flatten_data(local_data_ref.current);
 
         // 3. Apply Remote Deletions
@@ -764,7 +851,10 @@ export const use_sync = ({
             "البيانات المحلية فارغة، جاري استعادة البيانات من السحابة...",
           );
           const fresh_data = construct_data(remote_flat_data);
-          on_data_synced(fresh_data);
+          on_data_synced_ref.current(fresh_data, {
+            clear_dirty: true,
+            synced_version: sync_start_version,
+          });
           set_status("synced");
           log("success", "تمت استعادة البيانات بنجاح.");
           return;
@@ -871,6 +961,28 @@ export const use_sync = ({
               if (local_date > remote_date + 1000) {
                 items_to_upsert.push(local_item);
                 final_merged_items.set(id, local_item);
+              } else if (
+                key === "sessions" &&
+                ((Boolean(local_item.is_postponed || local_item.next_session_date) &&
+                  !Boolean(remote_item.is_postponed)) ||
+                  (Boolean(local_item.next_session_date) &&
+                    !Boolean(remote_item.next_session_date)))
+              ) {
+                // Local session is postponed (or auto-healed from a subsequent session in the same stage)
+                // while remote session is still marked unpostponed: push repair to cloud!
+                const repaired_session = {
+                  ...remote_item,
+                  ...local_item,
+                  is_postponed: true,
+                  next_session_date:
+                    local_item.next_session_date || remote_item.next_session_date,
+                  next_postponement_reason:
+                    local_item.next_postponement_reason ||
+                    remote_item.next_postponement_reason,
+                  updated_at: new Date().toISOString(),
+                };
+                items_to_upsert.push(repaired_session);
+                final_merged_items.set(id, repaired_session);
               } else if (remote_date > local_date) {
                 // Remote is newer, take it but preserve local image_url & tasks if missing on remote
                 const merged = {
@@ -879,6 +991,21 @@ export const use_sync = ({
                   image_url: remote_item.image_url || local_item.image_url,
                   tasks: remote_item.tasks || local_item.tasks,
                 };
+                if (key === "sessions") {
+                  const is_postponed = Boolean(
+                    remote_item.is_postponed ||
+                      local_item.is_postponed ||
+                      remote_item.next_session_date ||
+                      local_item.next_session_date,
+                  );
+                  merged.is_postponed = is_postponed;
+                  merged.next_session_date =
+                    remote_item.next_session_date ||
+                    local_item.next_session_date;
+                  merged.next_postponement_reason =
+                    remote_item.next_postponement_reason ||
+                    local_item.next_postponement_reason;
+                }
                 if (key === "case_documents") {
                   const prev_state = (local_item as any).local_state;
                   const is_expired_doc =
@@ -902,6 +1029,21 @@ export const use_sync = ({
                   image_url: local_item.image_url || remote_item.image_url,
                   tasks: local_item.tasks || remote_item.tasks,
                 };
+                if (key === "sessions") {
+                  const is_postponed = Boolean(
+                    local_item.is_postponed ||
+                      remote_item.is_postponed ||
+                      local_item.next_session_date ||
+                      remote_item.next_session_date,
+                  );
+                  merged.is_postponed = is_postponed;
+                  merged.next_session_date =
+                    local_item.next_session_date ||
+                    remote_item.next_session_date;
+                  merged.next_postponement_reason =
+                    local_item.next_postponement_reason ||
+                    remote_item.next_postponement_reason;
+                }
                 final_merged_items.set(id, merged);
               }
             } else {
@@ -1147,9 +1289,49 @@ export const use_sync = ({
           log("success", `تم رفع ${total_upserts} سجلات بنجاح.`);
         }
 
+        // If the user performed any new local edits/postponements while network requests were in flight,
+        // merge the latest live local data on top so no concurrent user action is ever overwritten!
+        if (mutation_version_ref.current !== sync_start_version) {
+          const latest_local_flat = flatten_data(local_data_ref.current);
+          const current_deleted_sets = {
+            clients: new Set(deleted_ids_ref.current.clients),
+            cases: new Set(deleted_ids_ref.current.cases),
+            stages: new Set(deleted_ids_ref.current.stages),
+            sessions: new Set(deleted_ids_ref.current.sessions),
+            admin_tasks: new Set(deleted_ids_ref.current.admin_tasks),
+            appointments: new Set(deleted_ids_ref.current.appointments),
+            accounting_entries: new Set(
+              deleted_ids_ref.current.accounting_entries,
+            ),
+            invoices: new Set(deleted_ids_ref.current.invoices),
+            invoice_items: new Set(deleted_ids_ref.current.invoice_items),
+            assistants: new Set(deleted_ids_ref.current.assistants),
+            documents: new Set(deleted_ids_ref.current.documents),
+            profiles: new Set(deleted_ids_ref.current.profiles),
+            site_finances: new Set(deleted_ids_ref.current.site_finances),
+          };
+          for (const key of Object.keys(
+            merged_flat_data,
+          ) as (keyof FlatData)[]) {
+            if (key === "audit_logs" || key === "sync_deletions") continue;
+            const current_merged = (merged_flat_data as any)[key] || [];
+            const latest_local = (latest_local_flat as any)[key] || [];
+            (merged_flat_data as any)[key] = merge_for_refresh(
+              latest_local,
+              current_merged,
+              key,
+              undefined,
+              (current_deleted_sets as any)[key],
+            );
+          }
+        }
+
         const final_merged_data = construct_data(merged_flat_data as FlatData);
         setStoredLastSyncTime(current_user.id, Date.now());
-        on_data_synced_ref.current(final_merged_data);
+        on_data_synced_ref.current(final_merged_data, {
+          clear_dirty: true,
+          synced_version: sync_start_version,
+        });
         on_deletions_synced_ref.current(successful_deletions);
         set_status("synced");
         log("success", "تمت المزامنة بنجاح.");
@@ -1187,6 +1369,23 @@ export const use_sync = ({
       } finally {
         is_sync_in_progress_ref.current = false;
         last_sync_completed_at_ref.current = Date.now();
+        const pending_deletions = Object.values(
+          deleted_ids_ref.current || {},
+        ).some((arr: any) => Array.isArray(arr) && arr.length > 0);
+        if (is_dirty_ref.current || pending_deletions) {
+          setTimeout(() => {
+            if (
+              (is_dirty_ref.current ||
+                Object.values(deleted_ids_ref.current || {}).some(
+                  (arr: any) => Array.isArray(arr) && arr.length > 0,
+                )) &&
+              !is_sync_in_progress_ref.current &&
+              sync_status_ref.current !== "error"
+            ) {
+              manual_sync();
+            }
+          }, 250);
+        }
       }
     },
     [is_online, is_auth_loading],
@@ -1206,11 +1405,18 @@ export const use_sync = ({
         is_auth_loading
       )
         return;
+      // If there are unsynced local changes or pending deletions, run full two-way manual_sync
+      // instead of a read-only refresh so local changes are never swallowed by a Realtime echo!
+      const has_pending_deletions = Object.values(
+        deleted_ids_ref.current || {},
+      ).some((arr: any) => Array.isArray(arr) && arr.length > 0);
+      if (is_dirty_ref.current || has_pending_deletions) {
+        manual_sync();
+        return;
+      }
+
       // Prevent back-to-back echo refreshes immediately after a completed sync
-      if (
-        !is_dirty_ref.current &&
-        Date.now() - last_sync_completed_at_ref.current < 2500
-      ) {
+      if (Date.now() - last_sync_completed_at_ref.current < 2500) {
         return;
       }
       const current_user = user_ref.current;
@@ -1271,6 +1477,11 @@ export const use_sync = ({
           remote_deletions,
         );
         await cleanup_local_files(remote_deletions);
+        // Re-read latest local data after async file cleanup in case user edited during await
+        local_flat_data = apply_deletions_to_local(
+          flatten_data(local_data_ref.current),
+          remote_deletions,
+        );
 
         const merged_flat_data: Partial<FlatData> = {};
         const storedLastSync = getStoredLastSyncTime(current_user.id);
@@ -1291,7 +1502,9 @@ export const use_sync = ({
 
         const final_merged_data = construct_data(merged_flat_data as FlatData);
         setStoredLastSyncTime(current_user.id, Date.now());
-        on_data_synced_ref.current(final_merged_data);
+        on_data_synced_ref.current(final_merged_data, {
+          clear_dirty: false,
+        });
         set_status("synced");
       } catch (err: any) {
         const error_message_raw = String(err.message || "").toLowerCase();
@@ -1311,6 +1524,23 @@ export const use_sync = ({
       } finally {
         is_sync_in_progress_ref.current = false;
         last_sync_completed_at_ref.current = Date.now();
+        const pending_deletions = Object.values(
+          deleted_ids_ref.current || {},
+        ).some((arr: any) => Array.isArray(arr) && arr.length > 0);
+        if (is_dirty_ref.current || pending_deletions) {
+          setTimeout(() => {
+            if (
+              (is_dirty_ref.current ||
+                Object.values(deleted_ids_ref.current || {}).some(
+                  (arr: any) => Array.isArray(arr) && arr.length > 0,
+                )) &&
+              !is_sync_in_progress_ref.current &&
+              sync_status_ref.current !== "error"
+            ) {
+              manual_sync();
+            }
+          }, 250);
+        }
       }
     }, 500);
   }, [is_online, is_auth_loading]);

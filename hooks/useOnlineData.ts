@@ -660,11 +660,10 @@ export const upsert_data_to_supabase = async (
       opponent_name: s.opponent_name,
       postponement_reason: s.postponement_reason,
       next_postponement_reason: s.next_postponement_reason,
-      is_postponed: s.is_postponed,
-      next_session_date: s.next_session_date,
+      is_postponed: Boolean(s.is_postponed || s.next_session_date),
+      next_session_date: s.next_session_date || null,
       assignee: s.assignee,
       stage_id: s.stage_id,
-      stage_decision_date: s.stage_decision_date,
       updated_at: s.updated_at,
       user_id: s.user_id || user_id_to_use,
     })),
@@ -828,6 +827,19 @@ export const upsert_data_to_supabase = async (
     return cleaned;
   };
 
+  const core_tables = new Set([
+    "clients",
+    "cases",
+    "stages",
+    "sessions",
+    "admin_tasks",
+    "appointments",
+    "accounting_entries",
+    "invoices",
+    "invoice_items",
+    "case_documents",
+  ]);
+
   const upsert_table = async (
     table: string,
     records: any[] | undefined,
@@ -853,6 +865,7 @@ export const upsert_data_to_supabase = async (
               `Error in batch upsert for ${table}: ${error.message}. Attempting one-by-one fallback...`,
             );
             const successful_records: any[] = [];
+            let first_failed_error: any = null;
             for (const rec of records) {
               try {
                 const { data: single_data, error: single_error } = await supabase
@@ -878,6 +891,16 @@ export const upsert_data_to_supabase = async (
                       continue;
                     }
                   }
+                  if (
+                    single_msg.includes("abort") ||
+                    single_msg.includes("lock") ||
+                    single_msg.includes("failed to fetch") ||
+                    single_msg.includes("network") ||
+                    single_msg.includes("timeout")
+                  ) {
+                    throw single_error;
+                  }
+                  if (!first_failed_error) first_failed_error = single_error;
                   console.warn(
                     `Skipping invalid record in ${table} due to error:`,
                     single_error,
@@ -885,9 +908,31 @@ export const upsert_data_to_supabase = async (
                 } else if (single_data) {
                   successful_records.push(...single_data);
                 }
-              } catch (single_e) {
+              } catch (single_e: any) {
+                const single_e_msg = String(single_e?.message || "").toLowerCase();
+                if (
+                  single_e_msg.includes("abort") ||
+                  single_e_msg.includes("lock") ||
+                  single_e_msg.includes("failed to fetch") ||
+                  single_e_msg.includes("network") ||
+                  single_e_msg.includes("timeout")
+                ) {
+                  throw single_e;
+                }
+                if (!first_failed_error) first_failed_error = single_e;
                 console.warn(`Error upserting record in ${table}:`, single_e);
               }
+            }
+            if (
+              core_tables.has(table) &&
+              first_failed_error &&
+              successful_records.length < records.length
+            ) {
+              const errToThrow = new Error(
+                first_failed_error.message || `Failed to upsert all records in ${table}`,
+              ) as any;
+              errToThrow.table = table;
+              throw errToThrow;
             }
             return successful_records;
           }
@@ -897,7 +942,7 @@ export const upsert_data_to_supabase = async (
             (message.includes("relation") && message.includes("does not exist")) ||
             message.includes("does not exist");
 
-          if (is_missing_table_error) {
+          if (is_missing_table_error && !core_tables.has(table)) {
             console.warn(
               `Table "${table}" does not exist in Supabase database during upsert error handling. Gracefully skipping.`
             );
@@ -924,11 +969,14 @@ export const upsert_data_to_supabase = async (
             }
           }
 
-          if (
+          const is_transient_network_error =
             message.includes("abort") ||
             message.includes("lock") ||
-            message.includes("failed to fetch")
-          ) {
+            message.includes("failed to fetch") ||
+            message.includes("network") ||
+            message.includes("timeout");
+
+          if (is_transient_network_error) {
             if (attempt < max_retries - 1) {
               attempt++;
               console.warn(
@@ -939,6 +987,11 @@ export const upsert_data_to_supabase = async (
               );
               continue;
             }
+            throw error;
+          }
+          if (core_tables.has(table)) {
+            (error as any).table = table;
+            throw error;
           }
           console.warn(
             `Non-retryable or permanent upsert error on table "${table}": ${message}. Gracefully skipping to prevent sync crash.`
@@ -953,30 +1006,44 @@ export const upsert_data_to_supabase = async (
           (message.includes("relation") && message.includes("does not exist")) ||
           message.includes("does not exist");
 
-        if (is_missing_table_error) {
+        if (is_missing_table_error && !core_tables.has(table)) {
           console.warn(
             `Table "${table}" does not exist in Supabase database during upsert catch block. Gracefully skipping.`
           );
           return [];
         }
 
-        if (
-          (message.includes("abort") ||
-            message.includes("lock") ||
-            message.includes("failed to fetch")) &&
-          attempt < max_retries - 1
-        ) {
-          attempt++;
-          await new Promise((resolve) =>
-            setTimeout(resolve, 500 * attempt + Math.random() * 500),
-          );
-          continue;
+        const is_transient_network_error =
+          message.includes("abort") ||
+          message.includes("lock") ||
+          message.includes("failed to fetch") ||
+          message.includes("network") ||
+          message.includes("timeout");
+
+        if (is_transient_network_error) {
+          if (attempt < max_retries - 1) {
+            attempt++;
+            await new Promise((resolve) =>
+              setTimeout(resolve, 500 * attempt + Math.random() * 500),
+            );
+            continue;
+          }
+          throw err;
+        }
+        if (core_tables.has(table)) {
+          err.table = table;
+          throw err;
         }
         console.warn(
           `Non-retryable or permanent upsert error on table "${table}" in catch: ${message}. Gracefully skipping to prevent sync crash.`
         );
         return [];
       }
+    }
+    if (core_tables.has(table)) {
+      const finalErr = new Error(`Failed to upsert to ${table} after multiple attempts.`) as any;
+      finalErr.table = table;
+      throw finalErr;
     }
     console.warn(`Failed to upsert to ${table} after multiple attempts. Gracefully skipping.`);
     return [];
@@ -1039,7 +1106,7 @@ export const transform_remote_to_local = (remote: any): Partial<FlatData> => {
     stages: remote.stages || [],
     sessions: (remote.sessions || []).map((s: any) => ({
       ...s,
-      is_postponed: Boolean(s.is_postponed),
+      is_postponed: Boolean(s.is_postponed || s.next_session_date),
     })),
     admin_tasks: (remote.admin_tasks || []).map((task: any) => {
       let img = task.image_url;

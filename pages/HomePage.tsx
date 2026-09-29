@@ -798,74 +798,111 @@ const HomePage: React.FC<HomePageProps> = ({
     sessionId: string,
     updatedFields: Partial<Session>,
   ) => {
+    const now = new Date().toISOString();
     set_clients((currentClients) => {
-      return currentClients.map((client) => ({
-        ...client,
-        updated_at: new Date().toISOString(),
-        cases: client.cases.map((caseItem) => ({
-          ...caseItem,
-          updated_at: new Date().toISOString(),
-          stages: caseItem.stages.map((stage) => {
-            const sessionIndex = stage.sessions.findIndex(
-              (s) => s.id === sessionId,
+      return currentClients.map((client) => {
+        const hasTargetSession = client.cases.some((caseItem) =>
+          caseItem.stages.some((stage) =>
+            stage.sessions.some((s) => s.id === sessionId),
+          ),
+        );
+        if (!hasTargetSession) return client;
+
+        return {
+          ...client,
+          updated_at: now,
+          cases: client.cases.map((caseItem) => {
+            const caseHasSession = caseItem.stages.some((stage) =>
+              stage.sessions.some((s) => s.id === sessionId),
             );
-            if (sessionIndex === -1) {
-              return stage;
-            }
-
-            const original_session = stage.sessions[sessionIndex];
-            const original_date = original_session?.date;
-
-            const updatedSessions = stage.sessions.map((s, idx) => {
-              if (s.id === sessionId) {
-                return {
-                  ...s,
-                  ...updatedFields,
-                  updated_at: new Date().toISOString(),
-                };
-              }
-
-              // Update the next session's date if next_session_date was changed
-              if (idx === sessionIndex + 1 && updatedFields.next_session_date) {
-                return {
-                  ...s,
-                  date: updatedFields.next_session_date,
-                  updated_at: new Date().toISOString(),
-                };
-              }
-
-              const is_previous_by_index = idx === sessionIndex - 1;
-              const is_previous_by_date = s.next_session_date === original_date;
-              if (is_previous_by_index || is_previous_by_date) {
-                return {
-                  ...s,
-                  next_session_date: updatedFields.date || s.next_session_date,
-                  next_postponement_reason:
-                    updatedFields.postponement_reason !== undefined
-                      ? updatedFields.postponement_reason
-                      : s.next_postponement_reason,
-                  updated_at: new Date().toISOString(),
-                };
-              }
-              return s;
-            });
-
-            const isFirst = sessionId.endsWith("-first");
-            const newFirstDate = isFirst && updatedFields.date !== undefined ? updatedFields.date : stage.first_session_date;
-            const newCourt = isFirst && updatedFields.court !== undefined ? updatedFields.court : stage.court;
-            const newCaseNumber = isFirst && updatedFields.case_number !== undefined ? updatedFields.case_number : stage.case_number;
+            if (!caseHasSession) return caseItem;
 
             return {
-              ...stage,
-              first_session_date: newFirstDate,
-              court: newCourt,
-              case_number: newCaseNumber,
-              sessions: updatedSessions,
-              updated_at: new Date().toISOString(),
+              ...caseItem,
+              updated_at: now,
+              stages: caseItem.stages.map((stage) => {
+                const sessionIndex = stage.sessions.findIndex(
+                  (s) => s.id === sessionId,
+                );
+                if (sessionIndex === -1) {
+                  return stage;
+                }
+
+                const original_session = stage.sessions[sessionIndex];
+                const original_date = original_session?.date;
+
+                const updatedSessions = stage.sessions.map((s, idx) => {
+                  if (s.id === sessionId) {
+                    const mergedSession = {
+                      ...s,
+                      ...updatedFields,
+                      updated_at: now,
+                    };
+                    mergedSession.is_postponed = Boolean(
+                      mergedSession.is_postponed ||
+                        mergedSession.next_session_date,
+                    );
+                    return mergedSession;
+                  }
+
+                  // Update the next session's date if next_session_date was changed
+                  if (
+                    idx === sessionIndex + 1 &&
+                    updatedFields.next_session_date
+                  ) {
+                    return {
+                      ...s,
+                      date: updatedFields.next_session_date,
+                      updated_at: now,
+                    };
+                  }
+
+                  const is_previous_by_index = idx === sessionIndex - 1;
+                  const is_previous_by_date =
+                    s.next_session_date === original_date;
+                  if (is_previous_by_index || is_previous_by_date) {
+                    return {
+                      ...s,
+                      is_postponed: true,
+                      next_session_date:
+                        updatedFields.date || s.next_session_date,
+                      next_postponement_reason:
+                        updatedFields.postponement_reason !== undefined
+                          ? updatedFields.postponement_reason
+                          : s.next_postponement_reason,
+                      updated_at: now,
+                    };
+                  }
+                  return s;
+                });
+
+                const isFirst = sessionId.endsWith("-first");
+                const newFirstDate =
+                  isFirst && updatedFields.date !== undefined
+                    ? updatedFields.date
+                    : stage.first_session_date;
+                const newCourt =
+                  isFirst && updatedFields.court !== undefined
+                    ? updatedFields.court
+                    : stage.court;
+                const newCaseNumber =
+                  isFirst && updatedFields.case_number !== undefined
+                    ? updatedFields.case_number
+                    : stage.case_number;
+
+                return {
+                  ...stage,
+                  first_session_date: newFirstDate,
+                  court: newCourt,
+                  case_number: newCaseNumber,
+                  sessions: updatedSessions,
+                  updated_at: now,
+                };
+              }),
             };
           }),
-        })),
-      }));
+        };
+      });
     });
   };
   const handle_open_decide_modal = (session: Session) => {
@@ -905,28 +942,41 @@ const HomePage: React.FC<HomePageProps> = ({
     e.preventDefault();
     const { session, stage } = decide_modal;
     if (!session || !stage) return;
+    const now = new Date().toISOString();
     set_clients((currentClients) =>
-      currentClients.map((client) => ({
-        ...client,
-        updated_at: new Date().toISOString(),
-        cases: client.cases.map((c) => ({
-          ...c,
-          updated_at: new Date().toISOString(),
-          stages: c.stages.map((st) => {
-            if (st.id === stage.id) {
-              return {
-                ...st,
-                decision_date: session.date,
-                decision_number: decide_form_data.decision_number,
-                decision_summary: decide_form_data.decision_summary,
-                decision_notes: decide_form_data.decision_notes,
-                updated_at: new Date().toISOString(),
-              };
-            }
-            return st;
+      currentClients.map((client) => {
+        const hasTargetStage = client.cases.some((c) =>
+          c.stages.some((st) => st.id === stage.id),
+        );
+        if (!hasTargetStage) return client;
+
+        return {
+          ...client,
+          updated_at: now,
+          cases: client.cases.map((c) => {
+            const caseHasStage = c.stages.some((st) => st.id === stage.id);
+            if (!caseHasStage) return c;
+
+            return {
+              ...c,
+              updated_at: now,
+              stages: c.stages.map((st) => {
+                if (st.id === stage.id) {
+                  return {
+                    ...st,
+                    decision_date: session.date,
+                    decision_number: decide_form_data.decision_number,
+                    decision_summary: decide_form_data.decision_summary,
+                    decision_notes: decide_form_data.decision_notes,
+                    updated_at: now,
+                  };
+                }
+                return st;
+              }),
+            };
           }),
-        })),
-      })),
+        };
+      }),
     );
     handle_close_decide_modal();
   };

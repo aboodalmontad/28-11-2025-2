@@ -69,38 +69,89 @@ const get_initial_data = (): AppData => ({
 const migrate_data = (old_data: any): AppData => {
   if (!old_data) return get_initial_data();
 
-  const migrate_session = (s: any): Session => ({
-    id: s.id,
-    court: s.court || "",
-    case_number: s.case_number || s.caseNumber || "",
-    date: s.date || "",
-    client_name: s.client_name || s.clientName || "",
-    opponent_name: s.opponent_name || s.opponentName || "",
-    postponement_reason: s.postponement_reason || s.postponementReason,
-    next_postponement_reason:
-      s.next_postponement_reason || s.nextPostponementReason,
-    is_postponed: Boolean(s.is_postponed ?? s.isPostponed),
-    next_session_date: s.next_session_date || s.nextSessionDate,
-    assignee: s.assignee,
-    stage_id: s.stage_id || s.stageId,
-    updated_at: s.updated_at || s.updatedAt,
-    user_id: s.user_id || s.userId,
-  });
+  const migrate_session = (s: any): Session => {
+    const next_date = s.next_session_date || s.nextSessionDate;
+    return {
+      id: s.id,
+      court: s.court || "",
+      case_number: s.case_number || s.caseNumber || "",
+      date: s.date || "",
+      client_name: s.client_name || s.clientName || "",
+      opponent_name: s.opponent_name || s.opponentName || "",
+      postponement_reason: s.postponement_reason || s.postponementReason,
+      next_postponement_reason:
+        s.next_postponement_reason || s.nextPostponementReason,
+      is_postponed: Boolean(s.is_postponed ?? s.isPostponed ?? next_date),
+      next_session_date: next_date,
+      assignee: s.assignee,
+      stage_id: s.stage_id || s.stageId,
+      updated_at: s.updated_at || s.updatedAt,
+      user_id: s.user_id || s.userId,
+    };
+  };
 
-  const migrate_stage = (st: any): Stage => ({
-    id: st.id,
-    court: st.court || "",
-    case_number: st.case_number || st.caseNumber || "",
-    first_session_date: st.first_session_date || st.firstSessionDate,
-    sessions: (st.sessions || []).map(migrate_session),
-    decision_date: st.decision_date || st.decisionDate,
-    decision_number: st.decision_number || st.decisionNumber,
-    decision_summary: st.decision_summary || st.decisionSummary,
-    decision_notes: st.decision_notes || st.decisionNotes,
-    updated_at: st.updated_at || st.updatedAt,
-    user_id: st.user_id || st.userId,
-    case_id: st.case_id || st.caseId,
-  });
+  const migrate_stage = (st: any): Stage => {
+    const raw_sessions: Session[] = (st.sessions || []).map(migrate_session);
+    const sorted_sessions = [...raw_sessions].sort((a, b) => {
+      const diff =
+        safe_revive_date(a.date).getTime() - safe_revive_date(b.date).getTime();
+      if (diff !== 0) return diff;
+      if (Boolean(a.is_postponed) !== Boolean(b.is_postponed)) {
+        return a.is_postponed ? -1 : 1;
+      }
+      return String(a.id || "").localeCompare(String(b.id || ""));
+    });
+
+    const healed_sessions = sorted_sessions.map((s, idx) => {
+      const s_date = to_input_date_string(s.date);
+      const later_session = sorted_sessions
+        .slice(idx + 1)
+        .find((next_s) => to_input_date_string(next_s.date) > s_date);
+      if (later_session) {
+        const next_date_norm =
+          to_input_date_string(later_session.date) || later_session.date;
+        const s_time = safe_revive_date(s.updated_at || 0).getTime();
+        const later_time = safe_revive_date(
+          later_session.updated_at || 0,
+        ).getTime();
+        const healed_updated_at =
+          !s.is_postponed && later_time > s_time
+            ? later_session.updated_at
+            : s.updated_at;
+        return {
+          ...s,
+          stage_id: s.stage_id || st.id,
+          is_postponed: true,
+          next_session_date: s.next_session_date || next_date_norm,
+          next_postponement_reason:
+            s.next_postponement_reason ||
+            later_session.postponement_reason ||
+            undefined,
+          updated_at: healed_updated_at,
+        };
+      }
+      return {
+        ...s,
+        stage_id: s.stage_id || st.id,
+        is_postponed: Boolean(s.is_postponed || s.next_session_date),
+      };
+    });
+
+    return {
+      id: st.id,
+      court: st.court || "",
+      case_number: st.case_number || st.caseNumber || "",
+      first_session_date: st.first_session_date || st.firstSessionDate,
+      sessions: healed_sessions,
+      decision_date: st.decision_date || st.decisionDate,
+      decision_number: st.decision_number || st.decisionNumber,
+      decision_summary: st.decision_summary || st.decisionSummary,
+      decision_notes: st.decision_notes || st.decisionNotes,
+      updated_at: st.updated_at || st.updatedAt,
+      user_id: st.user_id || st.userId,
+      case_id: st.case_id || st.caseId,
+    };
+  };
 
   const migrate_case = (c: any): Case => ({
     id: c.id,
@@ -314,6 +365,8 @@ export const useSupabaseData = (
     get_initial_deleted_ids,
   );
   const [is_dirty, set_dirty] = React.useState(false);
+  const [mutation_version, set_mutation_version] = React.useState(0);
+  const mutation_version_ref = React.useRef(0);
   const [sync_status, set_sync_status] = React.useState<SyncStatus>("loading");
   const [last_sync_error, set_last_sync_error] = React.useState<string | null>(
     null,
@@ -714,9 +767,15 @@ export const useSupabaseData = (
       effective_user_id: effective_user_id,
       local_data: data,
       deleted_ids: deleted_ids,
-      on_data_synced: async (merged) => {
+      on_data_synced: async (merged, options) => {
         set_data(merged);
-        set_dirty(false);
+        const should_clear_dirty =
+          options?.clear_dirty !== false &&
+          (options?.synced_version === undefined ||
+            options.synced_version === mutation_version_ref.current);
+        if (should_clear_dirty) {
+          set_dirty(false);
+        }
         set_is_data_loading(false);
 
         // CRITICAL: Only save to local IndexedDB if we are NOT viewing another user
@@ -779,6 +838,7 @@ export const useSupabaseData = (
       is_auth_loading: is_auth_loading,
       sync_status: sync_status,
       is_dirty: is_dirty,
+      mutation_version: mutation_version,
     });
 
   // Automatically fetch and refresh cloud data when user logs in or admin switches view
@@ -962,6 +1022,8 @@ export const useSupabaseData = (
 
   const set_full_data = React.useCallback(
     (new_data: Partial<AppData> | ((prev: AppData) => Partial<AppData>)) => {
+      mutation_version_ref.current += 1;
+      set_mutation_version(mutation_version_ref.current);
       set_data((prev) => {
         const updates =
           typeof new_data === "function" ? new_data(prev) : new_data;
@@ -970,7 +1032,7 @@ export const useSupabaseData = (
         return migrate_data(merged);
       });
       set_dirty(true);
-      set_sync_status("synced");
+      set_sync_status((prev) => (prev === "error" ? "synced" : prev));
       set_last_sync_error(null);
     },
     [],
@@ -1027,6 +1089,7 @@ export const useSupabaseData = (
     }
   }, [
     is_dirty,
+    mutation_version,
     deleted_ids,
     is_auto_sync_enabled,
     is_online,
@@ -1049,18 +1112,42 @@ export const useSupabaseData = (
   const all_sessions = React.useMemo(() => {
     return filtered_data.clients.flatMap((c) =>
       c.cases.flatMap((cs) =>
-        cs.stages.flatMap((st) =>
-          st.sessions.map((s) => ({
-            ...s,
-            client_name: s.client_name || c.name,
-            opponent_name: s.opponent_name || cs.opponent_name,
-            case_number: s.case_number || st.case_number || cs.subject || cs.id,
-            court: s.court || st.court || "غير محدد",
-            stage_id: s.stage_id || st.id,
-            stage_decision_date: st.decision_date,
-            is_postponed: Boolean(s.is_postponed),
-          })),
-        ),
+        cs.stages.flatMap((st) => {
+          const sorted_sessions = [...st.sessions].sort(
+            (a, b) =>
+              safe_revive_date(a.date).getTime() -
+              safe_revive_date(b.date).getTime(),
+          );
+          return sorted_sessions.map((s, idx) => {
+            const s_date = to_input_date_string(s.date);
+            const later_session = sorted_sessions
+              .slice(idx + 1)
+              .find((next_s) => to_input_date_string(next_s.date) > s_date);
+            const inferred_next_date =
+              s.next_session_date ||
+              (later_session
+                ? to_input_date_string(later_session.date) || later_session.date
+                : undefined);
+            const inferred_next_reason =
+              s.next_postponement_reason ||
+              (later_session ? later_session.postponement_reason : undefined);
+            return {
+              ...s,
+              client_name: s.client_name || c.name,
+              opponent_name: s.opponent_name || cs.opponent_name,
+              case_number:
+                s.case_number || st.case_number || cs.subject || cs.id,
+              court: s.court || st.court || "غير محدد",
+              stage_id: s.stage_id || st.id,
+              stage_decision_date: st.decision_date,
+              is_postponed: Boolean(
+                s.is_postponed || s.next_session_date || later_session,
+              ),
+              next_session_date: inferred_next_date,
+              next_postponement_reason: inferred_next_reason,
+            };
+          });
+        }),
       ),
     );
   }, [filtered_data.clients]);
@@ -1467,38 +1554,58 @@ export const useSupabaseData = (
                       ? {
                           ...cs,
                           updated_at: now,
-                          stages: cs.stages.map((st) =>
-                            st.id === found_stage_id
-                              ? {
-                                  ...st,
-                                  updated_at: now,
-                                  sessions: [
-                                    ...st.sessions.map((s) =>
-                                      s.id === session_id
-                                        ? {
-                                            ...s,
-                                            is_postponed: true,
-                                            next_session_date:
-                                              normalized_next_date,
-                                            next_postponement_reason: reason,
-                                            updated_at: now,
-                                          }
-                                        : s,
-                                    ),
-                                    {
-                                      ...found_session!,
-                                      id: generateId("session"),
-                                      date: normalized_next_date,
-                                      is_postponed: false,
-                                      postponement_reason: reason,
-                                      next_session_date: undefined,
-                                      next_postponement_reason: undefined,
+                      stages: c.cases
+                        .find((x) => x.id === found_case_id)!
+                        .stages.map((st) => {
+                          if (st.id !== found_stage_id) return st;
+                          const new_session_obj: Session = {
+                            id: generateId("session"),
+                            stage_id: st.id,
+                            court: found_session!.court || st.court || "",
+                            case_number:
+                              found_session!.case_number ||
+                              st.case_number ||
+                              "",
+                            date: normalized_next_date,
+                            client_name:
+                              found_session!.client_name || c.name || "",
+                            opponent_name:
+                              found_session!.opponent_name ||
+                              cs.opponent_name ||
+                              "",
+                            is_postponed: false,
+                            postponement_reason: reason,
+                            next_session_date: undefined,
+                            next_postponement_reason: undefined,
+                            assignee: found_session!.assignee,
+                            updated_at: now,
+                            user_id:
+                              found_session!.user_id ||
+                              st.user_id ||
+                              cs.user_id ||
+                              c.user_id ||
+                              effective_user_id ||
+                              "",
+                          };
+                          return {
+                            ...st,
+                            updated_at: now,
+                            sessions: [
+                              ...st.sessions.map((s) =>
+                                s.id === session_id
+                                  ? {
+                                      ...s,
+                                      is_postponed: true,
+                                      next_session_date: normalized_next_date,
+                                      next_postponement_reason: reason,
                                       updated_at: now,
-                                    } as Session,
-                                  ],
-                                }
-                              : st,
-                          ),
+                                    }
+                                  : s,
+                              ),
+                              new_session_obj,
+                            ],
+                          };
+                        }),
                         }
                       : cs,
                   ),
@@ -1509,11 +1616,12 @@ export const useSupabaseData = (
       });
       return null;
     },
-    [set_full_data],
+    [set_full_data, effective_user_id],
   );
 
   return {
     ...filtered_data,
+    is_admin,
     clients: filtered_clients,
     sync_status: sync_status,
     manual_sync: manual_sync,

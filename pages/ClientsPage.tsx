@@ -670,6 +670,9 @@ const ClientsPage: React.FC<ClientsPageProps> = ({
         session_data.next_session_date = parsed_next
           ? to_input_date_string(parsed_next)
           : undefined;
+        session_data.is_postponed = Boolean(
+          session_data.is_postponed || session_data.next_session_date,
+        );
 
         set_clients((prev) =>
           prev.map((c) =>
@@ -729,16 +732,19 @@ const ClientsPage: React.FC<ClientsPageProps> = ({
           (st) => st.id === context.stage_id,
         );
         if (client && case_item && stage) {
+          const now = new Date().toISOString();
+          const new_session_date = to_input_date_string(parsed_date);
           const new_session: Session = {
             id: `session-${Date.now()}`,
-            date: to_input_date_string(parsed_date),
+            date: new_session_date,
             court: stage.court,
             case_number: stage.case_number,
             client_name: client.name,
             opponent_name: case_item.opponent_name,
             is_postponed: false,
+            postponement_reason: form_data.postponement_reason || undefined,
             assignee: form_data.assignee || "بدون تخصيص",
-            updated_at: new Date().toISOString(),
+            updated_at: now,
             user_id: effective_user_id,
             stage_id: stage.id,
           };
@@ -747,18 +753,36 @@ const ClientsPage: React.FC<ClientsPageProps> = ({
               c.id === context.client_id
                 ? {
                     ...c,
-                    updated_at: new Date().toISOString(),
+                    updated_at: now,
                     cases: c.cases.map((cs) =>
                       cs.id === context.case_id
                         ? {
                             ...cs,
-                            updated_at: new Date().toISOString(),
+                            updated_at: now,
                             stages: cs.stages.map((st) =>
                               st.id === context.stage_id
                                 ? {
                                     ...st,
-                                    sessions: [...st.sessions, new_session],
-                                    updated_at: new Date().toISOString(),
+                                    sessions: [
+                                      ...st.sessions.map((s) =>
+                                        to_input_date_string(s.date) <
+                                        new_session_date
+                                          ? {
+                                              ...s,
+                                              is_postponed: true,
+                                              next_session_date:
+                                                s.next_session_date ||
+                                                new_session_date,
+                                              next_postponement_reason:
+                                                s.next_postponement_reason ||
+                                                new_session.postponement_reason,
+                                              updated_at: now,
+                                            }
+                                          : s,
+                                      ),
+                                      new_session,
+                                    ],
+                                    updated_at: now,
                                   }
                                 : st,
                             ),
