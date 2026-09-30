@@ -27,10 +27,9 @@ import AssistantsManager from "../components/AssistantsManager";
 
 interface SettingsPageProps {
   onNavigate?: (page: string) => void;
-  onLogout?: () => void;
 }
 
-const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onLogout }) => {
+const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
   const {
     set_full_data,
     assistants,
@@ -54,8 +53,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onLogout }) => 
   const [newPassword, setNewPassword] = React.useState("");
   const [confirmPassword, setConfirmPassword] = React.useState("");
   const [isChangingPassword, setIsChangingPassword] = React.useState(false);
-  const [is_pwd_confirm_modal_open, set_is_pwd_confirm_modal_open] = React.useState(false);
-  const [is_pwd_success_modal_open, set_is_pwd_success_modal_open] = React.useState(false);
 
   const [feedback, set_feedback] = React.useState<{
     message: string;
@@ -83,8 +80,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onLogout }) => 
     setTimeout(() => set_feedback(null), 4000);
   };
 
-  const handle_change_password_request = (e: React.FormEvent) => {
+  const handle_change_password = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const confirmed = window.confirm("هل أنت متأكد من رغبتك في تغيير كلمة المرور؟");
+    if (!confirmed) return;
 
     if (!user?.email) {
       show_feedback("لم يتم العثور على بريد إلكتروني للمستخدم", "error");
@@ -101,11 +101,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onLogout }) => 
       return;
     }
 
-    set_is_pwd_confirm_modal_open(true);
-  };
-
-  const perform_password_change = async () => {
-    set_is_pwd_confirm_modal_open(false);
     setIsChangingPassword(true);
     try {
       const supabase = get_supabase_client();
@@ -113,7 +108,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onLogout }) => 
 
       // 1. Verify current password by signing in
       const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: user?.email || "",
+        email: user.email,
         password: currentPassword,
       });
 
@@ -132,8 +127,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onLogout }) => 
         throw updateError;
       }
 
-      // Success!
-      set_is_pwd_success_modal_open(true);
+      show_feedback("تم تغيير كلمة المرور بنجاح", "success");
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
@@ -142,13 +136,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onLogout }) => 
       show_feedback(error.message || "فشل تغيير كلمة المرور", "error");
     } finally {
       setIsChangingPassword(false);
-    }
-  };
-
-  const handle_logout_after_pwd_change = () => {
-    set_is_pwd_success_modal_open(false);
-    if (onLogout) {
-      onLogout();
     }
   };
 
@@ -678,7 +665,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onLogout }) => 
           <KeyIcon className="w-6 h-6 text-indigo-600" />
           تغيير كلمة المرور
         </h2>
-        <form onSubmit={handle_change_password_request} className="space-y-4 max-w-md">
+        <form onSubmit={handle_change_password} className="space-y-4 max-w-md">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               كلمة المرور الحالية
@@ -795,62 +782,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onLogout }) => 
         <AssistantsManager
           onClose={() => set_is_assistants_manager_open(false)}
         />
-      )}
-
-      {/* Password Change Confirmation Modal */}
-      {is_pwd_confirm_modal_open && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="p-6 text-center">
-              <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-yellow-100 mb-4">
-                <ExclamationTriangleIcon className="h-6 w-6 text-yellow-600" />
-              </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-2">تأكيد تغيير كلمة المرور</h3>
-              <p className="text-sm text-gray-500">
-                هل أنت متأكد من رغبتك في تغيير كلمة المرور؟ سيتم تسجيل خروجك من النظام فور النجاح للأمان.
-              </p>
-            </div>
-            <div className="bg-gray-50 px-6 py-4 flex flex-row-reverse gap-3">
-              <button
-                onClick={perform_password_change}
-                className="flex-1 bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-colors"
-              >
-                تأكيد التغيير
-              </button>
-              <button
-                onClick={() => set_is_pwd_confirm_modal_open(false)}
-                className="flex-1 bg-white text-gray-700 border border-gray-300 px-4 py-2 rounded-lg font-bold hover:bg-gray-50 transition-colors"
-              >
-                إلغاء
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Password Change Success Modal */}
-      {is_pwd_success_modal_open && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="p-8 text-center">
-              <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-green-100 mb-6">
-                <CheckCircleIcon className="h-10 w-10 text-green-600" />
-              </div>
-              <h3 className="text-2xl font-black text-gray-900 mb-2">تم التغيير بنجاح!</h3>
-              <p className="text-gray-500 font-medium">
-                لقد تم تحديث كلمة المرور الخاصة بك بنجاح. يرجى تسجيل الدخول مجدداً بكلمة المرور الجديدة.
-              </p>
-            </div>
-            <div className="px-8 pb-8">
-              <button
-                onClick={handle_logout_after_pwd_change}
-                className="w-full bg-green-600 text-white px-6 py-3 rounded-xl font-black text-lg shadow-lg shadow-green-200 hover:bg-green-700 hover:shadow-xl transition-all active:scale-[0.98]"
-              >
-                الخروج وتسجيل الدخول
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );
