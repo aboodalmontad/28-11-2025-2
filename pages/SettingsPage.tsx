@@ -97,7 +97,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onLogout }) => 
     }
 
     if (newPassword.length < 6) {
-      show_feedback("يجب أن لا تقل كلمة المرور عن ستة رموز", "error");
+      show_feedback("كلمة المرور يجب أن تكون 6 أحرف على الأقل", "error");
       return;
     }
 
@@ -705,7 +705,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onLogout }) => 
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               placeholder="••••••••"
             />
-            <p className="mt-1 text-xs text-gray-500">يجب أن لا تقل عن ستة رموز.</p>
           </div>
 
           <div>
