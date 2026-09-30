@@ -64,7 +64,6 @@ interface NavbarProps {
   permissions: any;
   sync_log?: any[];
   on_clear_log?: () => void;
-  pending_assistants_count?: number;
 }
 
 const Navbar: React.FC<NavbarProps> = ({
@@ -82,7 +81,6 @@ const Navbar: React.FC<NavbarProps> = ({
   permissions,
   sync_log,
   on_clear_log,
-  pending_assistants_count = 0,
 }) => {
   const navItems = [
     {
@@ -158,20 +156,9 @@ const Navbar: React.FC<NavbarProps> = ({
         />
         <button
           onClick={() => onNavigate("settings")}
-          className="p-2 rounded-full text-gray-500 hover:bg-gray-100 relative"
-          title={
-            pending_assistants_count > 0
-              ? `الإعدادات (يوجد ${pending_assistants_count} طلب انضمام بانتظار الموافقة)`
-              : "الإعدادات"
-          }
+          className="p-2 rounded-full text-gray-500 hover:bg-gray-100"
         >
           <Cog6ToothIcon className="w-5 h-5" />
-          {pending_assistants_count > 0 && (
-            <span className="absolute top-1 right-1 flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
-            </span>
-          )}
         </button>
         <button
           onClick={onLogout}
@@ -582,10 +569,6 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
       "nahwiabdo@gmail.com",
       "avocat.nahwi@gmail.com",
       "sy963958932922@email.com",
-      "sy0958932922@email.com",
-      "963958932922@email.com",
-      "0958932922@email.com",
-      "958932922@email.com",
     ].includes(session.user.email);
 
   // Effective Display Name Logic
@@ -901,23 +884,13 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
     profile.role !== "admin" &&
     (!profile.is_approved || !profile.is_active)
   )
-    return (
-      <PendingApprovalPage
-        onLogout={handleLogout}
-        profile={profile}
-        profiles={data.profiles}
-      />
-    );
+    return <PendingApprovalPage onLogout={handleLogout} />;
   if (
     profile &&
     profile.subscription_end_date &&
     is_before_today(profile.subscription_end_date)
   )
     return <SubscriptionExpiredPage onLogout={handleLogout} />;
-
-  const pending_assistants_count = (data.profiles || []).filter(
-    (p) => p.lawyer_id === session?.user?.id && !p.is_approved
-  ).length;
 
   return (
     <DataProvider value={data}>
@@ -951,7 +924,6 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
           permissions={data.permissions}
           sync_log={syncLog}
           on_clear_log={clearSyncLog}
-          pending_assistants_count={pending_assistants_count}
         />
         <main className="flex-grow p-4 overflow-y-auto print:overflow-visible print:p-0 pb-24 md:pb-4 print:pb-0">
           {data.is_data_loading && (

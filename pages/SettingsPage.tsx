@@ -35,7 +35,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onLogout }) => 
     set_full_data,
     assistants,
     set_assistants,
-    profiles,
     user_id,
     user,
     is_auto_sync_enabled,
@@ -348,60 +347,21 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onLogout }) => 
 
       {permissions?.can_delete_client && (
         <div className="bg-white p-6 rounded-lg shadow space-y-4">
-          {(() => {
-            const pendingAssistantsCount = (profiles || []).filter(
-              (p) => p.lawyer_id === user_id && !p.is_approved
-            ).length;
-
-            return (
-              <>
-                <div className="flex justify-between items-center border-b pb-3">
-                  <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-                    <UserGroupIcon className="w-6 h-6 text-blue-600" />
-                    <span>إدارة المساعدين والمحامين في المكتب</span>
-                  </h2>
-                  {pendingAssistantsCount > 0 && (
-                    <span className="px-2.5 py-1 bg-amber-100 text-amber-800 text-xs font-bold rounded-full border border-amber-300 animate-pulse">
-                      {pendingAssistantsCount} بانتظار الموافقة
-                    </span>
-                  )}
-                </div>
-
-                {pendingAssistantsCount > 0 && (
-                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-900 text-xs">
-                    <div className="flex items-center gap-2 font-medium">
-                      <ExclamationTriangleIcon className="w-5 h-5 text-amber-600 flex-shrink-0" />
-                      <span>
-                        يوجد <strong>{pendingAssistantsCount}</strong> طلب انضمام جديد لمكتبك بانتظار موافقتك للسماح بالدخول. لن يتمكن المحامي أو المساعد من دخول المكتب حتى توافق عليه.
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => set_is_assistants_manager_open(true)}
-                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow-sm flex-shrink-0 self-start sm:self-auto"
-                    >
-                      مراجعة وقبول الطلبات
-                    </button>
-                  </div>
-                )}
-
-                <p className="text-gray-600 text-sm">
-                  هنا يمكنك استعراض المحامين والمساعدين الذين انضموا لمكتبك، الموافقة على طلباتهم للسماح لهم بالدخول، وتحديد صلاحيات الوصول الخاصة بهم بكل دقة.
-                </p>
-                <button
-                  onClick={() => set_is_assistants_manager_open(true)}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
-                >
-                  <UserGroupIcon className="w-5 h-5" />
-                  <span>فتح لوحة إدارة المساعدين والصلاحيات</span>
-                  {pendingAssistantsCount > 0 && (
-                    <span className="bg-amber-400 text-amber-950 text-xs font-black px-2 py-0.5 rounded-full mr-1">
-                      {pendingAssistantsCount} طلب جديد
-                    </span>
-                  )}
-                </button>
-              </>
-            );
-          })()}
+          <h2 className="text-xl font-bold text-gray-800 border-b pb-3 flex items-center gap-2">
+            <UserGroupIcon className="w-6 h-6 text-blue-600" />
+            إدارة المساعدين والصلاحيات
+          </h2>
+          <p className="text-gray-600 text-sm">
+            هنا يمكنك استعراض المساعدين الذين انضموا لمكتبك، تفعيل حساباتهم،
+            وتحديد صلاحيات الوصول الخاصة بهم بشكل دقيق.
+          </p>
+          <button
+            onClick={() => set_is_assistants_manager_open(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <UserGroupIcon className="w-5 h-5" />
+            <span>فتح لوحة تعريف المساعدين</span>
+          </button>
         </div>
       )}
 
