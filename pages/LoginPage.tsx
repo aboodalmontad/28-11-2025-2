@@ -32,8 +32,6 @@ import {
   extract_clean_digits,
   get_possible_auth_emails,
   get_possible_db_mobiles,
-  is_admin_account,
-  is_designated_admin_identifier,
 } from "../utils/mobileUtils";
 import { to_input_date_string } from "../utils/dateUtils";
 import type { User } from "@supabase/supabase-js";
@@ -898,27 +896,6 @@ const LoginPage: React.FC<auth_page_props> = ({
             .eq("id", loggedInUser.id)
             .maybeSingle();
 
-          if (!profile) {
-            const possibleMobiles = get_possible_db_mobiles(cleanInput);
-            if (possibleMobiles.length > 0) {
-              const filter = possibleMobiles
-                .map((m) => `mobile_number.eq.${m}`)
-                .join(",");
-              const { data: mobileProfile } = await supabase
-                .from("profiles")
-                .select("*")
-                .or(filter)
-                .maybeSingle();
-              if (mobileProfile) {
-                profile = mobileProfile;
-              }
-            }
-          }
-
-          const isUserAdmin =
-            is_admin_account(loggedInUser, profile) ||
-            is_designated_admin_identifier(cleanInput);
-
           // If profile is missing, try to create it on the fly (Self-healing)
           if (!profile) {
             console.log("Profile missing for user, creating one...");
@@ -934,7 +911,13 @@ const LoginPage: React.FC<auth_page_props> = ({
               id: loggedInUser.id,
               full_name: loggedInUser.user_metadata?.full_name || "مستخدم",
               mobile_number: normalized_mobile,
-              role: isUserAdmin ? "admin" : "user",
+              role:
+                loggedInUser.email === "nahwiabdo@gmail.com" ||
+                loggedInUser.email === "avocat.nahwi@gmail.com" ||
+                loggedInUser.email === "sy963958932922@email.com" ||
+                loggedInUser.email === "sy0958932922@email.com"
+                  ? "admin"
+                  : "user",
               is_approved: true,
               is_active: true,
               mobile_verified: true,
@@ -948,51 +931,20 @@ const LoginPage: React.FC<auth_page_props> = ({
                 .select()
                 .single();
             if (!create_error) profile = created_profile;
-            else {
-              console.error("Error creating profile:", create_error);
-              profile = new_profile as any;
-            }
-          } else if (isUserAdmin && profile.role !== "admin") {
-            const { data: updated_admin_profile } = await supabase
-              .from("profiles")
-              .update({
-                role: "admin",
-                is_approved: true,
-                is_active: true,
-                mobile_verified: true,
-              })
-              .eq("id", profile.id)
-              .select()
-              .maybeSingle();
-            profile = updated_admin_profile || {
-              ...profile,
-              role: "admin",
-              is_approved: true,
-              is_active: true,
-              mobile_verified: true,
-            };
+            else console.error("Error creating profile:", create_error);
           }
-
-          const effectiveRole = isUserAdmin
-            ? "admin"
-            : profile?.role || loggedInUser.user_metadata?.role || "user";
 
           if (
             profile &&
             profile.mobile_verified === false &&
-            effectiveRole !== "admin"
+            profile.role !== "admin"
           ) {
             set_message("يرجى تأكيد رقم الجوال للمتابعة.");
             set_auth_step("otp");
             set_loading(false);
             return;
           }
-          if (
-            profile &&
-            profile.lawyer_id &&
-            !profile.is_approved &&
-            effectiveRole !== "admin"
-          ) {
+          if (profile && profile.lawyer_id && !profile.is_approved) {
             let lawyer_name = "المحامي صاحب المكتب";
             let lawyer_mobile = "";
             try {
@@ -1021,48 +973,18 @@ const LoginPage: React.FC<auth_page_props> = ({
             await supabase.auth.signOut();
             return;
           }
-
-          const enrichedUser: User = {
-            ...loggedInUser,
-            role: effectiveRole,
-            user_metadata: {
-              ...(loggedInUser.user_metadata || {}),
-              full_name:
-                profile?.full_name || loggedInUser.user_metadata?.full_name,
-              mobile_number:
-                profile?.mobile_number ||
-                loggedInUser.user_metadata?.mobile_number,
-              role: effectiveRole,
-            },
-          };
-
-          if (profile) {
-            const finalProfile = { ...profile, role: effectiveRole };
-            localStorage.setItem(
-              `lawyerAppUserProfile_${loggedInUser.id}`,
-              JSON.stringify(finalProfile),
-            );
-          }
-          localStorage.setItem(
-            `lawyerAppIsAdmin_${loggedInUser.id}`,
-            effectiveRole === "admin" ? "true" : "false",
-          );
           localStorage.setItem(
             LAST_USER_CREDENTIALS_CACHE_KEY,
             JSON.stringify({ mobile: form.mobile, password: form.password }),
           );
           localStorage.setItem(
-            "lawyerAppLastUser",
-            JSON.stringify(enrichedUser),
-          );
-          localStorage.setItem(
             "lawyerAppLastUserData",
-            JSON.stringify(enrichedUser),
+            JSON.stringify(loggedInUser),
           );
 
           // استدعاء نجاح تسجيل الدخول لتغيير واجهة التطبيق
           sessionStorage.setItem(`just_logged_in_user_${loggedInUser.id}`, "true");
-          on_login_success(enrichedUser);
+          on_login_success(loggedInUser);
         }
       } catch (err: any) {
         let error_message = err.message || "فشل تسجيل الدخول.";
@@ -1093,20 +1015,6 @@ const LoginPage: React.FC<auth_page_props> = ({
                 cached_creds.password === form.password
               ) {
                 const cached_user = JSON.parse(cached_user_str);
-                const isOfflineAdmin =
-                  is_admin_account(cached_user) ||
-                  is_designated_admin_identifier(cleanInput);
-                if (isOfflineAdmin) {
-                  cached_user.role = "admin";
-                  cached_user.user_metadata = {
-                    ...(cached_user.user_metadata || {}),
-                    role: "admin",
-                  };
-                  localStorage.setItem(
-                    `lawyerAppIsAdmin_${cached_user.id}`,
-                    "true",
-                  );
-                }
                 console.log(
                   "Offline login successful using cached credentials.",
                 );
@@ -1231,8 +1139,9 @@ const LoginPage: React.FC<auth_page_props> = ({
                 mobile_number: normalized_mobile,
                 role: is_assistant_signup
                   ? "assistant"
-                  : is_designated_admin_identifier(primaryEmail) ||
-                      is_designated_admin_identifier(normalized_mobile)
+                  : primaryEmail === "nahwiabdo@gmail.com" ||
+                      primaryEmail === "avocat.nahwi@gmail.com" ||
+                      primaryEmail === "sy963958932922@email.com"
                     ? "admin"
                     : "user",
                 is_approved: false, // strictly false! Must be approved by owner or OTP
@@ -1272,8 +1181,9 @@ const LoginPage: React.FC<auth_page_props> = ({
               mobile_number: normalized_mobile,
               role: is_assistant_signup
                 ? "assistant"
-                : is_designated_admin_identifier(primaryEmail) ||
-                    is_designated_admin_identifier(normalized_mobile)
+                : primaryEmail === "nahwiabdo@gmail.com" ||
+                    primaryEmail === "avocat.nahwi@gmail.com" ||
+                    primaryEmail === "sy963958932922@email.com"
                   ? "admin"
                   : "user",
               is_approved: false, // strictly false!

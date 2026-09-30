@@ -43,14 +43,9 @@ import {
   to_input_date_string,
 } from "./utils/dateUtils";
 import { printElement } from "./utils/printUtils";
-import {
-  is_admin_account,
-  is_designated_admin_identifier,
-  get_possible_db_mobiles,
-} from "./utils/mobileUtils";
 import SyncStatusIndicator from "./components/SyncStatusIndicator";
 import NotificationCenter from "./components/RealtimeNotifier";
-import { AdminTask, Profile } from "./types";
+import { AdminTask } from "./types";
 
 type Page = "home" | "admin-tasks" | "clients" | "accounting" | "settings" | "logs";
 
@@ -469,22 +464,6 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
   const isOnline = data.is_online; // Use isOnline from data instead of calling useOnlineStatus again
 
   const [isCreatingProfile, setIsCreatingProfile] = useState(false);
-  const [liveUserProfile, setLiveUserProfile] = useState<Profile | null>(() => {
-    try {
-      const cachedUserStr = localStorage.getItem("lawyerAppLastUser");
-      if (cachedUserStr) {
-        const cachedUser = JSON.parse(cachedUserStr);
-        if (cachedUser?.id) {
-          const cachedProf = localStorage.getItem(
-            `lawyerAppUserProfile_${cachedUser.id}`,
-          );
-          if (cachedProf) return JSON.parse(cachedProf);
-        }
-      }
-    } catch (e) {}
-    return null;
-  });
-  const [isProfileResolving, setIsProfileResolving] = useState(false);
 
   const createMissingProfile = async () => {
     if (!session?.user || !supabase) return;
@@ -493,7 +472,10 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
       const { user } = session;
       console.log("Attempting to create missing profile for:", user.id);
 
-      const is_admin = is_admin_account(user, liveUserProfile);
+      const is_admin =
+        user.email === "nahwiabdo@gmail.com" ||
+        user.email === "avocat.nahwi@gmail.com" ||
+        user.email === "sy963958932922@email.com";
       const now = new Date();
       const fortyFiveDaysLater = new Date(
         now.getFullYear(),
@@ -510,9 +492,7 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
         id: user.id,
         full_name: user.user_metadata?.full_name || "مستخدم جديد",
         mobile_number: user.user_metadata?.mobile_number || "",
-        role: (is_admin ? "admin" : user.user_metadata?.role || "user") as
-          | "user"
-          | "admin",
+        role: is_admin ? "admin" : user.user_metadata?.role || "user",
         is_approved: is_admin,
         is_active: true,
         mobile_verified: is_admin,
@@ -526,11 +506,6 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
       const { error } = await supabase.from("profiles").upsert([newProfile]);
       if (error) throw error;
 
-      setLiveUserProfile(newProfile as Profile);
-      localStorage.setItem(
-        `lawyerAppUserProfile_${user.id}`,
-        JSON.stringify(newProfile),
-      );
       console.log("Profile created successfully");
       // Refresh data to pick up the new profile
       await data.fetch_and_refresh();
@@ -580,38 +555,10 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
       }
 
       if (newSession) {
-        let enrichedUser = { ...newSession.user };
-        try {
-          const cachedProfStr = localStorage.getItem(
-            `lawyerAppUserProfile_${newSession.user.id}`,
-          );
-          const cachedProf = cachedProfStr ? JSON.parse(cachedProfStr) : null;
-          const cachedIsAdmin =
-            localStorage.getItem(`lawyerAppIsAdmin_${newSession.user.id}`) ===
-            "true";
-          const isAdminNow =
-            cachedIsAdmin ||
-            is_admin_account(newSession.user, cachedProf) ||
-            cachedProf?.role === "admin";
-          if (isAdminNow) {
-            enrichedUser = {
-              ...enrichedUser,
-              role: "admin",
-              user_metadata: {
-                ...(enrichedUser.user_metadata || {}),
-                role: "admin",
-              },
-            };
-          }
-          if (cachedProf) {
-            setLiveUserProfile(cachedProf);
-          }
-        } catch (e) {}
-
-        setSession({ ...newSession, user: enrichedUser });
+        setSession(newSession);
         localStorage.setItem(
           "lawyerAppLastUser",
-          JSON.stringify(enrichedUser),
+          JSON.stringify(newSession.user),
         );
       } else {
         const hasCachedUser = !!localStorage.getItem("lawyerAppLastUser");
@@ -622,7 +569,6 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
           // Keep current session state so the user remains logged in
         } else {
           setSession(null);
-          setLiveUserProfile(null);
         }
       }
       setIsAuthLoading(false);
@@ -630,194 +576,69 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
     return () => subscription.unsubscribe();
   }, [supabase]);
 
-  // Directly resolve user profile & admin role from Supabase upon session activation
+  const is_admin_email =
+    session?.user?.email &&
+    [
+      "nahwiabdo@gmail.com",
+      "avocat.nahwi@gmail.com",
+      "sy963958932922@email.com",
+      "sy0958932922@email.com",
+      "963958932922@email.com",
+      "0958932922@email.com",
+      "958932922@email.com",
+    ].includes(session.user.email);
+
+  // Effective Display Name Logic
+  const profile = session
+    ? (data.profiles.find((p) => p.id === session.user.id) || {
+        id: session.user.id,
+        full_name:
+          session.user.user_metadata?.full_name ||
+          session.user.email ||
+          "مستخدم",
+        mobile_number: session.user.user_metadata?.mobile_number || "",
+        role: (is_admin_email
+          ? "admin"
+          : session.user.user_metadata?.role || "user") as "user" | "admin",
+        is_approved: true,
+        is_active: true,
+        mobile_verified: true,
+        subscription_start_date: new Date().toISOString(),
+        subscription_end_date: new Date(
+          Date.now() + 365 * 24 * 60 * 60 * 1000,
+        ).toISOString(),
+      })
+    : null;
+
+  // Admin Role Sync Watchdog: Ensure designated emails always have admin role in DB
   useEffect(() => {
-    let isMounted = true;
-    const resolveProfileFromCloud = async () => {
-      if (!session?.user?.id) {
-        if (isMounted) {
-          setLiveUserProfile(null);
-          setIsProfileResolving(false);
-        }
-        return;
-      }
-
-      const userId = session.user.id;
-      // Load cached profile for this user immediately if available
-      try {
-        const cachedProfStr = localStorage.getItem(
-          `lawyerAppUserProfile_${userId}`,
-        );
-        if (cachedProfStr && isMounted) {
-          const parsed = JSON.parse(cachedProfStr);
-          if (parsed?.id === userId) {
-            setLiveUserProfile(parsed);
-          }
-        }
-      } catch (e) {}
-
-      if (!supabase || !navigator.onLine) {
-        if (isMounted) setIsProfileResolving(false);
-        return;
-      }
-
-      if (isMounted) setIsProfileResolving(true);
-      try {
-        let { data: cloudProfile } = await supabase
+    const syncAdminRole = async () => {
+      if (!session?.user || !supabase || !profile) return;
+      const adminEmails = [
+        "nahwiabdo@gmail.com",
+        "avocat.nahwi@gmail.com",
+        "sy963958932922@email.com",
+      ];
+      if (
+        adminEmails.includes(session.user.email || "") &&
+        profile.role !== "admin"
+      ) {
+        console.log("Upgrading user to admin role based on email...");
+        const { error } = await supabase
           .from("profiles")
-          .select("*")
-          .eq("id", userId)
-          .maybeSingle();
+          .update({ role: "admin" })
+          .eq("id", session.user.id);
 
-        if (!cloudProfile) {
-          const mobileCandidate =
-            session.user.user_metadata?.mobile_number ||
-            session.user.phone ||
-            "";
-          const possibleMobiles = get_possible_db_mobiles(mobileCandidate);
-          if (possibleMobiles.length > 0) {
-            const { data: mobileProf } = await supabase
-              .from("profiles")
-              .select("*")
-              .in("mobile_number", possibleMobiles)
-              .maybeSingle();
-            if (mobileProf) {
-              cloudProfile = mobileProf;
-            }
-          }
-        }
-
-        const isAdminResolved = is_admin_account(session.user, cloudProfile);
-
-        if (cloudProfile) {
-          if (
-            isAdminResolved &&
-            (cloudProfile.role !== "admin" || !cloudProfile.is_approved)
-          ) {
-            await supabase
-              .from("profiles")
-              .update({
-                role: "admin",
-                is_approved: true,
-                is_active: true,
-                mobile_verified: true,
-              })
-              .eq("id", cloudProfile.id);
-            cloudProfile = {
-              ...cloudProfile,
-              role: "admin",
-              is_approved: true,
-              is_active: true,
-              mobile_verified: true,
-            };
-          }
-
-          if (isMounted) {
-            setLiveUserProfile(cloudProfile as Profile);
-            localStorage.setItem(
-              `lawyerAppUserProfile_${userId}`,
-              JSON.stringify(cloudProfile),
-            );
-            localStorage.setItem(
-              `lawyerAppIsAdmin_${userId}`,
-              cloudProfile.role === "admin" || isAdminResolved
-                ? "true"
-                : "false",
-            );
-            if (cloudProfile.role === "admin" || isAdminResolved) {
-              setSession((prev) => {
-                if (!prev || prev.user.id !== userId) return prev;
-                if (
-                  prev.user.role === "admin" &&
-                  prev.user.user_metadata?.role === "admin"
-                ) {
-                  return prev;
-                }
-                const updatedUser = {
-                  ...prev.user,
-                  role: "admin",
-                  user_metadata: {
-                    ...(prev.user.user_metadata || {}),
-                    role: "admin",
-                  },
-                };
-                localStorage.setItem(
-                  "lawyerAppLastUser",
-                  JSON.stringify(updatedUser),
-                );
-                return { ...prev, user: updatedUser };
-              });
-            }
-          }
-        } else if (isAdminResolved && isMounted) {
-          localStorage.setItem(`lawyerAppIsAdmin_${userId}`, "true");
-        }
-      } catch (err) {
-        console.warn("Error resolving live user profile:", err);
-      } finally {
-        if (isMounted) setIsProfileResolving(false);
-      }
-    };
-
-    resolveProfileFromCloud();
-    return () => {
-      isMounted = false;
-    };
-  }, [session?.user?.id, supabase]);
-
-  const syncedProfile = session
-    ? data.profiles.find((p) => p.id === session.user.id) ||
-      (liveUserProfile?.id === session.user.id ? liveUserProfile : null)
-    : null;
-
-  const is_admin_email = Boolean(
-    session?.user &&
-      (is_admin_account(session.user, syncedProfile) ||
-        data.is_admin ||
-        syncedProfile?.role === "admin"),
-  );
-
-  // Effective Profile & Role Logic
-  const profile: Profile | null = session
-    ? syncedProfile
-      ? {
-          ...syncedProfile,
-          role: (is_admin_email ? "admin" : syncedProfile.role || "user") as
-            | "user"
-            | "admin",
-        }
-      : {
-          id: session.user.id,
-          full_name:
-            session.user.user_metadata?.full_name ||
-            session.user.email ||
-            "مستخدم",
-          mobile_number: session.user.user_metadata?.mobile_number || "",
-          role: (is_admin_email
-            ? "admin"
-            : session.user.user_metadata?.role || "user") as "user" | "admin",
-          is_approved: true,
-          is_active: true,
-          mobile_verified: true,
-          subscription_start_date: new Date().toISOString(),
-          subscription_end_date: new Date(
-            Date.now() + 365 * 24 * 60 * 60 * 1000,
-          ).toISOString(),
-        }
-    : null;
-
-  // Ensure that when an admin logs in, they always land on AdminDashboard directly (reset any stale viewing user id)
-  useEffect(() => {
-    if (session?.user?.id && is_admin_email) {
-      const justLoggedInKey = `just_logged_in_user_${session.user.id}`;
-      if (sessionStorage.getItem(justLoggedInKey) === "true") {
-        sessionStorage.removeItem(justLoggedInKey);
-        if (data.admin_viewing_user_id) {
-          data.set_admin_viewing_user_id(null);
+        if (!error) {
+          console.log("Admin role upgraded successfully");
+          await data.fetch_and_refresh();
+        } else {
+          console.error("Failed to upgrade admin role:", error);
         }
       }
-    }
-  }, [session?.user?.id, is_admin_email, data.admin_viewing_user_id]);
+    };
+    syncAdminRole();
+  }, [session?.user?.id, profile?.role]);
 
   useEffect(() => {
     if (session) {
@@ -833,16 +654,8 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
     profile?.full_name || session?.user.user_metadata?.full_name || "مستخدم";
 
   const handleLogout = async () => {
-    const currentUserId = session?.user?.id;
     sessionStorage.clear();
     localStorage.removeItem("lawyerAppLastUser");
-    localStorage.removeItem("lawyerAppLastUserData");
-    if (currentUserId) {
-      localStorage.removeItem(`lawyerAppUserProfile_${currentUserId}`);
-      localStorage.removeItem(`lawyerAppIsAdmin_${currentUserId}`);
-    }
-    data.set_admin_viewing_user_id(null);
-    setLiveUserProfile(null);
     setSession(null);
     if (supabase) await supabase.auth.signOut();
     onRefresh();
@@ -881,15 +694,7 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
         on_force_setup={() => setShowConfigModal(true)}
         on_login_success={(u) => {
           sessionStorage.setItem(`just_logged_in_user_${u.id}`, "true");
-          data.set_admin_viewing_user_id(null);
-          try {
-            const cachedProf = localStorage.getItem(
-              `lawyerAppUserProfile_${u.id}`,
-            );
-            if (cachedProf) setLiveUserProfile(JSON.parse(cachedProf));
-          } catch (e) {}
           setSession({ user: u } as any);
-          setIsAuthLoading(false);
         }}
         sync_log={syncLog}
         on_clear_log={clearSyncLog}
@@ -897,45 +702,6 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
         is_update_available={data.is_update_available}
       />
     );
-
-  // Immediately route platform admin accounts to AdminDashboard without showing the Lawyer Office UI,
-  // unless the admin has explicitly chosen to browse a specific user's office from inside AdminDashboard.
-  if (
-    ((profile && profile.role === "admin") || is_admin_email) &&
-    !data.admin_viewing_user_id
-  ) {
-    return (
-      <DataProvider value={data}>
-        <AdminDashboard
-          on_logout={handleLogout}
-          on_open_config={() => setShowConfigModal(true)}
-        />
-        <NotificationCenter
-          appointmentAlerts={data.triggered_alerts}
-          realtimeAlerts={data.realtime_alerts}
-          userApprovalAlerts={data.user_approval_alerts}
-          dismissAppointmentAlert={data.dismiss_alert}
-          dismissRealtimeAlert={data.dismiss_realtime_alert}
-          dismissUserApprovalAlert={data.dismiss_user_approval_alert}
-        />
-      </DataProvider>
-    );
-  }
-
-  // Wait for cloud profile role verification if not yet cached locally so an admin never flashes the lawyer office UI
-  if (isProfileResolving && !syncedProfile && !is_admin_email) {
-    return (
-      <div
-        className="fixed inset-0 bg-white flex flex-col items-center justify-center p-6 text-center"
-        dir="rtl"
-      >
-        <ArrowPathIcon className="w-12 h-12 animate-spin text-blue-600 mb-4" />
-        <h2 className="text-lg font-bold text-slate-800">
-          جاري التحقق من صلاحيات الحساب...
-        </h2>
-      </div>
-    );
-  }
 
   if (
     (data.is_data_loading ||
@@ -1084,6 +850,25 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
     );
   }
 
+  if (profile && profile.role === "admin" && !data.admin_viewing_user_id) {
+    return (
+      <DataProvider value={data}>
+        <AdminDashboard
+          on_logout={handleLogout}
+          on_open_config={() => setShowConfigModal(true)}
+        />
+        <NotificationCenter
+          appointmentAlerts={data.triggered_alerts}
+          realtimeAlerts={data.realtime_alerts}
+          userApprovalAlerts={data.user_approval_alerts}
+          dismissAppointmentAlert={data.dismiss_alert}
+          dismissRealtimeAlert={data.dismiss_realtime_alert}
+          dismissUserApprovalAlert={data.dismiss_user_approval_alert}
+        />
+      </DataProvider>
+    );
+  }
+
   if (
     session &&
     !is_admin_email &&
@@ -1114,7 +899,6 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
   if (
     profile &&
     profile.role !== "admin" &&
-    !is_admin_email &&
     (!profile.is_approved || !profile.is_active)
   )
     return (
@@ -1126,8 +910,6 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
     );
   if (
     profile &&
-    profile.role !== "admin" &&
-    !is_admin_email &&
     profile.subscription_end_date &&
     is_before_today(profile.subscription_end_date)
   )

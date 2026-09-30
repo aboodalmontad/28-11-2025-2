@@ -14,7 +14,6 @@ import {
 } from "../types";
 import type { User } from "@supabase/supabase-js";
 import { safe_revive_date, to_input_date_string } from "../utils/dateUtils";
-import { is_admin_account, is_designated_admin_identifier } from "../utils/mobileUtils";
 
 export type FlatData = {
   clients: Omit<Client, "cases">[];
@@ -138,11 +137,24 @@ export const fetch_data_from_supabase = async (
   if (currentUser) {
     const { data: profile } = await supabase
       .from("profiles")
-      .select("role, lawyer_id, mobile_number")
+      .select("role, lawyer_id")
       .eq("id", currentUser.id)
       .maybeSingle();
+    is_admin_user = profile?.role === "admin";
     lawyer_id = profile?.lawyer_id;
-    is_admin_user = is_admin_account(currentUser, profile);
+
+    const adminEmails = [
+      "nahwiabdo@gmail.com",
+      "avocat.nahwi@gmail.com",
+      "sy963958932922@email.com",
+    ];
+    if (
+      !is_admin_user &&
+      currentUser.email &&
+      adminEmails.includes(currentUser.email)
+    ) {
+      is_admin_user = true;
+    }
   }
 
   // If a user_id is provided AND it's different from the requester,
@@ -281,6 +293,9 @@ export const fetch_data_from_supabase = async (
 
   while (attempt < max_retries) {
     try {
+      // Ensure session is fresh before parallel calls to avoid lock stealing
+      await supabase.auth.getSession();
+
       // Determine all relevant user IDs if a specific user_id is provided
       let all_user_ids: string[] | undefined = undefined;
       let all_profile_ids: string[] | undefined = undefined;
@@ -609,15 +624,22 @@ export const upsert_data_to_supabase = async (
   // Fetch profile to determine the correct user_id (lawyer_id if assistant) and role
   const { data: profile, error: profile_error } = await supabase
     .from("profiles")
-    .select("lawyer_id, role, mobile_number")
+    .select("lawyer_id, role")
     .eq("id", user.id)
     .maybeSingle();
   if (profile_error) throw profile_error;
 
   // Priority: 1. effective_user_id (passed from context, e.g. admin viewing user), 2. lawyer_id (if assistant), 3. user.id
   const user_id_to_use = effective_user_id || profile?.lawyer_id || user.id;
-  const is_admin_user = is_admin_account(user, profile);
-  const is_admin_frontend = is_admin_user;
+  const is_admin_user = profile?.role === "admin";
+
+  const DESIGNATED_ADMIN_EMAILS = [
+    "nahwiabdo@gmail.com",
+    "avocat.nahwi@gmail.com",
+    "sy963958932922@email.com",
+  ];
+  const is_admin_frontend =
+    DESIGNATED_ADMIN_EMAILS.includes(user.email || "") || is_admin_user;
 
   const data_to_upsert = {
     clients: data.clients?.map((client) => ({
@@ -660,10 +682,11 @@ export const upsert_data_to_supabase = async (
       opponent_name: s.opponent_name,
       postponement_reason: s.postponement_reason,
       next_postponement_reason: s.next_postponement_reason,
-      is_postponed: Boolean(s.is_postponed || s.next_session_date),
-      next_session_date: s.next_session_date || null,
+      is_postponed: s.is_postponed,
+      next_session_date: s.next_session_date,
       assignee: s.assignee,
       stage_id: s.stage_id,
+      stage_decision_date: s.stage_decision_date,
       updated_at: s.updated_at,
       user_id: s.user_id || user_id_to_use,
     })),
@@ -761,8 +784,8 @@ export const upsert_data_to_supabase = async (
       subscription_start_date: profile.subscription_start_date,
       subscription_end_date: profile.subscription_end_date,
       role:
-        (is_admin_account(user, profile) && profile.id === user.id) ||
-        is_designated_admin_identifier(profile.mobile_number)
+        DESIGNATED_ADMIN_EMAILS.includes(user.email || "") &&
+        profile.id === user.id
           ? "admin"
           : profile.role,
       permissions: profile.permissions,
@@ -827,19 +850,6 @@ export const upsert_data_to_supabase = async (
     return cleaned;
   };
 
-  const core_tables = new Set([
-    "clients",
-    "cases",
-    "stages",
-    "sessions",
-    "admin_tasks",
-    "appointments",
-    "accounting_entries",
-    "invoices",
-    "invoice_items",
-    "case_documents",
-  ]);
-
   const upsert_table = async (
     table: string,
     records: any[] | undefined,
@@ -865,7 +875,6 @@ export const upsert_data_to_supabase = async (
               `Error in batch upsert for ${table}: ${error.message}. Attempting one-by-one fallback...`,
             );
             const successful_records: any[] = [];
-            let first_failed_error: any = null;
             for (const rec of records) {
               try {
                 const { data: single_data, error: single_error } = await supabase
@@ -891,16 +900,6 @@ export const upsert_data_to_supabase = async (
                       continue;
                     }
                   }
-                  if (
-                    single_msg.includes("abort") ||
-                    single_msg.includes("lock") ||
-                    single_msg.includes("failed to fetch") ||
-                    single_msg.includes("network") ||
-                    single_msg.includes("timeout")
-                  ) {
-                    throw single_error;
-                  }
-                  if (!first_failed_error) first_failed_error = single_error;
                   console.warn(
                     `Skipping invalid record in ${table} due to error:`,
                     single_error,
@@ -908,31 +907,9 @@ export const upsert_data_to_supabase = async (
                 } else if (single_data) {
                   successful_records.push(...single_data);
                 }
-              } catch (single_e: any) {
-                const single_e_msg = String(single_e?.message || "").toLowerCase();
-                if (
-                  single_e_msg.includes("abort") ||
-                  single_e_msg.includes("lock") ||
-                  single_e_msg.includes("failed to fetch") ||
-                  single_e_msg.includes("network") ||
-                  single_e_msg.includes("timeout")
-                ) {
-                  throw single_e;
-                }
-                if (!first_failed_error) first_failed_error = single_e;
+              } catch (single_e) {
                 console.warn(`Error upserting record in ${table}:`, single_e);
               }
-            }
-            if (
-              core_tables.has(table) &&
-              first_failed_error &&
-              successful_records.length < records.length
-            ) {
-              const errToThrow = new Error(
-                first_failed_error.message || `Failed to upsert all records in ${table}`,
-              ) as any;
-              errToThrow.table = table;
-              throw errToThrow;
             }
             return successful_records;
           }
@@ -942,7 +919,7 @@ export const upsert_data_to_supabase = async (
             (message.includes("relation") && message.includes("does not exist")) ||
             message.includes("does not exist");
 
-          if (is_missing_table_error && !core_tables.has(table)) {
+          if (is_missing_table_error) {
             console.warn(
               `Table "${table}" does not exist in Supabase database during upsert error handling. Gracefully skipping.`
             );
@@ -969,14 +946,11 @@ export const upsert_data_to_supabase = async (
             }
           }
 
-          const is_transient_network_error =
+          if (
             message.includes("abort") ||
             message.includes("lock") ||
-            message.includes("failed to fetch") ||
-            message.includes("network") ||
-            message.includes("timeout");
-
-          if (is_transient_network_error) {
+            message.includes("failed to fetch")
+          ) {
             if (attempt < max_retries - 1) {
               attempt++;
               console.warn(
@@ -987,11 +961,6 @@ export const upsert_data_to_supabase = async (
               );
               continue;
             }
-            throw error;
-          }
-          if (core_tables.has(table)) {
-            (error as any).table = table;
-            throw error;
           }
           console.warn(
             `Non-retryable or permanent upsert error on table "${table}": ${message}. Gracefully skipping to prevent sync crash.`
@@ -1006,44 +975,30 @@ export const upsert_data_to_supabase = async (
           (message.includes("relation") && message.includes("does not exist")) ||
           message.includes("does not exist");
 
-        if (is_missing_table_error && !core_tables.has(table)) {
+        if (is_missing_table_error) {
           console.warn(
             `Table "${table}" does not exist in Supabase database during upsert catch block. Gracefully skipping.`
           );
           return [];
         }
 
-        const is_transient_network_error =
-          message.includes("abort") ||
-          message.includes("lock") ||
-          message.includes("failed to fetch") ||
-          message.includes("network") ||
-          message.includes("timeout");
-
-        if (is_transient_network_error) {
-          if (attempt < max_retries - 1) {
-            attempt++;
-            await new Promise((resolve) =>
-              setTimeout(resolve, 500 * attempt + Math.random() * 500),
-            );
-            continue;
-          }
-          throw err;
-        }
-        if (core_tables.has(table)) {
-          err.table = table;
-          throw err;
+        if (
+          (message.includes("abort") ||
+            message.includes("lock") ||
+            message.includes("failed to fetch")) &&
+          attempt < max_retries - 1
+        ) {
+          attempt++;
+          await new Promise((resolve) =>
+            setTimeout(resolve, 500 * attempt + Math.random() * 500),
+          );
+          continue;
         }
         console.warn(
           `Non-retryable or permanent upsert error on table "${table}" in catch: ${message}. Gracefully skipping to prevent sync crash.`
         );
         return [];
       }
-    }
-    if (core_tables.has(table)) {
-      const finalErr = new Error(`Failed to upsert to ${table} after multiple attempts.`) as any;
-      finalErr.table = table;
-      throw finalErr;
     }
     console.warn(`Failed to upsert to ${table} after multiple attempts. Gracefully skipping.`);
     return [];
@@ -1106,7 +1061,7 @@ export const transform_remote_to_local = (remote: any): Partial<FlatData> => {
     stages: remote.stages || [],
     sessions: (remote.sessions || []).map((s: any) => ({
       ...s,
-      is_postponed: Boolean(s.is_postponed || s.next_session_date),
+      is_postponed: Boolean(s.is_postponed),
     })),
     admin_tasks: (remote.admin_tasks || []).map((task: any) => {
       let img = task.image_url;
@@ -1127,10 +1082,7 @@ export const transform_remote_to_local = (remote: any): Partial<FlatData> => {
     }),
     appointments: remote.appointments || [],
     accounting_entries: remote.accounting_entries || [],
-    assistants: (remote.assistants || []).map((a: any) => ({
-      name: a.name,
-      user_id: a.user_id,
-    })),
+    assistants: (remote.assistants || []).map((a: any) => ({ name: a.name })),
     invoices: remote.invoices || [],
     invoice_items: remote.invoice_items || [],
     case_documents: remote.case_documents || [],
