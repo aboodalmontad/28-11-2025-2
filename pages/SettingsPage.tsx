@@ -27,13 +27,15 @@ import AssistantsManager from "../components/AssistantsManager";
 
 interface SettingsPageProps {
   onNavigate?: (page: string) => void;
+  onLogout?: () => void;
 }
 
-const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
+const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onLogout }) => {
   const {
     set_full_data,
     assistants,
     set_assistants,
+    profiles,
     user_id,
     user,
     is_auto_sync_enabled,
@@ -53,6 +55,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
   const [newPassword, setNewPassword] = React.useState("");
   const [confirmPassword, setConfirmPassword] = React.useState("");
   const [isChangingPassword, setIsChangingPassword] = React.useState(false);
+  const [is_pwd_confirm_modal_open, set_is_pwd_confirm_modal_open] = React.useState(false);
+  const [is_pwd_success_modal_open, set_is_pwd_success_modal_open] = React.useState(false);
 
   const [feedback, set_feedback] = React.useState<{
     message: string;
@@ -80,11 +84,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
     setTimeout(() => set_feedback(null), 4000);
   };
 
-  const handle_change_password = async (e: React.FormEvent) => {
+  const handle_change_password_request = (e: React.FormEvent) => {
     e.preventDefault();
-
-    const confirmed = window.confirm("هل أنت متأكد من رغبتك في تغيير كلمة المرور؟");
-    if (!confirmed) return;
 
     if (!user?.email) {
       show_feedback("لم يتم العثور على بريد إلكتروني للمستخدم", "error");
@@ -97,10 +98,15 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
     }
 
     if (newPassword.length < 6) {
-      show_feedback("كلمة المرور يجب أن تكون 6 أحرف على الأقل", "error");
+      show_feedback("يجب أن لا تقل كلمة المرور عن ستة رموز", "error");
       return;
     }
 
+    set_is_pwd_confirm_modal_open(true);
+  };
+
+  const perform_password_change = async () => {
+    set_is_pwd_confirm_modal_open(false);
     setIsChangingPassword(true);
     try {
       const supabase = get_supabase_client();
@@ -108,7 +114,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
 
       // 1. Verify current password by signing in
       const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: user.email,
+        email: user?.email || "",
         password: currentPassword,
       });
 
@@ -127,7 +133,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
         throw updateError;
       }
 
-      show_feedback("تم تغيير كلمة المرور بنجاح", "success");
+      // Success!
+      set_is_pwd_success_modal_open(true);
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
@@ -136,6 +143,13 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
       show_feedback(error.message || "فشل تغيير كلمة المرور", "error");
     } finally {
       setIsChangingPassword(false);
+    }
+  };
+
+  const handle_logout_after_pwd_change = () => {
+    set_is_pwd_success_modal_open(false);
+    if (onLogout) {
+      onLogout();
     }
   };
 
@@ -334,21 +348,60 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
 
       {permissions?.can_delete_client && (
         <div className="bg-white p-6 rounded-lg shadow space-y-4">
-          <h2 className="text-xl font-bold text-gray-800 border-b pb-3 flex items-center gap-2">
-            <UserGroupIcon className="w-6 h-6 text-blue-600" />
-            إدارة المساعدين والصلاحيات
-          </h2>
-          <p className="text-gray-600 text-sm">
-            هنا يمكنك استعراض المساعدين الذين انضموا لمكتبك، تفعيل حساباتهم،
-            وتحديد صلاحيات الوصول الخاصة بهم بشكل دقيق.
-          </p>
-          <button
-            onClick={() => set_is_assistants_manager_open(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <UserGroupIcon className="w-5 h-5" />
-            <span>فتح لوحة تعريف المساعدين</span>
-          </button>
+          {(() => {
+            const pendingAssistantsCount = (profiles || []).filter(
+              (p) => p.lawyer_id === user_id && !p.is_approved
+            ).length;
+
+            return (
+              <>
+                <div className="flex justify-between items-center border-b pb-3">
+                  <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                    <UserGroupIcon className="w-6 h-6 text-blue-600" />
+                    <span>إدارة المساعدين والمحامين في المكتب</span>
+                  </h2>
+                  {pendingAssistantsCount > 0 && (
+                    <span className="px-2.5 py-1 bg-amber-100 text-amber-800 text-xs font-bold rounded-full border border-amber-300 animate-pulse">
+                      {pendingAssistantsCount} بانتظار الموافقة
+                    </span>
+                  )}
+                </div>
+
+                {pendingAssistantsCount > 0 && (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-900 text-xs">
+                    <div className="flex items-center gap-2 font-medium">
+                      <ExclamationTriangleIcon className="w-5 h-5 text-amber-600 flex-shrink-0" />
+                      <span>
+                        يوجد <strong>{pendingAssistantsCount}</strong> طلب انضمام جديد لمكتبك بانتظار موافقتك للسماح بالدخول. لن يتمكن المحامي أو المساعد من دخول المكتب حتى توافق عليه.
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => set_is_assistants_manager_open(true)}
+                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow-sm flex-shrink-0 self-start sm:self-auto"
+                    >
+                      مراجعة وقبول الطلبات
+                    </button>
+                  </div>
+                )}
+
+                <p className="text-gray-600 text-sm">
+                  هنا يمكنك استعراض المحامين والمساعدين الذين انضموا لمكتبك، الموافقة على طلباتهم للسماح لهم بالدخول، وتحديد صلاحيات الوصول الخاصة بهم بكل دقة.
+                </p>
+                <button
+                  onClick={() => set_is_assistants_manager_open(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+                >
+                  <UserGroupIcon className="w-5 h-5" />
+                  <span>فتح لوحة إدارة المساعدين والصلاحيات</span>
+                  {pendingAssistantsCount > 0 && (
+                    <span className="bg-amber-400 text-amber-950 text-xs font-black px-2 py-0.5 rounded-full mr-1">
+                      {pendingAssistantsCount} طلب جديد
+                    </span>
+                  )}
+                </button>
+              </>
+            );
+          })()}
         </div>
       )}
 
@@ -665,7 +718,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
           <KeyIcon className="w-6 h-6 text-indigo-600" />
           تغيير كلمة المرور
         </h2>
-        <form onSubmit={handle_change_password} className="space-y-4 max-w-md">
+        <form onSubmit={handle_change_password_request} className="space-y-4 max-w-md">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               كلمة المرور الحالية
@@ -692,6 +745,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               placeholder="••••••••"
             />
+            <p className="mt-1 text-xs text-gray-500">يجب أن لا تقل عن ستة رموز.</p>
           </div>
 
           <div>
@@ -782,6 +836,62 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
         <AssistantsManager
           onClose={() => set_is_assistants_manager_open(false)}
         />
+      )}
+
+      {/* Password Change Confirmation Modal */}
+      {is_pwd_confirm_modal_open && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-6 text-center">
+              <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-yellow-100 mb-4">
+                <ExclamationTriangleIcon className="h-6 w-6 text-yellow-600" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">تأكيد تغيير كلمة المرور</h3>
+              <p className="text-sm text-gray-500">
+                هل أنت متأكد من رغبتك في تغيير كلمة المرور؟ سيتم تسجيل خروجك من النظام فور النجاح للأمان.
+              </p>
+            </div>
+            <div className="bg-gray-50 px-6 py-4 flex flex-row-reverse gap-3">
+              <button
+                onClick={perform_password_change}
+                className="flex-1 bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-colors"
+              >
+                تأكيد التغيير
+              </button>
+              <button
+                onClick={() => set_is_pwd_confirm_modal_open(false)}
+                className="flex-1 bg-white text-gray-700 border border-gray-300 px-4 py-2 rounded-lg font-bold hover:bg-gray-50 transition-colors"
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Password Change Success Modal */}
+      {is_pwd_success_modal_open && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-8 text-center">
+              <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-green-100 mb-6">
+                <CheckCircleIcon className="h-10 w-10 text-green-600" />
+              </div>
+              <h3 className="text-2xl font-black text-gray-900 mb-2">تم التغيير بنجاح!</h3>
+              <p className="text-gray-500 font-medium">
+                لقد تم تحديث كلمة المرور الخاصة بك بنجاح. يرجى تسجيل الدخول مجدداً بكلمة المرور الجديدة.
+              </p>
+            </div>
+            <div className="px-8 pb-8">
+              <button
+                onClick={handle_logout_after_pwd_change}
+                className="w-full bg-green-600 text-white px-6 py-3 rounded-xl font-black text-lg shadow-lg shadow-green-200 hover:bg-green-700 hover:shadow-xl transition-all active:scale-[0.98]"
+              >
+                الخروج وتسجيل الدخول
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

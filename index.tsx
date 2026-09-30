@@ -33,6 +33,23 @@ class ErrorBoundary extends React.Component<
 
   componentDidCatch(error: any, errorInfo: any) {
     console.error("Uncaught React Error:", error, errorInfo);
+    const errStr = String(error || "");
+    if (
+      errStr.includes("Invalid hook call") ||
+      errStr.includes("reading 'useState'") ||
+      errStr.includes("reading 'useEffect'") ||
+      errStr.includes("reading 'useContext'")
+    ) {
+      if ("caches" in window) {
+        caches.keys().then((names) => {
+          names.forEach((name) => caches.delete(name));
+        });
+      }
+      if (!sessionStorage.getItem("react_cache_purged_reload")) {
+        sessionStorage.setItem("react_cache_purged_reload", "true");
+        window.location.reload();
+      }
+    }
   }
 
   render() {
@@ -162,6 +179,16 @@ const AppWrapper: React.FC = () => {
 
   React.useLayoutEffect(() => {
     hideInitialLoader();
+    sessionStorage.removeItem("react_cache_purged_reload");
+    if ("caches" in window) {
+      caches.keys().then((names) => {
+        names.forEach((name) => {
+          if (name !== "lawyer-app-cache-v2026-09-28-v6") {
+            caches.delete(name);
+          }
+        });
+      });
+    }
   }, []);
 
   const handleRefresh = () => {

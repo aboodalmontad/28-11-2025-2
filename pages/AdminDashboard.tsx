@@ -75,6 +75,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     unfiltered_data,
     is_update_available,
     manual_sync,
+    fetch_and_refresh,
     sync_status,
   } = useData();
   const { showFeedback, confirm } = useFeedback();
@@ -85,6 +86,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const is_online = useOnlineStatus();
 
   const isSyncActive = is_syncing || sync_status === "syncing";
+
+  // Automatically fetch and refresh users list and cloud data upon entering AdminDashboard
+  const hasAutoRefreshedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!is_online) return;
+    if (!hasAutoRefreshedRef.current) {
+      hasAutoRefreshedRef.current = true;
+      fetch_and_refresh().catch((err) => {
+        console.warn("Auto refresh on AdminDashboard mount failed:", err);
+      });
+    }
+  }, [is_online, fetch_and_refresh]);
 
   const handle_admin_sync = async () => {
     if (isSyncActive) return;
@@ -247,10 +260,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  if (loading) {
+  if (loading && profiles.length === 0) {
     return (
-      <div className="flex justify-center items-center h-screen">
-        جاري تحميل...
+      <div
+        className="flex flex-col justify-center items-center h-screen bg-gray-50 gap-3"
+        dir="rtl"
+      >
+        <ArrowPathIcon className="w-10 h-10 text-blue-600 animate-spin" />
+        <span className="font-bold text-gray-700">
+          جاري تحميل وتحديث بيانات لوحة الإدارة...
+        </span>
       </div>
     );
   }
