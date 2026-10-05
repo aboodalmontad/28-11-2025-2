@@ -804,7 +804,7 @@ const AdminPage: React.FC = () => {
     return { total, expired, expiringSoon, active };
   }, [users]);
 
-  if (loading && users.length === 0) {
+  if (loading) {
     return <div className="text-center p-8">جاري تحميل المستخدمين...</div>;
   }
 

@@ -15,33 +15,9 @@ export default defineConfig(({ mode }) => {
       "process.env.GEMINI_API_KEY": JSON.stringify(env.GEMINI_API_KEY),
     },
     resolve: {
-      dedupe: [
-        "react",
-        "react-dom",
-        "react/jsx-runtime",
-        "react/jsx-dev-runtime",
-      ],
       alias: {
         "@": path.resolve("."),
       },
-    },
-    optimizeDeps: {
-      include: [
-        "react",
-        "react-dom",
-        "react-dom/client",
-        "react/jsx-runtime",
-        "react/jsx-dev-runtime",
-        "@supabase/supabase-js",
-        "lucide-react",
-        "recharts",
-        "idb",
-        "docx-preview",
-        "jszip",
-        "date-fns",
-        "react-datepicker",
-        "motion",
-      ],
     },
   };
 });

@@ -23,7 +23,7 @@ export type FlatData = {
   admin_tasks: AdminTask[];
   appointments: Appointment[];
   accounting_entries: AccountingEntry[];
-  assistants: { name: string; user_id?: string; updated_at?: string }[];
+  assistants: { name: string }[];
   invoices: Omit<Invoice, "items">[];
   invoice_items: InvoiceItem[];
   case_documents: CaseDocument[];
@@ -120,56 +120,29 @@ export const check_supabase_schema = async () => {
   };
 };
 
-export interface FetchDataOptions {
-  since?: string;
-  include_deletions?: boolean;
-  tables?: string[];
-  force_profiles?: boolean;
-  known_is_admin?: boolean;
-  known_lawyer_id?: string | null;
-  known_assistant_ids?: string[];
-}
-
 export const fetch_data_from_supabase = async (
   user_id?: string,
-  options?: FetchDataOptions,
 ): Promise<Partial<FlatData>> => {
   const supabase = get_supabase_client();
   if (!supabase) throw new Error("Supabase client not available.");
-
-  const since = options?.since;
-  const include_deletions = options?.include_deletions ?? !since;
-  const target_tables = options?.tables
-    ? new Set(options.tables)
-    : null;
 
   // 1. Determine if the REQUESTER is an admin
   const {
     data: { session },
   } = await supabase.auth.getSession();
   const currentUser = session?.user;
-  let is_admin_user = options?.known_is_admin ?? false;
-  let lawyer_id: string | null = options?.known_lawyer_id ?? null;
+  let is_admin_user = false;
+  let lawyer_id: string | null = null;
 
-  if (
-    currentUser &&
-    options?.known_is_admin === undefined &&
-    options?.known_lawyer_id === undefined
-  ) {
+  if (currentUser) {
     const { data: profile } = await supabase
       .from("profiles")
       .select("role, lawyer_id")
       .eq("id", currentUser.id)
       .maybeSingle();
     is_admin_user = profile?.role === "admin";
-    lawyer_id = profile?.lawyer_id || null;
-  }
+    lawyer_id = profile?.lawyer_id;
 
-  if (lawyer_id && currentUser && (!user_id || user_id === currentUser.id)) {
-    user_id = lawyer_id;
-  }
-
-  if (currentUser) {
     const adminEmails = [
       "nahwiabdo@gmail.com",
       "avocat.nahwi@gmail.com",
@@ -195,17 +168,10 @@ export const fetch_data_from_supabase = async (
   // For the query logic below, we'll use is_admin_user to mean "should fetch everything"
   const effective_is_admin = should_fetch_everything;
 
-  const query = (
-    table: string,
-    all_user_ids?: string[],
-    use_since = true,
-  ) => {
+  const query = (table: string, all_user_ids?: string[]) => {
     let q = supabase.from(table).select("*");
 
     if (table === "profiles" && is_admin_user) {
-      if (use_since && since && !options?.force_profiles) {
-        q = q.gte("updated_at", since);
-      }
       return q;
     }
 
@@ -237,30 +203,16 @@ export const fetch_data_from_supabase = async (
         }
       }
     }
-
-    if (use_since && since) {
-      if (table === "sync_deletions") {
-        q = q.gte("deleted_at", since);
-      } else if (table === "profiles" && options?.force_profiles) {
-        // Fetch full profile if local profiles are empty
-      } else {
-        q = q.gte("updated_at", since);
-      }
-    }
-
     return q;
   };
 
   const fetch_table = async (table: string, all_user_ids?: string[]) => {
-    if (target_tables && !target_tables.has(table)) {
-      return [];
-    }
-
     let all_data: any[] = [];
     let from = 0;
     const PAGE_SIZE = 1000;
     let has_more = true;
-    let use_since = Boolean(since);
+
+    console.log(`Starting fetch for table: ${table}...`);
 
     while (has_more) {
       let table_attempt = 0;
@@ -269,7 +221,7 @@ export const fetch_data_from_supabase = async (
 
       while (table_attempt < table_max_retries) {
         try {
-          const res = await query(table, all_user_ids, use_since).range(
+          const res = await query(table, all_user_ids).range(
             from,
             from + PAGE_SIZE - 1,
           );
@@ -278,21 +230,6 @@ export const fetch_data_from_supabase = async (
           break;
         } catch (err: any) {
           const message = String(err.message || "").toLowerCase();
-
-          // If the table does not have updated_at column in an older schema, fallback to fetching without since
-          if (
-            use_since &&
-            (err.code === "42703" ||
-              message.includes("updated_at") ||
-              (message.includes("column") && message.includes("does not exist")))
-          ) {
-            console.warn(
-              `Column "updated_at" missing on "${table}", falling back to full table fetch.`,
-            );
-            use_since = false;
-            continue;
-          }
-
           const is_missing_table_error =
             err.code === "42P01" ||
             (message.includes("relation") && message.includes("does not exist")) ||
@@ -329,6 +266,9 @@ export const fetch_data_from_supabase = async (
       }
 
       all_data = [...all_data, ...chunk];
+      console.log(
+        `Fetched ${chunk.length} records from ${table} (Total: ${all_data.length})`,
+      );
 
       if (chunk.length < PAGE_SIZE) {
         has_more = false;
@@ -338,6 +278,8 @@ export const fetch_data_from_supabase = async (
     }
 
     if (all_data.length === 0 && from > 0) {
+      // This case should be handled by the throw inside the loop,
+      // but as a safety check:
       throw new Error(
         `Failed to fetch data from ${table} after multiple attempts.`,
       );
@@ -351,27 +293,26 @@ export const fetch_data_from_supabase = async (
 
   while (attempt < max_retries) {
     try {
+      // Ensure session is fresh before parallel calls to avoid lock stealing
+      await supabase.auth.getSession();
+
       // Determine all relevant user IDs if a specific user_id is provided
       let all_user_ids: string[] | undefined = undefined;
       let all_profile_ids: string[] | undefined = undefined;
       if (user_id && !should_fetch_everything) {
-        let assistant_ids = options?.known_assistant_ids;
-        if (assistant_ids === undefined) {
-          const { data: assistants } = await supabase
-            .from("profiles")
-            .select("id")
-            .eq("lawyer_id", user_id);
-          assistant_ids = assistants?.map((a) => a.id) || [];
-        }
-        all_user_ids = [user_id, ...assistant_ids];
+        const { data: assistants } = await supabase
+          .from("profiles")
+          .select("id")
+          .eq("lawyer_id", user_id);
+        all_user_ids = [user_id, ...(assistants?.map((a) => a.id) || [])];
         all_profile_ids = [...all_user_ids];
         if (currentUser?.id && !all_profile_ids.includes(currentUser.id)) {
           all_profile_ids.push(currentUser.id);
         }
       }
 
-      // Helper to fetch tables in small controlled batches to prevent mobile/Android socket exhaustion
-      const run_in_batches = async <T>(tasks: (() => Promise<T>)[], batch_size = 5): Promise<T[]> => {
+      // Helper to fetch tables in small controlled batches (2 at a time) to prevent mobile/Android socket exhaustion
+      const run_in_batches = async <T>(tasks: (() => Promise<T>)[], batch_size = 2): Promise<T[]> => {
         const results: T[] = [];
         for (let i = 0; i < tasks.length; i += batch_size) {
           const batch = tasks.slice(i, i + batch_size);
@@ -409,17 +350,12 @@ export const fetch_data_from_supabase = async (
         () => fetch_table("invoice_items", all_user_ids),
         () => fetch_table("case_documents", all_user_ids),
         () => fetch_table("site_finances", all_user_ids),
-        () =>
-          include_deletions
-            ? fetch_table("sync_deletions", all_user_ids)
-            : Promise.resolve([]),
+        () => fetch_table("sync_deletions", all_user_ids)
       ], 5);
 
-      // Profiles logic: If admin and no specific user request, fetch all (or delta if since is set).
-      let profiles: any[] = [];
-      if (target_tables && !target_tables.has("profiles") && !options?.force_profiles) {
-        profiles = [];
-      } else if (all_profile_ids) {
+      // Profiles logic: If admin and no specific user request, fetch all.
+      let profiles;
+      if (all_profile_ids) {
         profiles = await fetch_table("profiles", all_profile_ids);
       } else if (should_fetch_everything) {
         profiles = await fetch_table("profiles");
@@ -428,23 +364,15 @@ export const fetch_data_from_supabase = async (
         const target_id = user_id || currentUser.id;
         while (p_attempt < 3) {
           try {
-            let p_query = supabase
+            const res = await supabase
               .from("profiles")
               .select("*")
               .or(`id.eq.${target_id},lawyer_id.eq.${target_id}`);
-            if (since && !options?.force_profiles) {
-              p_query = p_query.gte("updated_at", since);
-            }
-            const res = await p_query;
             if (res.error) {
-              let fallbackQuery = supabase
+              const fallbackRes = await supabase
                 .from("profiles")
                 .select("*")
                 .eq("id", target_id);
-              if (since && !options?.force_profiles) {
-                fallbackQuery = fallbackQuery.gte("updated_at", since);
-              }
-              const fallbackRes = await fallbackQuery;
               if (fallbackRes.error) throw fallbackRes.error;
               profiles = fallbackRes.data || [];
             } else {
@@ -512,13 +440,12 @@ export const fetch_data_from_supabase = async (
 
 export const fetch_deletions_from_supabase = async (
   user_id?: string,
-  since?: string,
 ): Promise<SyncDeletion[]> => {
   const supabase = get_supabase_client();
   if (!supabase) return [];
-  const cutoff_iso =
-    since ||
-    new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const thirty_days_ago = new Date(
+    Date.now() - 30 * 24 * 60 * 60 * 1000,
+  ).toISOString();
 
   const max_retries = 3;
   let attempt = 0;
@@ -530,7 +457,7 @@ export const fetch_deletions_from_supabase = async (
         query = query.or(`user_id.eq.${user_id},user_id.is.null`);
       }
       const { data, error } = await query
-        .gte("deleted_at", cutoff_iso)
+        .gte("deleted_at", thirty_days_ago)
         .order("deleted_at", { ascending: false })
         .limit(1000);
 
@@ -540,14 +467,8 @@ export const fetch_deletions_from_supabase = async (
           .from("sync_deletions")
           .select("*")
           .order("id", { ascending: false })
-          .limit(since ? 100 : 500);
+          .limit(500);
         if (!fallback.error && fallback.data) {
-          if (since) {
-            const since_ms = safe_revive_date(since).getTime();
-            return fallback.data.filter(
-              (d: any) => safe_revive_date(d.deleted_at || 0).getTime() >= since_ms,
-            );
-          }
           return fallback.data;
         }
         const message = String(error.message || "").toLowerCase();
@@ -696,29 +617,21 @@ export const upsert_data_to_supabase = async (
   data: Partial<FlatData>,
   user: User,
   effective_user_id?: string,
-  known_is_admin?: boolean,
-  known_lawyer_id?: string | null,
 ) => {
   const supabase = get_supabase_client();
   if (!supabase) throw new Error("Supabase client not available.");
 
-  let is_admin_user = known_is_admin ?? false;
-  let lawyer_id: string | null = known_lawyer_id ?? null;
-
-  if (known_is_admin === undefined && known_lawyer_id === undefined) {
-    // Fetch profile to determine the correct user_id (lawyer_id if assistant) and role
-    const { data: profile, error: profile_error } = await supabase
-      .from("profiles")
-      .select("lawyer_id, role")
-      .eq("id", user.id)
-      .maybeSingle();
-    if (profile_error) throw profile_error;
-    is_admin_user = profile?.role === "admin";
-    lawyer_id = profile?.lawyer_id || null;
-  }
+  // Fetch profile to determine the correct user_id (lawyer_id if assistant) and role
+  const { data: profile, error: profile_error } = await supabase
+    .from("profiles")
+    .select("lawyer_id, role")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (profile_error) throw profile_error;
 
   // Priority: 1. effective_user_id (passed from context, e.g. admin viewing user), 2. lawyer_id (if assistant), 3. user.id
-  const user_id_to_use = effective_user_id || lawyer_id || user.id;
+  const user_id_to_use = effective_user_id || profile?.lawyer_id || user.id;
+  const is_admin_user = profile?.role === "admin";
 
   const DESIGNATED_ADMIN_EMAILS = [
     "nahwiabdo@gmail.com",
@@ -728,14 +641,12 @@ export const upsert_data_to_supabase = async (
   const is_admin_frontend =
     DESIGNATED_ADMIN_EMAILS.includes(user.email || "") || is_admin_user;
 
-  const now_iso = new Date().toISOString();
-
   const data_to_upsert = {
     clients: data.clients?.map((client) => ({
       id: client.id,
       name: client.name,
       contact_info: client.contact_info,
-      updated_at: client.updated_at || now_iso,
+      updated_at: client.updated_at,
       user_id: client.user_id || user_id_to_use,
     })),
     cases: data.cases?.map((case_item) => ({
@@ -745,7 +656,7 @@ export const upsert_data_to_supabase = async (
       opponent_name: case_item.opponent_name,
       fee_agreement: case_item.fee_agreement,
       status: case_item.status,
-      updated_at: case_item.updated_at || now_iso,
+      updated_at: case_item.updated_at,
       client_id: case_item.client_id,
       user_id: case_item.user_id || user_id_to_use,
     })),
@@ -758,7 +669,7 @@ export const upsert_data_to_supabase = async (
       decision_number: stage.decision_number,
       decision_summary: stage.decision_summary,
       decision_notes: stage.decision_notes,
-      updated_at: stage.updated_at || now_iso,
+      updated_at: stage.updated_at,
       case_id: stage.case_id,
       user_id: stage.user_id || user_id_to_use,
     })),
@@ -776,7 +687,7 @@ export const upsert_data_to_supabase = async (
       assignee: s.assignee,
       stage_id: s.stage_id,
       stage_decision_date: s.stage_decision_date,
-      updated_at: s.updated_at || now_iso,
+      updated_at: s.updated_at,
       user_id: s.user_id || user_id_to_use,
     })),
     admin_tasks: data.admin_tasks?.map((task: any) => {
@@ -793,7 +704,7 @@ export const upsert_data_to_supabase = async (
         assignee: task.assignee,
         location: task.location,
         image_url: task.image_url,
-        updated_at: task.updated_at || now_iso,
+        updated_at: task.updated_at,
         order_index: task.order_index,
         task_type: task.task_type || "admin",
         user_id: task.user_id || user_id_to_use,
@@ -809,7 +720,7 @@ export const upsert_data_to_supabase = async (
       notified: apt.notified,
       reminder_time_in_minutes: apt.reminder_time_in_minutes,
       assignee: apt.assignee,
-      updated_at: apt.updated_at || now_iso,
+      updated_at: apt.updated_at,
       user_id: apt.user_id || user_id_to_use,
     })),
     accounting_entries: data.accounting_entries?.map((entry: any) => ({
@@ -821,13 +732,12 @@ export const upsert_data_to_supabase = async (
       client_id: entry.client_id,
       case_id: entry.case_id,
       client_name: entry.client_name,
-      updated_at: entry.updated_at || now_iso,
+      updated_at: entry.updated_at,
       user_id: entry.user_id || user_id_to_use,
     })),
     assistants: data.assistants?.map((item: any) => ({
       name: item.name,
       user_id: item.user_id || user_id_to_use,
-      updated_at: item.updated_at || now_iso,
     })),
     invoices: data.invoices?.map((inv) => ({
       id: inv.id,
@@ -841,7 +751,7 @@ export const upsert_data_to_supabase = async (
       discount: inv.discount,
       status: inv.status,
       notes: inv.notes,
-      updated_at: inv.updated_at || now_iso,
+      updated_at: inv.updated_at,
       user_id: inv.user_id || user_id_to_use,
     })),
     invoice_items: data.invoice_items?.map((item: any) => ({
@@ -849,7 +759,7 @@ export const upsert_data_to_supabase = async (
       invoice_id: item.invoice_id,
       description: item.description,
       amount: item.amount,
-      updated_at: item.updated_at || now_iso,
+      updated_at: item.updated_at,
       user_id: item.user_id || user_id_to_use,
     })),
     case_documents: data.case_documents?.map((doc: any) => ({
@@ -860,7 +770,7 @@ export const upsert_data_to_supabase = async (
       size: doc.size,
       added_at: doc.added_at,
       storage_path: doc.storage_path,
-      updated_at: doc.updated_at || now_iso,
+      updated_at: doc.updated_at,
       user_id: doc.user_id || user_id_to_use,
     })),
     profiles: data.profiles?.map((profile: any) => ({
@@ -882,7 +792,7 @@ export const upsert_data_to_supabase = async (
       lawyer_id: profile.lawyer_id,
       admin_tasks_layout: profile.admin_tasks_layout,
       created_at: profile.created_at,
-      updated_at: profile.updated_at || now_iso,
+      updated_at: profile.updated_at,
     })),
     site_finances: data.site_finances?.map((finance: any) => ({
       id: finance.id,
@@ -893,7 +803,7 @@ export const upsert_data_to_supabase = async (
       payment_method: finance.payment_method,
       category: finance.category,
       user_id: finance.user_id || user_id_to_use,
-      updated_at: finance.updated_at || now_iso,
+      updated_at: finance.updated_at,
     })),
   };
 
@@ -1172,11 +1082,7 @@ export const transform_remote_to_local = (remote: any): Partial<FlatData> => {
     }),
     appointments: remote.appointments || [],
     accounting_entries: remote.accounting_entries || [],
-    assistants: (remote.assistants || []).map((a: any) => ({
-      name: a.name,
-      user_id: a.user_id,
-      updated_at: a.updated_at,
-    })),
+    assistants: (remote.assistants || []).map((a: any) => ({ name: a.name })),
     invoices: remote.invoices || [],
     invoice_items: remote.invoice_items || [],
     case_documents: remote.case_documents || [],
