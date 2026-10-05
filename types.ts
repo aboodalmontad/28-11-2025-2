@@ -38,7 +38,6 @@ export interface Permissions {
   can_add_admin_task: boolean;
   can_edit_admin_task: boolean;
   can_delete_admin_task: boolean;
-  can_view_only_assigned_tasks?: boolean; // حصر عرض المهام بالمهام الموكلة له فقط
 
   // Reports (التقارير)
   can_view_reports: boolean;
@@ -78,7 +77,6 @@ export const default_permissions: Permissions = {
   can_add_admin_task: true,
   can_edit_admin_task: true,
   can_delete_admin_task: false,
-  can_view_only_assigned_tasks: false,
 
   can_view_reports: false,
 };

@@ -801,8 +801,10 @@ const HomePage: React.FC<HomePageProps> = ({
     set_clients((currentClients) => {
       return currentClients.map((client) => ({
         ...client,
+        updated_at: new Date().toISOString(),
         cases: client.cases.map((caseItem) => ({
           ...caseItem,
+          updated_at: new Date().toISOString(),
           stages: caseItem.stages.map((stage) => {
             const sessionIndex = stage.sessions.findIndex(
               (s) => s.id === sessionId,
@@ -906,8 +908,10 @@ const HomePage: React.FC<HomePageProps> = ({
     set_clients((currentClients) =>
       currentClients.map((client) => ({
         ...client,
+        updated_at: new Date().toISOString(),
         cases: client.cases.map((c) => ({
           ...c,
+          updated_at: new Date().toISOString(),
           stages: c.stages.map((st) => {
             if (st.id === stage.id) {
               return {
@@ -1137,6 +1141,29 @@ const HomePage: React.FC<HomePageProps> = ({
       })
       .sort((a, b) => (a.order_index ?? Infinity) - (b.order_index ?? Infinity));
   }, [admin_tasks, active_task_tab, debounced_admin_task_search]);
+
+  const { external_pending_count, external_completed_count, office_pending_count, office_completed_count } = React.useMemo(() => {
+    let ext_pending = 0;
+    let ext_completed = 0;
+    let off_pending = 0;
+    let off_completed = 0;
+    for (const t of admin_tasks) {
+      const type = t.task_type || "admin";
+      if (type === "office") {
+        if (t.completed) off_completed++;
+        else off_pending++;
+      } else {
+        if (t.completed) ext_completed++;
+        else ext_pending++;
+      }
+    }
+    return {
+      external_pending_count: ext_pending,
+      external_completed_count: ext_completed,
+      office_pending_count: off_pending,
+      office_completed_count: off_completed,
+    };
+  }, [admin_tasks]);
 
   React.useEffect(() => {
     const allKnownLocations = new Set(Object.keys(grouped_tasks));
@@ -1582,7 +1609,7 @@ const HomePage: React.FC<HomePageProps> = ({
             <div className="flex justify-between items-center flex-wrap gap-4">
               <div className="flex items-center gap-4">
                 <h2 className="text-2xl font-semibold">
-                  المهام
+                  {active_task_tab.startsWith("office") ? "مهام المكتب" : "خارج المكتب"}
                 </h2>
                 {permissions.can_add_admin_task && (
                   <button
@@ -1632,63 +1659,109 @@ const HomePage: React.FC<HomePageProps> = ({
               </div>
             </div>
 
-             <div className="border-b border-gray-100 pt-1 space-y-3">
-               <div className="inline-flex p-1.5 bg-gray-100 rounded-xl gap-2 shadow-inner">
+             <div className="pt-2 pb-4 space-y-3">
+               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                  <button
                    onClick={() => set_active_task_tab("pending")}
-                   className={`flex items-center gap-2 px-6 py-2.5 rounded-lg font-bold text-sm transition-all duration-200 ${
+                   className={`p-4 rounded-xl border-2 transition-all flex items-center justify-between shadow-sm text-right ${
                      !active_task_tab.startsWith("office")
-                       ? "bg-blue-600 text-white shadow-md shadow-blue-500/25"
-                       : "text-gray-600 hover:text-gray-900 hover:bg-gray-200/60"
+                       ? "bg-blue-50 border-blue-600 ring-2 ring-blue-200"
+                       : "bg-white border-gray-200 hover:border-gray-300 hover:bg-gray-50"
                    }`}
                  >
-                   <span>خارج المكتب</span>
+                   <div className="flex items-center gap-3">
+                     <div className={`p-3 rounded-lg ${!active_task_tab.startsWith("office") ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600"}`}>
+                       <BuildingLibraryIcon className="w-6 h-6" />
+                     </div>
+                     <div>
+                       <span className="block font-bold text-base text-gray-900">مهام خارج المكتب</span>
+                       <span className="text-xs text-gray-500">القصر العدلي، الدوائر، والمحاكم</span>
+                     </div>
+                   </div>
+                   <div className="flex items-center gap-2">
+                     <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${!active_task_tab.startsWith("office") ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"}`}>
+                       {external_pending_count} معلقة
+                     </span>
+                   </div>
                  </button>
+
                  <button
                    onClick={() => set_active_task_tab("office_pending")}
-                   className={`flex items-center gap-2 px-6 py-2.5 rounded-lg font-bold text-sm transition-all duration-200 ${
+                   className={`p-4 rounded-xl border-2 transition-all flex items-center justify-between shadow-sm text-right ${
                      active_task_tab.startsWith("office")
-                       ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/25"
-                       : "text-gray-600 hover:text-gray-900 hover:bg-gray-200/60"
+                       ? "bg-indigo-50 border-indigo-600 ring-2 ring-indigo-200"
+                       : "bg-white border-gray-200 hover:border-gray-300 hover:bg-gray-50"
                    }`}
                  >
-                   <span>مهام المكتب</span>
+                   <div className="flex items-center gap-3">
+                     <div className={`p-3 rounded-lg ${active_task_tab.startsWith("office") ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-600"}`}>
+                       <HomeIcon className="w-6 h-6" />
+                     </div>
+                     <div>
+                       <span className="block font-bold text-base text-gray-900">مهام المكتب</span>
+                       <span className="text-xs text-gray-500">الأعمال الداخلية والمهام المكتبية</span>
+                     </div>
+                   </div>
+                   <div className="flex items-center gap-2">
+                     <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${active_task_tab.startsWith("office") ? "bg-indigo-600 text-white" : "bg-gray-200 text-gray-700"}`}>
+                       {office_pending_count} معلقة
+                     </span>
+                   </div>
                  </button>
                </div>
-               {!active_task_tab.startsWith("office") && (
-                 <div className="flex items-center gap-2 pt-2 pb-1 animate-fade-in">
-                   <span className="text-xs font-semibold text-gray-600">حالة المهام:</span>
-                   <button
-                     onClick={() => set_active_task_tab("pending")}
-                     className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${active_task_tab === "pending" ? "bg-blue-600 text-white shadow-xs" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
-                   >
-                     المعلقة
-                   </button>
-                   <button
-                     onClick={() => set_active_task_tab("completed")}
-                     className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${active_task_tab === "completed" ? "bg-blue-600 text-white shadow-xs" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
-                   >
-                     المنجزة
-                   </button>
-                 </div>
-               )}
-               {active_task_tab.startsWith("office") && (
-                 <div className="flex items-center gap-2 pt-2 pb-1 animate-fade-in">
-                   <span className="text-xs font-semibold text-gray-600">حالة مهام المكتب:</span>
-                   <button
-                     onClick={() => set_active_task_tab("office_pending")}
-                     className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${active_task_tab === "office_pending" ? "bg-indigo-600 text-white shadow-xs" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
-                   >
-                     المعلقة
-                   </button>
-                   <button
-                     onClick={() => set_active_task_tab("office_completed")}
-                     className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${active_task_tab === "office_completed" ? "bg-indigo-600 text-white shadow-xs" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
-                   >
-                     المنجزة
-                   </button>
-                 </div>
-               )}
+
+               {/* Status sub-filters */}
+               <div className="flex items-center justify-between bg-white p-3 rounded-lg border border-gray-200 shadow-xs">
+                 {!active_task_tab.startsWith("office") ? (
+                   <div className="flex items-center gap-2 w-full">
+                     <span className="text-xs font-bold text-gray-700 ml-2">حالة مهام خارج المكتب:</span>
+                     <button
+                       onClick={() => set_active_task_tab("pending")}
+                       className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                         active_task_tab === "pending"
+                           ? "bg-blue-600 text-white shadow-sm"
+                           : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                       }`}
+                     >
+                       المعلقة ({external_pending_count})
+                     </button>
+                     <button
+                       onClick={() => set_active_task_tab("completed")}
+                       className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                         active_task_tab === "completed"
+                           ? "bg-blue-600 text-white shadow-sm"
+                           : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                       }`}
+                     >
+                       المنجزة ({external_completed_count})
+                     </button>
+                   </div>
+                 ) : (
+                   <div className="flex items-center gap-2 w-full">
+                     <span className="text-xs font-bold text-gray-700 ml-2">حالة مهام المكتب:</span>
+                     <button
+                       onClick={() => set_active_task_tab("office_pending")}
+                       className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                         active_task_tab === "office_pending"
+                           ? "bg-indigo-600 text-white shadow-sm"
+                           : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                       }`}
+                     >
+                       المعلقة ({office_pending_count})
+                     </button>
+                     <button
+                       onClick={() => set_active_task_tab("office_completed")}
+                       className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                         active_task_tab === "office_completed"
+                           ? "bg-indigo-600 text-white shadow-sm"
+                           : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                       }`}
+                     >
+                       المنجزة ({office_completed_count})
+                     </button>
+                   </div>
+                 )}
+               </div>
              </div>
           </div>
 
