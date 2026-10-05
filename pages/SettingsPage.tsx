@@ -12,9 +12,11 @@ import {
   ShieldCheckIcon,
   UserGroupIcon,
   PencilIcon,
+  KeyIcon,
 } from "../components/icons";
 import { Client, AdminTask, Appointment, AccountingEntry } from "../types";
 import { useData } from "../context/DataContext";
+import { get_supabase_client } from "../supabaseClient";
 import {
   get_db,
   DATA_STORE_NAME,
@@ -25,14 +27,17 @@ import AssistantsManager from "../components/AssistantsManager";
 
 interface SettingsPageProps {
   onNavigate?: (page: string) => void;
+  onLogout?: () => void;
 }
 
-const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
+const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onLogout }) => {
   const {
     set_full_data,
     assistants,
     set_assistants,
+    profiles,
     user_id,
+    user,
     is_auto_sync_enabled,
     set_auto_sync_enabled,
     is_auto_backup_enabled,
@@ -43,7 +48,18 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
     export_data,
     permissions,
     is_update_available,
+    whatsapp_preference,
+    set_whatsapp_preference,
   } = useData();
+
+  // Password change state
+  const [currentPassword, setCurrentPassword] = React.useState("");
+  const [newPassword, setNewPassword] = React.useState("");
+  const [confirmPassword, setConfirmPassword] = React.useState("");
+  const [isChangingPassword, setIsChangingPassword] = React.useState(false);
+  const [is_pwd_confirm_modal_open, set_is_pwd_confirm_modal_open] = React.useState(false);
+  const [is_pwd_success_modal_open, set_is_pwd_success_modal_open] = React.useState(false);
+
   const [feedback, set_feedback] = React.useState<{
     message: string;
     type: "success" | "error";
@@ -61,13 +77,79 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
     React.useState(false);
   const [editing_assistant_name, set_editing_assistant_name] = React.useState<string | null>(null);
   const [edited_assistant_name, set_edited_assistant_name] = React.useState<string>("");
-  const [whatsappPreference, setWhatsappPreference] = React.useState<string | null>(() => {
-    return localStorage.getItem("whatsapp_version_choice");
-  });
 
   const show_feedback = (message: string, type: "success" | "error") => {
     set_feedback({ message, type });
     setTimeout(() => set_feedback(null), 4000);
+  };
+
+  const handle_change_password_request = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!user?.email) {
+      show_feedback("لم يتم العثور على بريد إلكتروني للمستخدم", "error");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      show_feedback("كلمة المرور الجديدة غير متطابقة", "error");
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      show_feedback("يجب أن لا تقل كلمة المرور عن ستة رموز", "error");
+      return;
+    }
+
+    set_is_pwd_confirm_modal_open(true);
+  };
+
+  const perform_password_change = async () => {
+    set_is_pwd_confirm_modal_open(false);
+    setIsChangingPassword(true);
+    try {
+      const supabase = get_supabase_client();
+      if (!supabase) throw new Error("Supabase client not initialized");
+
+      // 1. Verify current password by signing in
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: user?.email || "",
+        password: currentPassword,
+      });
+
+      if (signInError) {
+        show_feedback("كلمة المرور الحالية غير صحيحة", "error");
+        setIsChangingPassword(false);
+        return;
+      }
+
+      // 2. Update to new password
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      // Success!
+      set_is_pwd_success_modal_open(true);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (error: any) {
+      console.error("Change password error:", error);
+      show_feedback(error.message || "فشل تغيير كلمة المرور", "error");
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
+
+  const handle_logout_after_pwd_change = () => {
+    set_is_pwd_success_modal_open(false);
+    if (onLogout) {
+      onLogout();
+    }
   };
 
   // ... (existing handlers: handle_confirm_clear_data, handle_export_data, handle_import_data, handle_add_assistant, handle_delete_assistant, handle_confirm_delete_assistant, handle_inspect_db)
@@ -265,21 +347,60 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
 
       {permissions?.can_delete_client && (
         <div className="bg-white p-6 rounded-lg shadow space-y-4">
-          <h2 className="text-xl font-bold text-gray-800 border-b pb-3 flex items-center gap-2">
-            <UserGroupIcon className="w-6 h-6 text-blue-600" />
-            إدارة المساعدين والصلاحيات
-          </h2>
-          <p className="text-gray-600 text-sm">
-            هنا يمكنك استعراض المساعدين الذين انضموا لمكتبك، تفعيل حساباتهم،
-            وتحديد صلاحيات الوصول الخاصة بهم بشكل دقيق.
-          </p>
-          <button
-            onClick={() => set_is_assistants_manager_open(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <UserGroupIcon className="w-5 h-5" />
-            <span>فتح لوحة تعريف المساعدين</span>
-          </button>
+          {(() => {
+            const pendingAssistantsCount = (profiles || []).filter(
+              (p) => p.lawyer_id === user_id && !p.is_approved
+            ).length;
+
+            return (
+              <>
+                <div className="flex justify-between items-center border-b pb-3">
+                  <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                    <UserGroupIcon className="w-6 h-6 text-blue-600" />
+                    <span>إدارة المساعدين والمحامين في المكتب</span>
+                  </h2>
+                  {pendingAssistantsCount > 0 && (
+                    <span className="px-2.5 py-1 bg-amber-100 text-amber-800 text-xs font-bold rounded-full border border-amber-300 animate-pulse">
+                      {pendingAssistantsCount} بانتظار الموافقة
+                    </span>
+                  )}
+                </div>
+
+                {pendingAssistantsCount > 0 && (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-900 text-xs">
+                    <div className="flex items-center gap-2 font-medium">
+                      <ExclamationTriangleIcon className="w-5 h-5 text-amber-600 flex-shrink-0" />
+                      <span>
+                        يوجد <strong>{pendingAssistantsCount}</strong> طلب انضمام جديد لمكتبك بانتظار موافقتك للسماح بالدخول. لن يتمكن المحامي أو المساعد من دخول المكتب حتى توافق عليه.
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => set_is_assistants_manager_open(true)}
+                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow-sm flex-shrink-0 self-start sm:self-auto"
+                    >
+                      مراجعة وقبول الطلبات
+                    </button>
+                  </div>
+                )}
+
+                <p className="text-gray-600 text-sm">
+                  هنا يمكنك استعراض المحامين والمساعدين الذين انضموا لمكتبك، الموافقة على طلباتهم للسماح لهم بالدخول، وتحديد صلاحيات الوصول الخاصة بهم بكل دقة.
+                </p>
+                <button
+                  onClick={() => set_is_assistants_manager_open(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+                >
+                  <UserGroupIcon className="w-5 h-5" />
+                  <span>فتح لوحة إدارة المساعدين والصلاحيات</span>
+                  {pendingAssistantsCount > 0 && (
+                    <span className="bg-amber-400 text-amber-950 text-xs font-black px-2 py-0.5 rounded-full mr-1">
+                      {pendingAssistantsCount} طلب جديد
+                    </span>
+                  )}
+                </button>
+              </>
+            );
+          })()}
         </div>
       )}
 
@@ -362,71 +483,87 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
       </div>
 
       <div className="bg-white p-6 rounded-lg shadow space-y-4">
-        <h2 className="text-xl font-bold text-gray-800 border-b pb-3">
-          إعدادات المشاركة عبر واتساب
-        </h2>
+        <div className="border-b pb-3 flex items-center justify-between">
+          <h2 className="text-xl font-bold text-gray-800">
+            إعدادات المشاركة عبر واتساب
+          </h2>
+          <span className="text-xs px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full font-medium">
+            {whatsapp_preference === "app"
+              ? "واتساب العادي (تلقائي)"
+              : whatsapp_preference === "business"
+              ? "واتساب للأعمال (تلقائي)"
+              : whatsapp_preference === "web"
+              ? "واتساب ويب (تلقائي)"
+              : "السؤال عند كل مشاركة"}
+          </span>
+        </div>
         <div className="pt-2 space-y-3">
           <p className="text-sm text-gray-600 leading-relaxed">
-            اختر نسخة واتساب المفضلة لديك ليتم استخدامها تلقائياً عند إرسال المهام والتقارير:
+            اختر نسخة واتساب المفضلة لديك ليتم استخدامها تلقائياً عند إرسال المهام والتقارير عبر التطبيق:
           </p>
           <div className="flex flex-wrap gap-3">
             <button
               onClick={() => {
-                localStorage.setItem("whatsapp_version_choice", "app");
-                setWhatsappPreference("app");
-                show_feedback("تم حفظ تفضيل واتساب العادي.", "success");
+                set_whatsapp_preference("app");
+                show_feedback("تم حفظ تفضيل واتساب العادي بنجاح.", "success");
               }}
-              className={`px-4 py-2 text-sm font-bold rounded-lg border transition-all ${
-                whatsappPreference === "app"
+              className={`px-4 py-2.5 text-sm font-bold rounded-lg border transition-all flex items-center gap-2 ${
+                whatsapp_preference === "app"
                   ? "bg-emerald-600 border-emerald-600 text-white shadow-md shadow-emerald-600/15"
                   : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
               }`}
             >
-              واتساب العادي (جوال)
+              {whatsapp_preference === "app" && <CheckCircleIcon className="w-4 h-4 text-white" />}
+              <span>واتساب العادي (جوال)</span>
             </button>
             <button
               onClick={() => {
-                localStorage.setItem("whatsapp_version_choice", "business");
-                setWhatsappPreference("business");
-                show_feedback("تم حفظ تفضيل واتساب للأعمال.", "success");
+                set_whatsapp_preference("business");
+                show_feedback("تم حفظ تفضيل واتساب للأعمال بنجاح.", "success");
               }}
-              className={`px-4 py-2 text-sm font-bold rounded-lg border transition-all ${
-                whatsappPreference === "business"
+              className={`px-4 py-2.5 text-sm font-bold rounded-lg border transition-all flex items-center gap-2 ${
+                whatsapp_preference === "business"
                   ? "bg-emerald-600 border-emerald-600 text-white shadow-md shadow-emerald-600/15"
                   : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
               }`}
             >
-              واتساب للأعمال
+              {whatsapp_preference === "business" && <CheckCircleIcon className="w-4 h-4 text-white" />}
+              <span>واتساب للأعمال</span>
             </button>
             <button
               onClick={() => {
-                localStorage.setItem("whatsapp_version_choice", "web");
-                setWhatsappPreference("web");
-                show_feedback("تم حفظ تفضيل واتساب ويب.", "success");
+                set_whatsapp_preference("web");
+                show_feedback("تم حفظ تفضيل واتساب ويب بنجاح.", "success");
               }}
-              className={`px-4 py-2 text-sm font-bold rounded-lg border transition-all ${
-                whatsappPreference === "web"
+              className={`px-4 py-2.5 text-sm font-bold rounded-lg border transition-all flex items-center gap-2 ${
+                whatsapp_preference === "web"
                   ? "bg-emerald-600 border-emerald-600 text-white shadow-md shadow-emerald-600/15"
                   : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
               }`}
             >
-              واتساب ويب (كمبيوتر)
+              {whatsapp_preference === "web" && <CheckCircleIcon className="w-4 h-4 text-white" />}
+              <span>واتساب ويب (كمبيوتر)</span>
             </button>
             <button
               onClick={() => {
-                localStorage.removeItem("whatsapp_version_choice");
-                setWhatsappPreference(null);
-                show_feedback("سيتم سؤالك عند كل عملية مشاركة الآن.", "success");
+                set_whatsapp_preference(null);
+                show_feedback("سيتم سؤالك عن النسخة عند كل عملية مشاركة الآن.", "success");
               }}
-              className={`px-4 py-2 text-sm font-bold rounded-lg border transition-all ${
-                whatsappPreference === null
+              className={`px-4 py-2.5 text-sm font-bold rounded-lg border transition-all flex items-center gap-2 ${
+                whatsapp_preference === null
                   ? "bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-600/15"
                   : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
               }`}
             >
-              اسألني في كل مرة
+              {whatsapp_preference === null && <CheckCircleIcon className="w-4 h-4 text-white" />}
+              <span>اسألني في كل مرة</span>
             </button>
           </div>
+          <p className="text-xs text-gray-500 pt-1">
+            {whatsapp_preference
+              ? "✓ خيارك محفوظ دائماً وسيتم إرسال الرسائل فوراً عبر النسخة المحددة دون إظهار نافذة الاختيار."
+              : "ستظهر نافذة لاختيار النسخة المناسبة في كل مرة تضغط فيها على مشاركة عبر واتساب."}
+          </p>
         </div>
       </div>
       <div className="bg-white p-6 rounded-lg shadow space-y-4">
@@ -590,6 +727,73 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
         </div>
       )}
 
+      {/* Password Change Section */}
+      <div className="bg-white p-6 rounded-lg shadow space-y-4">
+        <h2 className="text-xl font-bold text-gray-800 border-b pb-3 flex items-center gap-2">
+          <KeyIcon className="w-6 h-6 text-indigo-600" />
+          تغيير كلمة المرور
+        </h2>
+        <form onSubmit={handle_change_password_request} className="space-y-4 max-w-md">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              كلمة المرور الحالية
+            </label>
+            <input
+              type="password"
+              required
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              placeholder="••••••••"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              كلمة المرور الجديدة
+            </label>
+            <input
+              type="password"
+              required
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              placeholder="••••••••"
+            />
+            <p className="mt-1 text-xs text-gray-500">يجب أن لا تقل عن ستة رموز.</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              تأكيد كلمة المرور الجديدة
+            </label>
+            <input
+              type="password"
+              required
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              placeholder="••••••••"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={isChangingPassword}
+            className="w-full sm:w-auto bg-indigo-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {isChangingPassword ? (
+              <>
+                <ArrowPathIcon className="w-5 h-5 animate-spin" />
+                جاري التغيير...
+              </>
+            ) : (
+              "تغيير كلمة المرور"
+            )}
+          </button>
+        </form>
+      </div>
+
       <div className="bg-white p-6 rounded-lg shadow space-y-4">
         <h2 className="text-xl font-bold text-gray-800 border-b pb-3">خطر</h2>
         <button
@@ -647,6 +851,62 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
         <AssistantsManager
           onClose={() => set_is_assistants_manager_open(false)}
         />
+      )}
+
+      {/* Password Change Confirmation Modal */}
+      {is_pwd_confirm_modal_open && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-6 text-center">
+              <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-yellow-100 mb-4">
+                <ExclamationTriangleIcon className="h-6 w-6 text-yellow-600" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">تأكيد تغيير كلمة المرور</h3>
+              <p className="text-sm text-gray-500">
+                هل أنت متأكد من رغبتك في تغيير كلمة المرور؟ سيتم تسجيل خروجك من النظام فور النجاح للأمان.
+              </p>
+            </div>
+            <div className="bg-gray-50 px-6 py-4 flex flex-row-reverse gap-3">
+              <button
+                onClick={perform_password_change}
+                className="flex-1 bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-colors"
+              >
+                تأكيد التغيير
+              </button>
+              <button
+                onClick={() => set_is_pwd_confirm_modal_open(false)}
+                className="flex-1 bg-white text-gray-700 border border-gray-300 px-4 py-2 rounded-lg font-bold hover:bg-gray-50 transition-colors"
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Password Change Success Modal */}
+      {is_pwd_success_modal_open && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-8 text-center">
+              <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-green-100 mb-6">
+                <CheckCircleIcon className="h-10 w-10 text-green-600" />
+              </div>
+              <h3 className="text-2xl font-black text-gray-900 mb-2">تم التغيير بنجاح!</h3>
+              <p className="text-gray-500 font-medium">
+                لقد تم تحديث كلمة المرور الخاصة بك بنجاح. يرجى تسجيل الدخول مجدداً بكلمة المرور الجديدة.
+              </p>
+            </div>
+            <div className="px-8 pb-8">
+              <button
+                onClick={handle_logout_after_pwd_change}
+                className="w-full bg-green-600 text-white px-6 py-3 rounded-xl font-black text-lg shadow-lg shadow-green-200 hover:bg-green-700 hover:shadow-xl transition-all active:scale-[0.98]"
+              >
+                الخروج وتسجيل الدخول
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

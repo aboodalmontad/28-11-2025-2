@@ -1,5 +1,7 @@
 import * as React from "react";
 import { MessageSquare, Smartphone, Building2, Laptop, Check, X } from "lucide-react";
+import { useData } from "../context/DataContext";
+import { open_whatsapp_url, WhatsAppVersion } from "../utils/whatsapp";
 
 interface WhatsAppChooserModalProps {
   text: string;
@@ -12,85 +14,27 @@ export const WhatsAppChooserModal: React.FC<WhatsAppChooserModalProps> = ({
   phone,
   onClose,
 }) => {
-  const [selectedVersion, setSelectedVersion] = React.useState<"app" | "business" | "web">("app");
-  const [rememberChoice, setRememberChoice] = React.useState<boolean>(false);
+  const { whatsapp_preference, set_whatsapp_preference } = useData();
+  const [selectedVersion, setSelectedVersion] = React.useState<WhatsAppVersion>(
+    () => whatsapp_preference || "app",
+  );
+  const [rememberChoice, setRememberChoice] = React.useState<boolean>(true);
 
-  // Auto-detect if user has a default preference saved
+  // Synchronize with stored preference if it changes or loads
   React.useEffect(() => {
-    const saved = localStorage.getItem("whatsapp_version_choice");
-    if (saved === "app" || saved === "business" || saved === "web") {
-      // If we have a saved choice and the component mounted, we can just process and close immediately
-      // to keep it friction-free, BUT we want to let them see/change if they want.
-      // Actually, if they want to override or choose, they can do it. Let's select it by default in the UI.
-      setSelectedVersion(saved);
+    if (whatsapp_preference) {
+      setSelectedVersion(whatsapp_preference);
     }
-  }, []);
+  }, [whatsapp_preference]);
 
   const handleSend = () => {
-    const cleanText = encodeURIComponent(text);
-    const cleanPhone = phone ? phone.replace(/\D/g, "") : "";
-
-    const isIOS = typeof navigator !== "undefined" && /iPad|iPhone|iPod/.test(navigator.userAgent);
-    const isAndroid = typeof navigator !== "undefined" && /Android/.test(navigator.userAgent);
-
-    let url = "";
-    let useDirectHref = false;
-
-    if (selectedVersion === "web") {
-      url = cleanPhone
-        ? `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${cleanText}`
-        : `https://web.whatsapp.com/send?text=${cleanText}`;
-    } else if (selectedVersion === "business") {
-      if (isIOS) {
-        url = cleanPhone
-          ? `whatsapp-business://send?phone=${cleanPhone}&text=${cleanText}`
-          : `whatsapp-business://send?text=${cleanText}`;
-        useDirectHref = true;
-      } else if (isAndroid) {
-        // Force WhatsApp Business package specifically on Android
-        url = cleanPhone
-          ? `intent://send?phone=${cleanPhone}&text=${cleanText}#Intent;package=com.whatsapp.w4b;scheme=whatsapp;end`
-          : `intent://send?text=${cleanText}#Intent;package=com.whatsapp.w4b;scheme=whatsapp;end`;
-        useDirectHref = true;
-      } else {
-        // Desktop / Generic Fallback
-        url = cleanPhone
-          ? `https://wa.me/${cleanPhone}?text=${cleanText}`
-          : `https://wa.me/?text=${cleanText}`;
-      }
-    } else {
-      // Default / Standard app ("app")
-      if (isIOS) {
-        url = cleanPhone
-          ? `whatsapp://send?phone=${cleanPhone}&text=${cleanText}`
-          : `whatsapp://send?text=${cleanText}`;
-        useDirectHref = true;
-      } else if (isAndroid) {
-        // Force standard WhatsApp package specifically on Android
-        url = cleanPhone
-          ? `intent://send?phone=${cleanPhone}&text=${cleanText}#Intent;package=com.whatsapp;scheme=whatsapp;end`
-          : `intent://send?text=${cleanText}#Intent;package=com.whatsapp;scheme=whatsapp;end`;
-        useDirectHref = true;
-      } else {
-        // Desktop / Generic Fallback
-        url = cleanPhone
-          ? `whatsapp://send?phone=${cleanPhone}&text=${cleanText}`
-          : `whatsapp://send?text=${cleanText}`;
-      }
-    }
-
     if (rememberChoice) {
-      localStorage.setItem("whatsapp_version_choice", selectedVersion);
+      set_whatsapp_preference(selectedVersion);
     } else {
-      // If they uncheck, remove any saved default
-      localStorage.removeItem("whatsapp_version_choice");
+      set_whatsapp_preference(null);
     }
 
-    if (useDirectHref) {
-      window.location.href = url;
-    } else {
-      window.open(url, "_blank");
-    }
+    open_whatsapp_url(text, phone, selectedVersion);
     onClose();
   };
 
@@ -209,7 +153,7 @@ export const WhatsAppChooserModal: React.FC<WhatsAppChooserModalProps> = ({
           </div>
 
           {/* Remember Choice Checkbox */}
-          <div className="pt-2">
+          <div className="pt-2 space-y-1">
             <label className="flex items-center gap-2.5 cursor-pointer group">
               <input
                 type="checkbox"
@@ -217,10 +161,13 @@ export const WhatsAppChooserModal: React.FC<WhatsAppChooserModalProps> = ({
                 onChange={(e) => setRememberChoice(e.target.checked)}
                 className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 accent-emerald-600"
               />
-              <span className="text-xs font-medium text-slate-600 group-hover:text-slate-900 transition-colors">
+              <span className="text-xs font-bold text-slate-700 group-hover:text-slate-900 transition-colors">
                 حفظ هذا الخيار كافتراضي دائماً على هذا الجهاز
               </span>
             </label>
+            <p className="text-[11px] text-slate-500 pr-6.5 leading-relaxed">
+              عند الحفظ، سيتم فتح النسخة المحددة تلقائياً في المرات القادمة دون ظهور هذه النافذة (ويمكنك تغيير خيارك دائماً من صفحة الإعدادات).
+            </p>
           </div>
         </div>
 

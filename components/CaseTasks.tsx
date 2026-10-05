@@ -11,7 +11,7 @@ interface CaseTasksProps {
 }
 
 const CaseTasks: React.FC<CaseTasksProps> = ({ caseItem, clientName, onUpdateTasks }) => {
-  const { assistants, set_admin_tasks, user_id } = useData();
+  const { assistants, set_admin_tasks, delete_admin_task, user_id } = useData();
   const [isModalOpen, setIsModalOpen] = React.useState(false);
   const [editingTask, setEditingTask] = React.useState<CaseTask | null>(null);
   const [selectedTaskImageUrl, setSelectedTaskImageUrl] = React.useState<string | null>(null);
@@ -108,7 +108,7 @@ const CaseTasks: React.FC<CaseTasksProps> = ({ caseItem, clientName, onUpdateTas
 
   const deleteTask = (taskId: string) => {
     onUpdateTasks(tasks.filter(t => t.id !== taskId));
-    set_admin_tasks((prev) => prev.filter(t => t.id !== taskId));
+    delete_admin_task(taskId);
   };
 
   const openEditModal = (task: CaseTask) => {

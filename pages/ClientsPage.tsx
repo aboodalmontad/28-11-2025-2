@@ -291,10 +291,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({
     set_clients((current_clients) => {
       return current_clients.map((client) => ({
         ...client,
-        updated_at: new Date().toISOString(),
         cases: client.cases.map((case_item) => ({
           ...case_item,
-          updated_at: new Date().toISOString(),
           stages: case_item.stages.map((stage) => {
             const session_index = stage.sessions.findIndex(
               (s) => s.id === session_id,
@@ -941,10 +939,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({
     set_clients((currentClients) =>
       currentClients.map((client) => ({
         ...client,
-        updated_at: new Date().toISOString(),
         cases: client.cases.map((c) => ({
           ...c,
-          updated_at: new Date().toISOString(),
           stages: c.stages.map((st) => {
             if (st.id === stage.id) {
               return {
