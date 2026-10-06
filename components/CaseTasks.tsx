@@ -1,8 +1,9 @@
 import * as React from "react";
 import { Case, CaseTask, AdminTask } from "../types";
-import { PlusIcon, TrashIcon, CheckCircleIcon, PencilIcon } from "./icons";
+import { PlusIcon, TrashIcon, CheckCircleIcon, PencilIcon, ExclamationCircleIcon } from "./icons";
 import AdminTaskModal from "./AdminTaskModal";
 import { useData } from "../context/DataContext";
+import { useFeedback } from "../context/FeedbackContext";
 
 interface CaseTasksProps {
   caseItem: Case;
@@ -11,11 +12,49 @@ interface CaseTasksProps {
 }
 
 const CaseTasks: React.FC<CaseTasksProps> = ({ caseItem, clientName, onUpdateTasks }) => {
-  const { assistants, set_admin_tasks, user_id } = useData();
+  const {
+    assistants,
+    set_admin_tasks,
+    delete_admin_task,
+    effective_user_id,
+    permissions,
+    current_user_profile,
+    user,
+  } = useData();
+  const { showFeedback } = useFeedback();
   const [isModalOpen, setIsModalOpen] = React.useState(false);
   const [editingTask, setEditingTask] = React.useState<CaseTask | null>(null);
   const [selectedTaskImageUrl, setSelectedTaskImageUrl] = React.useState<string | null>(null);
-  const tasks = caseItem.tasks || [];
+
+  if (permissions && !permissions.can_view_admin_tasks) {
+    return (
+      <div className="p-8 text-center text-gray-500 flex flex-col items-center">
+        <ExclamationCircleIcon className="w-12 h-12 text-gray-300 mb-2" />
+        <p>ليس لديك صلاحية للاطلاع على مهام هذه القضية من قبل المحامي المدير.</p>
+      </div>
+    );
+  }
+
+  const userFullName = (
+    current_user_profile?.full_name ||
+    user?.user_metadata?.full_name ||
+    ""
+  ).trim();
+
+  const allTasks = caseItem.tasks || [];
+  const tasks = React.useMemo(() => {
+    if (permissions?.can_view_only_assigned_tasks && userFullName) {
+      return allTasks.filter((t) => {
+        const assignee = (t.assignee || "").trim();
+        return (
+          assignee === userFullName ||
+          assignee === user?.email ||
+          assignee === "بدون تخصيص"
+        );
+      });
+    }
+    return allTasks;
+  }, [allTasks, permissions?.can_view_only_assigned_tasks, userFullName, user?.email]);
 
   const effectiveClientName = clientName || caseItem.client_name || "";
   const opponentName = caseItem.opponent_name || "";
@@ -50,13 +89,17 @@ const CaseTasks: React.FC<CaseTasksProps> = ({ caseItem, clientName, onUpdateTas
     const formattedTaskText = formatTaskText(taskData.task || "");
 
     if (editingTask) {
+      if (!permissions.can_edit_admin_task) {
+        showFeedback("ليس لديك صلاحية لتعديل المهام.", "error");
+        return;
+      }
       const updatedTaskData = {
         ...taskData,
         task: formattedTaskText,
       };
 
       // Update existing task
-      const updatedTasks = tasks.map(t => 
+      const updatedTasks = allTasks.map(t => 
         t.id === editingTask.id ? { ...t, ...updatedTaskData } : t
       );
       onUpdateTasks(updatedTasks);
@@ -71,6 +114,10 @@ const CaseTasks: React.FC<CaseTasksProps> = ({ caseItem, clientName, onUpdateTas
         } : t
       ));
     } else {
+      if (!permissions.can_add_admin_task) {
+        showFeedback("ليس لديك صلاحية لإضافة مهام جديدة.", "error");
+        return;
+      }
       // Create new task
       const newTask: CaseTask = {
         id: Date.now().toString(),
@@ -81,12 +128,12 @@ const CaseTasks: React.FC<CaseTasksProps> = ({ caseItem, clientName, onUpdateTas
         assignee: taskData.assignee,
         image_url: taskData.image_url,
       };
-      onUpdateTasks([...tasks, newTask]);
+      onUpdateTasks([...allTasks, newTask]);
 
       // Add to global admin tasks
       const globalTask: AdminTask = {
         ...newTask,
-        user_id: user_id,
+        user_id: effective_user_id || undefined,
         location: taskData.location || "غير محدد",
         case_id: caseItem.id,
         image_url: taskData.image_url,
@@ -99,7 +146,11 @@ const CaseTasks: React.FC<CaseTasksProps> = ({ caseItem, clientName, onUpdateTas
   };
 
   const toggleTask = (taskId: string) => {
-    const newTasks = tasks.map(t => t.id === taskId ? {...t, completed: !t.completed} : t);
+    if (!permissions.can_edit_admin_task) {
+      showFeedback("ليس لديك صلاحية لتعديل حالة المهمة.", "error");
+      return;
+    }
+    const newTasks = allTasks.map(t => t.id === taskId ? {...t, completed: !t.completed} : t);
     onUpdateTasks(newTasks);
     
     // Also update global admin tasks
@@ -107,11 +158,19 @@ const CaseTasks: React.FC<CaseTasksProps> = ({ caseItem, clientName, onUpdateTas
   };
 
   const deleteTask = (taskId: string) => {
-    onUpdateTasks(tasks.filter(t => t.id !== taskId));
-    set_admin_tasks((prev) => prev.filter(t => t.id !== taskId));
+    if (!permissions.can_delete_admin_task) {
+      showFeedback("ليس لديك صلاحية لحذف المهام.", "error");
+      return;
+    }
+    onUpdateTasks(allTasks.filter(t => t.id !== taskId));
+    delete_admin_task(taskId);
   };
 
   const openEditModal = (task: CaseTask) => {
+    if (!permissions.can_edit_admin_task) {
+      showFeedback("ليس لديك صلاحية لتعديل المهام.", "error");
+      return;
+    }
     setEditingTask(task);
     setIsModalOpen(true);
   };
@@ -120,10 +179,12 @@ const CaseTasks: React.FC<CaseTasksProps> = ({ caseItem, clientName, onUpdateTas
     <div className="p-4 bg-gray-50 rounded-lg">
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-lg font-semibold">مهام القضية</h3>
-        <button onClick={() => { setEditingTask(null); setIsModalOpen(true); }} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors text-sm">
-          <PlusIcon className="w-5 h-5" />
-          <span>مهمة جديدة</span>
-        </button>
+        {permissions.can_add_admin_task && (
+          <button onClick={() => { setEditingTask(null); setIsModalOpen(true); }} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors text-sm">
+            <PlusIcon className="w-5 h-5" />
+            <span>مهمة جديدة</span>
+          </button>
+        )}
       </div>
       {tasks.length === 0 ? (
         <p className="text-sm text-gray-500 text-center py-4">لا توجد مهام حالياً</p>
@@ -131,16 +192,29 @@ const CaseTasks: React.FC<CaseTasksProps> = ({ caseItem, clientName, onUpdateTas
         tasks.map(task => (
           <div key={task.id} className={`flex flex-col gap-2 p-2 border-b last:border-none ${task.completed ? "opacity-50" : ""}`}>
             <div className="flex items-center gap-2">
-              <button onClick={() => toggleTask(task.id)}>
+              <button
+                onClick={() => toggleTask(task.id)}
+                disabled={!permissions.can_edit_admin_task}
+                title={permissions.can_edit_admin_task ? "تغيير حالة الإنجاز" : "لا تملك صلاحية التعديل"}
+              >
                 <CheckCircleIcon className={`w-5 h-5 ${task.completed ? "text-green-500" : "text-gray-300"}`} />
               </button>
               <span className={`flex-grow ${task.completed ? "line-through text-gray-500" : ""}`}>{task.task}</span>
-              <button onClick={() => openEditModal(task)} className="p-1 hover:bg-gray-200 rounded">
-                <PencilIcon className="w-5 h-5 text-gray-500" />
-              </button>
-              <button onClick={() => deleteTask(task.id)}>
-                <TrashIcon className="w-5 h-5 text-red-500" />
-              </button>
+              {task.assignee && (
+                <span className="text-xs px-2 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-200">
+                  {task.assignee}
+                </span>
+              )}
+              {permissions.can_edit_admin_task && (
+                <button onClick={() => openEditModal(task)} className="p-1 hover:bg-gray-200 rounded" title="تعديل">
+                  <PencilIcon className="w-5 h-5 text-gray-500" />
+                </button>
+              )}
+              {permissions.can_delete_admin_task && (
+                <button onClick={() => deleteTask(task.id)} className="p-1 hover:bg-gray-200 rounded" title="حذف">
+                  <TrashIcon className="w-5 h-5 text-red-500" />
+                </button>
+              )}
             </div>
             {task.image_url && (
               <div className="mr-7">

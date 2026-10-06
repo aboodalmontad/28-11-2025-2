@@ -1,12 +1,10 @@
 // sw.js - Unified Service Worker for Offline-First Lawyer Management App
-const CACHE_NAME = "lawyer-app-cache-v2026-08-22-offline-v3";
+const CACHE_NAME = "lawyer-app-cache-v2026-09-28-v6";
 
 // App Shell URLs to precache during Service Worker installation
 const urlsToCache = [
   "./",
   "./index.html",
-  "./index.css",
-  "./index.tsx",
   "./manifest.json",
   "./icon.svg",
   "https://cdn.tailwindcss.com",
@@ -73,10 +71,19 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Bypass Vite Hot Module Replacement (HMR) websocket pings
+  // Bypass Vite dev server modules, pre-bundled deps, HMR, and source files
+  // Caching Vite's /node_modules/.vite/deps/ causes duplicate React instances ("Invalid hook call")
   if (
-    url.pathname.includes("__vite_ping") ||
-    url.pathname.includes("@vite/client")
+    url.pathname.includes("/node_modules/") ||
+    url.pathname.includes("@vite") ||
+    url.pathname.includes("@react-refresh") ||
+    url.pathname.includes("__vite") ||
+    url.pathname.endsWith(".ts") ||
+    url.pathname.endsWith(".tsx") ||
+    url.pathname.endsWith(".jsx") ||
+    url.search.includes("v=") ||
+    url.search.includes("t=") ||
+    url.search.includes("import")
   ) {
     return;
   }
@@ -121,10 +128,9 @@ self.addEventListener("fetch", (event) => {
             (await caches.match("/index.html")) ||
             (await caches.match("./")) ||
             (await caches.match("/"));
-          
+
           if (cached) return cached;
 
-          // Search any matching cache key in CACHE_NAME ending with index.html or /
           try {
             const cache = await caches.open(CACHE_NAME);
             const keys = await cache.keys();
@@ -147,11 +153,10 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Static Assets & Code Modules: Stale-While-Revalidate / Cache-First when Offline
+  // Static Assets & Production Bundles: Network-first when online, Cache fallback when offline
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
-      // If we are offline and have a cached copy, return it immediately
-      if (cachedResponse && (typeof navigator !== "undefined" && !navigator.onLine)) {
+      if (cachedResponse && typeof navigator !== "undefined" && !navigator.onLine) {
         return cachedResponse;
       }
 
@@ -177,7 +182,6 @@ self.addEventListener("fetch", (event) => {
           const altMatch = await caches.match(url.pathname);
           if (altMatch) return altMatch;
 
-          // Safe fallback for stylesheets
           if (url.pathname.endsWith(".css")) {
             return new Response("", { headers: { "Content-Type": "text/css" } });
           }

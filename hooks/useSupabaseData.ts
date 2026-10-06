@@ -27,6 +27,7 @@ import {
   SyncStatus as SyncStatusType,
   SyncLogEntry,
 } from "./useSync";
+import { FlatData, upsert_data_to_supabase } from "./useOnlineData";
 import { get_supabase_client } from "../supabaseClient";
 import {
   is_before_today,
@@ -1652,6 +1653,99 @@ export const useSupabaseData = (
       } catch (e) {
         console.error("Export failed:", e);
         return false;
+      }
+    },
+    import_backup_data: async (imported_data: AppData): Promise<boolean> => {
+      try {
+        const migrated = migrate_data(imported_data);
+        set_full_data(migrated);
+
+        if (user && is_online) {
+          const supabase = get_supabase_client();
+          if (supabase) {
+            const user_id_to_use = effective_user_id || user.id;
+
+            const tables_to_clear = [
+              "case_documents",
+              "invoice_items",
+              "sessions",
+              "stages",
+              "cases",
+              "invoices",
+              "admin_tasks",
+              "appointments",
+              "accounting_entries",
+              "assistants",
+              "clients",
+              "site_finances",
+            ];
+
+            for (const table of tables_to_clear) {
+              let cleared = false;
+              let attempt = 0;
+              while (!cleared && attempt < 3) {
+                try {
+                  const { error } = await supabase
+                    .from(table)
+                    .delete()
+                    .eq("user_id", user_id_to_use);
+                  if (error && error.code !== "42P01") {
+                    throw error;
+                  }
+                  cleared = true;
+                } catch (delErr: any) {
+                  attempt++;
+                  if (attempt >= 3) {
+                    console.warn(`Error clearing table ${table} during backup import after retries:`, delErr);
+                  } else {
+                    await new Promise((r) => setTimeout(r, 400 * attempt));
+                  }
+                }
+              }
+            }
+
+            const raw_clients = migrated.clients.map(({ cases, ...c }) => ({ ...c, user_id: c.user_id || user_id_to_use }));
+            const client_ids = new Set(raw_clients.map((c) => c.id));
+
+            const raw_cases = migrated.clients.flatMap((c) => (c.cases || []).map(({ stages, tasks, ...cs }) => ({ ...cs, client_id: c.id, user_id: cs.user_id || user_id_to_use }))).filter((cs) => client_ids.has(cs.client_id));
+            const case_ids = new Set(raw_cases.map((cs) => cs.id));
+
+            const raw_stages = migrated.clients.flatMap((c) => (c.cases || []).flatMap((cs) => (cs.stages || []).map(({ sessions, ...st }) => ({ ...st, case_id: cs.id, user_id: st.user_id || user_id_to_use })))).filter((st) => case_ids.has(st.case_id));
+            const stage_ids = new Set(raw_stages.map((st) => st.id));
+
+            const raw_sessions = migrated.clients.flatMap((c) => (c.cases || []).flatMap((cs) => (cs.stages || []).flatMap((st) => (st.sessions || []).map((s) => ({ ...s, stage_id: st.id, user_id: s.user_id || user_id_to_use }))))).filter((s) => stage_ids.has(s.stage_id));
+
+            const raw_invoices = (migrated.invoices || []).map(({ items, ...inv }) => ({ ...inv, user_id: inv.user_id || user_id_to_use }));
+            const invoice_ids = new Set(raw_invoices.map((i) => i.id));
+
+            const raw_invoice_items = (migrated.invoices || []).flatMap((inv) => (inv.items || []).map((item) => ({ ...item, invoice_id: inv.id, user_id: item.user_id || user_id_to_use }))).filter((item) => invoice_ids.has(item.invoice_id));
+
+            const flat_data: FlatData = {
+              clients: raw_clients,
+              cases: raw_cases,
+              stages: raw_stages,
+              sessions: raw_sessions,
+              admin_tasks: (migrated.admin_tasks || []).map((t) => ({ ...t, user_id: t.user_id || user_id_to_use })),
+              appointments: (migrated.appointments || []).map((a) => ({ ...a, user_id: a.user_id || user_id_to_use })),
+              accounting_entries: (migrated.accounting_entries || []).map((e) => ({ ...e, user_id: e.user_id || user_id_to_use })),
+              assistants: (migrated.assistants || []).map((a) => typeof a === "string" ? { name: a, user_id: user_id_to_use } : { ...a, user_id: a.user_id || user_id_to_use }),
+              invoices: raw_invoices,
+              invoice_items: raw_invoice_items,
+              case_documents: (migrated.documents || []).map((d) => ({ ...d, user_id: d.user_id || user_id_to_use })).filter((d) => case_ids.has(d.case_id)),
+              profiles: (migrated.profiles || []).map((p) => ({ ...p, lawyer_id: p.lawyer_id || user_id_to_use })),
+              site_finances: (migrated.site_finances || []).map((f) => ({ ...f, user_id: f.user_id || user_id_to_use })),
+              audit_logs: migrated.audit_logs || [],
+              sync_deletions: [],
+            };
+
+            await upsert_data_to_supabase(flat_data, user, effective_user_id || undefined);
+            console.log("Cloud data successfully replaced with restored backup data.");
+          }
+        }
+        return true;
+      } catch (err) {
+        console.error("Failed to import backup and replace cloud data:", err);
+        throw err;
       }
     },
     delete_client: (id: string) => {

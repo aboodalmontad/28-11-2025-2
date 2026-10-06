@@ -1,313 +1,73 @@
-export const MONTH_NAMES_AR = [
-  "كانون الثاني (1)",
-  "شباط (2)",
-  "آذار (3)",
-  "نيسان (4)",
-  "أيار (5)",
-  "حزيران (6)",
-  "تموز (7)",
-  "آب (8)",
-  "أيلول (9)",
-  "تشرين الأول (10)",
-  "تشرين الثاني (11)",
-  "كانون الأول (12)",
-];
-
-/**
- * Returns month name with numerical rank e.g. "كانون الثاني (1)", "شباط (2)"
- */
-export const get_month_name_with_number = (date: Date | string | number): string => {
-  if (typeof date === "number") {
-    return MONTH_NAMES_AR[date] || "";
+// Date and Calendar utilities for legal management
+export const formatDateArabic = (dateString?: string): string => {
+  if (!dateString) return '-';
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return dateString;
+    return new Intl.DateTimeFormat('ar-SA-u-ca-gregory', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      weekday: 'long'
+    }).format(date);
+  } catch {
+    return dateString;
   }
-  const d = safe_revive_date(date);
-  if (isNaN(d.getTime())) return "";
-  return MONTH_NAMES_AR[d.getMonth()] || "";
 };
 
-/**
- * Returns formatted month and year e.g. "شباط (2) 2026"
- */
-export const format_month_year = (date: Date | string): string => {
-  const d = safe_revive_date(date);
-  if (isNaN(d.getTime())) return "";
-  const monthStr = get_month_name_with_number(d);
-  const year = d.getFullYear();
-  return `${monthStr} ${year}`;
-};
-
-export const get_days_in_month = (year: number, month: number): Date[] => {
-  const date = new Date(year, month, 1);
-  const days: Date[] = [];
-  while (date.getMonth() === month) {
-    days.push(new Date(date));
-    date.setDate(date.getDate() + 1);
+export const formatShortDate = (dateString?: string): string => {
+  if (!dateString) return '-';
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return dateString;
+    return new Intl.DateTimeFormat('ar-EG', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(date);
+  } catch {
+    return dateString;
   }
-  return days;
 };
 
-export const get_first_day_of_month = (year: number, month: number): number => {
-  return new Date(year, month, 1).getDay();
-};
-
-/**
- * Safely revives a date value (string or object) into a Date object.
- * Returns the current date if the input is invalid or null.
- */
-export const safe_revive_date = (date: any): Date => {
-  if (!date) return new Date(0); // Use epoch for null/undefined to allow comparison
-
-  // Handle strings specifically to avoid browser inconsistencies and timezone shifts
-  if (typeof date === "string") {
-    // ONLY handle YYYY-MM-DD (exactly 10 chars) or YYYY-MM-DD with midnight/end-of-day
-    // to avoid shifting back a day in negative timezones for calendar dates.
-    // For full ISO strings with time, we MUST preserve the time for sync precision.
-    const dateOnlyMatch = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (dateOnlyMatch) {
-      const y = parseInt(dateOnlyMatch[1], 10);
-      const m = parseInt(dateOnlyMatch[2], 10);
-      const d = parseInt(dateOnlyMatch[3], 10);
-      return new Date(y, m - 1, d);
-    }
-
-    // If it's a date-time string at exactly midnight or 23:59:59 (even with Z or offset),
-    // we treat it as local to avoid shifting the day for calendar dates.
-    // Also catch strings like "2026-04-10T00:00:00.000" or "2026-04-10 00:00:00+00"
-    const midnightMatch = date.match(
-      /^(\d{4})-(\d{2})-(\d{2})[T ](00:00:00|23:59:59)(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/,
-    );
-    if (midnightMatch) {
-      const y = parseInt(midnightMatch[1], 10);
-      const m = parseInt(midnightMatch[2], 10);
-      const d = parseInt(midnightMatch[3], 10);
-      return new Date(
-        y,
-        m - 1,
-        d,
-        midnightMatch[4] === "00:00:00" ? 0 : 23,
-        midnightMatch[4] === "00:00:00" ? 0 : 59,
-        midnightMatch[4] === "00:00:00" ? 0 : 59,
-      );
-    }
+export const formatHijriDate = (dateString?: string): string => {
+  if (!dateString) return '-';
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return '';
+    return new Intl.DateTimeFormat('ar-SA-u-ca-islamic-umalqura', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    }).format(date);
+  } catch {
+    return '';
   }
-
-  const d = new Date(date);
-  return isNaN(d.getTime()) ? new Date(0) : d;
 };
 
-export const is_same_day = (
-  d1: Date | string | null | undefined,
-  d2: Date | string | null | undefined,
-): boolean => {
-  if (!d1 || !d2) return false;
-
-  const s1 = to_input_date_string(d1);
-  const s2 = to_input_date_string(d2);
-
-  return s1 !== "" && s2 !== "" && s1 === s2;
+export const getDaysRemaining = (targetDate: string): number => {
+  const target = new Date(targetDate);
+  const now = new Date();
+  target.setHours(0, 0, 0, 0);
+  now.setHours(0, 0, 0, 0);
+  const diffTime = target.getTime() - now.getTime();
+  return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 };
 
-export const is_today = (date: Date | string): boolean => {
-  return is_same_day(date, new Date());
+export const isToday = (dateString: string): boolean => {
+  if (!dateString) return false;
+  const today = new Date().toISOString().split('T')[0];
+  return dateString.startsWith(today);
 };
 
-export const is_before_today = (date: Date | string): boolean => {
-  const d = safe_revive_date(date);
-  if (isNaN(d.getTime())) return false;
-
-  const s_date = to_input_date_string(d);
-  const s_today = to_input_date_string(new Date());
-
-  return s_date < s_today;
+export const isTomorrow = (dateString: string): boolean => {
+  if (!dateString) return false;
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowStr = tomorrow.toISOString().split('T')[0];
+  return dateString.startsWith(tomorrowStr);
 };
 
-export const format_date = (date: Date | string): string => {
-  const d = safe_revive_date(date);
-  if (isNaN(d.getTime())) return "تاريخ غير صالح";
-  const day = String(d.getDate()).padStart(2, "0");
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const year = d.getFullYear();
-  return `${day}/${month}/${year}`;
-};
-
-export const format_time = (time: string): string => {
-  if (!time) return "";
-  const parts = time.split(":");
-  if (parts.length < 2) return time;
-  const hours = parseInt(parts[0], 10);
-  const minutes = parts[1];
-  const ampm = hours >= 12 ? "م" : "ص";
-  const displayHours = hours % 12 || 12;
-  return `${displayHours}:${minutes} ${ampm}`;
-};
-
-/**
- * A robust helper function to format a Date object or string into a 'YYYY-MM-DD' string for input fields.
- * It handles null, undefined, empty, and invalid date strings gracefully.
- * @param date The date to format.
- * @returns A formatted 'YYYY-MM-DD' string or an empty string if the date is invalid.
- */
-export const to_input_date_string = (
-  date: Date | string | null | undefined,
-): string => {
-  if (!date) return ""; // Handles null, undefined, ''
-
-  // If it's a string in YYYY-MM-DD format, return it as is to avoid timezone shifts
-  if (typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    return date;
-  }
-
-  const d = safe_revive_date(date);
-  if (isNaN(d.getTime())) {
-    // Handles invalid dates
-    return "";
-  }
-
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-};
-
-/**
- * A robust helper function to parse a 'YYYY-MM-DD' string from an input field into a Date object.
- * It correctly handles timezones by creating the date at midnight in the user's local timezone.
- * @param date_string The date string to parse.
- * @returns A Date object or null if the string is invalid.
- */
-export const parse_input_date_string = (
-  date_string: string | null | undefined,
-): Date | null => {
-  if (!date_string) return null;
-
-  // Manual parsing to ensure consistency across browsers and force local midnight
-  const parts = date_string.split("-");
-  if (parts.length === 3) {
-    const year = parseInt(parts[0], 10);
-    const month = parseInt(parts[1], 10) - 1;
-    const day = parseInt(parts[2], 10);
-    const d = new Date(year, month, day);
-    if (!isNaN(d.getTime())) return d;
-  }
-
-  const d = new Date(date_string);
-  if (isNaN(d.getTime())) {
-    console.warn(
-      `Invalid date string provided to parse_input_date_string: ${date_string}`,
-    );
-    return null;
-  }
-  return d;
-};
-
-// --- Holiday and Weekend Logic ---
-
-// List of fixed Syrian public holidays (Month is 0-indexed)
-const fixed_holidays: { month: number; day: number; name: string }[] = [
-  { month: 0, day: 1, name: "رأس السنة الميلادية" },
-  { month: 2, day: 18, name: "عيد الثورة السورية" },
-  { month: 2, day: 21, name: "عيد الأم ونيروز" },
-  { month: 3, day: 17, name: "عيد الجلاء" },
-  { month: 4, day: 1, name: "عيد العمال العالمي" },
-  { month: 11, day: 8, name: "عيد التحرير" },
-  { month: 11, day: 25, name: "عيد الميلاد المجيد" },
-];
-
-// Approximations for floating holidays for 2024-2026.
-const floating_holidays: {
-  [year: number]: {
-    month: number;
-    day: number;
-    name: string;
-    length?: number;
-  }[];
-} = {
-  2024: [
-    { month: 3, day: 10, name: "عيد الفطر", length: 3 },
-    { month: 5, day: 16, name: "عيد الأضحى", length: 4 },
-    { month: 6, day: 7, name: "رأس السنة الهجرية" },
-    { month: 8, day: 15, name: "المولد النبوي الشريف" },
-    { month: 2, day: 31, name: "عيد الفصح (غربي)" },
-    { month: 4, day: 5, name: "عيد الفصح (شرقي)" },
-  ],
-  2025: [
-    { month: 2, day: 30, name: "عيد الفطر", length: 3 },
-    { month: 5, day: 6, name: "عيد الأضحى", length: 4 },
-    { month: 5, day: 26, name: "رأس السنة الهجرية" },
-    { month: 8, day: 4, name: "المولد النبوي الشريف" },
-    { month: 3, day: 20, name: "عيد الفصح (غربي وشرقي)" },
-  ],
-  2026: [
-    { month: 2, day: 20, name: "عيد الفطر", length: 3 },
-    { month: 4, day: 27, name: "عيد الأضحى", length: 4 },
-    { month: 5, day: 16, name: "رأس السنة الهجرية" },
-    { month: 7, day: 26, name: "المولد النبوي الشريف" },
-    { month: 3, day: 5, name: "عيد الفصح (غربي)" },
-    { month: 3, day: 12, name: "عيد الفصح (شرقي)" },
-  ],
-};
-
-/**
- * Checks if a given date is a weekend (Friday or Saturday).
- * @param date The date to check.
- * @returns True if the date is a Friday or Saturday.
- */
-export const is_weekend = (date: Date | string): boolean => {
-  const d = safe_revive_date(date);
-  if (isNaN(d.getTime())) return false;
-  const day = d.getDay();
-  return day === 5 || day === 6; // 5 = Friday, 6 = Saturday
-};
-
-/**
- * Checks if a given date is a weekend or a public holiday.
- * @param date The date to check.
- * @returns True if the date is a weekend or a public holiday.
- */
-export const is_holiday = (date: Date | string): boolean => {
-  return is_weekend(date) || get_public_holiday(date) !== null;
-};
-
-/**
- * Checks if a given date is a Syrian public holiday.
- * @param date The date to check.
- * @returns The name of the holiday if it is one, otherwise null.
- */
-export const get_public_holiday = (date: Date | string): string | null => {
-  const d = safe_revive_date(date);
-  if (isNaN(d.getTime())) return null;
-
-  const year = d.getFullYear();
-  const month = d.getMonth();
-  const day = d.getDate();
-
-  // Check fixed holidays
-  const fixed_holiday = fixed_holidays.find(
-    (h) => h.month === month && h.day === day,
-  );
-  if (fixed_holiday) {
-    return fixed_holiday.name;
-  }
-
-  // Check floating holidays for the given year
-  const year_floating_holidays = floating_holidays[year] || [];
-  for (const holiday of year_floating_holidays) {
-    if (holiday.length) {
-      // For multi-day holidays like Eid
-      const start_date = new Date(year, holiday.month, holiday.day);
-      const end_date = new Date(start_date);
-      end_date.setDate(start_date.getDate() + holiday.length - 1);
-
-      if (d >= start_date && d <= end_date) {
-        return holiday.name;
-      }
-    } else {
-      // For single-day holidays
-      if (holiday.month === month && holiday.day === day) {
-        return holiday.name;
-      }
-    }
-  }
-
-  return null;
+export const getTodayString = (): string => {
+  return new Date().toISOString().split('T')[0];
 };
