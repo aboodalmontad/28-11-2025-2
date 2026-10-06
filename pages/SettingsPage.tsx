@@ -12,11 +12,9 @@ import {
   ShieldCheckIcon,
   UserGroupIcon,
   PencilIcon,
-  KeyIcon,
 } from "../components/icons";
 import { Client, AdminTask, Appointment, AccountingEntry } from "../types";
 import { useData } from "../context/DataContext";
-import { get_supabase_client } from "../supabaseClient";
 import {
   get_db,
   DATA_STORE_NAME,
@@ -27,16 +25,14 @@ import AssistantsManager from "../components/AssistantsManager";
 
 interface SettingsPageProps {
   onNavigate?: (page: string) => void;
-  onLogout?: () => void;
 }
 
-const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onLogout }) => {
+const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
   const {
     set_full_data,
     assistants,
     set_assistants,
     user_id,
-    user,
     is_auto_sync_enabled,
     set_auto_sync_enabled,
     is_auto_backup_enabled,
@@ -48,15 +44,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onLogout }) => 
     permissions,
     is_update_available,
   } = useData();
-
-  // Password change state
-  const [currentPassword, setCurrentPassword] = React.useState("");
-  const [newPassword, setNewPassword] = React.useState("");
-  const [confirmPassword, setConfirmPassword] = React.useState("");
-  const [isChangingPassword, setIsChangingPassword] = React.useState(false);
-  const [is_pwd_confirm_modal_open, set_is_pwd_confirm_modal_open] = React.useState(false);
-  const [is_pwd_success_modal_open, set_is_pwd_success_modal_open] = React.useState(false);
-
   const [feedback, set_feedback] = React.useState<{
     message: string;
     type: "success" | "error";
@@ -81,75 +68,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onLogout }) => 
   const show_feedback = (message: string, type: "success" | "error") => {
     set_feedback({ message, type });
     setTimeout(() => set_feedback(null), 4000);
-  };
-
-  const handle_change_password_request = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!user?.email) {
-      show_feedback("لم يتم العثور على بريد إلكتروني للمستخدم", "error");
-      return;
-    }
-
-    if (newPassword !== confirmPassword) {
-      show_feedback("كلمة المرور الجديدة غير متطابقة", "error");
-      return;
-    }
-
-    if (newPassword.length < 6) {
-      show_feedback("كلمة المرور يجب أن تكون 6 أحرف على الأقل", "error");
-      return;
-    }
-
-    set_is_pwd_confirm_modal_open(true);
-  };
-
-  const perform_password_change = async () => {
-    set_is_pwd_confirm_modal_open(false);
-    setIsChangingPassword(true);
-    try {
-      const supabase = get_supabase_client();
-      if (!supabase) throw new Error("Supabase client not initialized");
-
-      // 1. Verify current password by signing in
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: user?.email || "",
-        password: currentPassword,
-      });
-
-      if (signInError) {
-        show_feedback("كلمة المرور الحالية غير صحيحة", "error");
-        setIsChangingPassword(false);
-        return;
-      }
-
-      // 2. Update to new password
-      const { error: updateError } = await supabase.auth.updateUser({
-        password: newPassword,
-      });
-
-      if (updateError) {
-        throw updateError;
-      }
-
-      // Success!
-      set_is_pwd_success_modal_open(true);
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
-    } catch (error: any) {
-      console.error("Change password error:", error);
-      show_feedback(error.message || "فشل تغيير كلمة المرور", "error");
-    } finally {
-      setIsChangingPassword(false);
-    }
-  };
-
-  const handle_logout_after_pwd_change = () => {
-    set_is_pwd_success_modal_open(false);
-    if (onLogout) {
-      onLogout();
-    }
   };
 
   // ... (existing handlers: handle_confirm_clear_data, handle_export_data, handle_import_data, handle_add_assistant, handle_delete_assistant, handle_confirm_delete_assistant, handle_inspect_db)
@@ -672,72 +590,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onLogout }) => 
         </div>
       )}
 
-      {/* Password Change Section */}
-      <div className="bg-white p-6 rounded-lg shadow space-y-4">
-        <h2 className="text-xl font-bold text-gray-800 border-b pb-3 flex items-center gap-2">
-          <KeyIcon className="w-6 h-6 text-indigo-600" />
-          تغيير كلمة المرور
-        </h2>
-        <form onSubmit={handle_change_password_request} className="space-y-4 max-w-md">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              كلمة المرور الحالية
-            </label>
-            <input
-              type="password"
-              required
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-              placeholder="••••••••"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              كلمة المرور الجديدة
-            </label>
-            <input
-              type="password"
-              required
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-              placeholder="••••••••"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              تأكيد كلمة المرور الجديدة
-            </label>
-            <input
-              type="password"
-              required
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-              placeholder="••••••••"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={isChangingPassword}
-            className="w-full sm:w-auto bg-indigo-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-          >
-            {isChangingPassword ? (
-              <>
-                <ArrowPathIcon className="w-5 h-5 animate-spin" />
-                جاري التغيير...
-              </>
-            ) : (
-              "تغيير كلمة المرور"
-            )}
-          </button>
-        </form>
-      </div>
-
       <div className="bg-white p-6 rounded-lg shadow space-y-4">
         <h2 className="text-xl font-bold text-gray-800 border-b pb-3">خطر</h2>
         <button
@@ -795,62 +647,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onLogout }) => 
         <AssistantsManager
           onClose={() => set_is_assistants_manager_open(false)}
         />
-      )}
-
-      {/* Password Change Confirmation Modal */}
-      {is_pwd_confirm_modal_open && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="p-6 text-center">
-              <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-yellow-100 mb-4">
-                <ExclamationTriangleIcon className="h-6 w-6 text-yellow-600" />
-              </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-2">تأكيد تغيير كلمة المرور</h3>
-              <p className="text-sm text-gray-500">
-                هل أنت متأكد من رغبتك في تغيير كلمة المرور؟ سيتم تسجيل خروجك من النظام فور النجاح للأمان.
-              </p>
-            </div>
-            <div className="bg-gray-50 px-6 py-4 flex flex-row-reverse gap-3">
-              <button
-                onClick={perform_password_change}
-                className="flex-1 bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-colors"
-              >
-                تأكيد التغيير
-              </button>
-              <button
-                onClick={() => set_is_pwd_confirm_modal_open(false)}
-                className="flex-1 bg-white text-gray-700 border border-gray-300 px-4 py-2 rounded-lg font-bold hover:bg-gray-50 transition-colors"
-              >
-                إلغاء
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Password Change Success Modal */}
-      {is_pwd_success_modal_open && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="p-8 text-center">
-              <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-green-100 mb-6">
-                <CheckCircleIcon className="h-10 w-10 text-green-600" />
-              </div>
-              <h3 className="text-2xl font-black text-gray-900 mb-2">تم التغيير بنجاح!</h3>
-              <p className="text-gray-500 font-medium">
-                لقد تم تحديث كلمة المرور الخاصة بك بنجاح. يرجى تسجيل الدخول مجدداً بكلمة المرور الجديدة.
-              </p>
-            </div>
-            <div className="px-8 pb-8">
-              <button
-                onClick={handle_logout_after_pwd_change}
-                className="w-full bg-green-600 text-white px-6 py-3 rounded-xl font-black text-lg shadow-lg shadow-green-200 hover:bg-green-700 hover:shadow-xl transition-all active:scale-[0.98]"
-              >
-                الخروج وتسجيل الدخول
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );

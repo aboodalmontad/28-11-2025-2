@@ -969,7 +969,7 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
           {currentPage === "accounting" && (
             <AccountingPage clear_initial_invoice_data={() => {}} />
           )}
-          {currentPage === "settings" && <SettingsPage onNavigate={(page) => setCurrentPage(page as Page)} onLogout={handleLogout} />}
+          {currentPage === "settings" && <SettingsPage onNavigate={(page) => setCurrentPage(page as Page)} />}
           {currentPage === "logs" && <ActivityLogsPage />}
           {currentPage === "admin-tasks" && (
             <HomePage
