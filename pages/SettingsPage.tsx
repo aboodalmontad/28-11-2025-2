@@ -30,7 +30,6 @@ interface SettingsPageProps {
 const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
   const {
     set_full_data,
-    import_backup_data,
     assistants,
     set_assistants,
     user_id,
@@ -99,7 +98,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
     const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = async (e) => {
+    reader.onload = (e) => {
       try {
         const text = e.target?.result;
         if (typeof text !== "string")
@@ -123,10 +122,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
           }
         }
 
-        await import_backup_data(data);
-        show_feedback("تم استيراد النسخة الاحتياطية واستبدال البيانات الحالية في السحابة بنجاح.", "success");
+        set_full_data(data);
+        show_feedback("تم استيراد البيانات بنجاح.", "success");
       } catch (error) {
-        show_feedback("فشل استيراد النسخة الاحتياطية.", "error");
+        show_feedback("فشل استيراد البيانات.", "error");
       }
     };
     reader.readAsText(file);

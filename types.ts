@@ -38,50 +38,10 @@ export interface Permissions {
   can_add_admin_task: boolean;
   can_edit_admin_task: boolean;
   can_delete_admin_task: boolean;
-  can_view_only_assigned_tasks?: boolean; // حصر عرض المهام بالمهام الموكلة له فقط
 
   // Reports (التقارير)
   can_view_reports: boolean;
 }
-
-export const owner_permissions: Permissions = {
-  // Full unrestricted permissions for the lawyer / office owner / admin
-  can_view_agenda: true,
-
-  can_view_clients: true,
-  can_add_client: true,
-  can_edit_client: true,
-  can_delete_client: true,
-
-  can_view_cases: true,
-  can_add_case: true,
-  can_edit_case: true,
-  can_delete_case: true,
-
-  can_view_sessions: true,
-  can_add_session: true,
-  can_edit_session: true,
-  can_delete_session: true,
-  can_postpone_session: true,
-  can_decide_session: true,
-
-  can_view_documents: true,
-  can_add_document: true,
-  can_delete_document: true,
-
-  can_view_finance: true,
-  can_add_financial_entry: true,
-  can_delete_financial_entry: true,
-  can_manage_invoices: true,
-
-  can_view_admin_tasks: true,
-  can_add_admin_task: true,
-  can_edit_admin_task: true,
-  can_delete_admin_task: true,
-  can_view_only_assigned_tasks: false,
-
-  can_view_reports: true,
-};
 
 export const default_permissions: Permissions = {
   // Default restricted permissions for a new assistant
@@ -117,7 +77,6 @@ export const default_permissions: Permissions = {
   can_add_admin_task: true,
   can_edit_admin_task: true,
   can_delete_admin_task: false,
-  can_view_only_assigned_tasks: false,
 
   can_view_reports: false,
 };

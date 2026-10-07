@@ -1,19 +1,146 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ar" dir="rtl">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>مكتب المحامي 30-04-2026</title>
-    <meta name="description" content="A comprehensive web application for lawyers to manage their clients, cases, sessions, appointments, and administrative tasks efficiently." />
-    <meta property="og:title" content="مكتب المحامي 30-04-2026" />
-    <meta property="og:description" content="A comprehensive web application for lawyers to manage their clients, cases, sessions, appointments, and administrative tasks efficiently." />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Tajawal:wght@300;400;500;700;800;900&display=swap" rel="stylesheet">
+    <title>مكتب المحامي</title>
+    <link rel="manifest" href="./manifest.json" />
+    <link rel="icon" href="./logo.jpg" type="image/jpeg" />
+    <meta name="theme-color" content="#1f2937" />
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts -->
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap");
+      body {
+        font-family: "Tajawal", sans-serif;
+      }
+      @keyframes fade-in {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .animate-fade-in {
+        animation: fade-in 0.5s ease-out forwards;
+      }
+
+      /* Initial Loader Styles */
+      #initial-loader {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: #f3f4f6;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+        transition: opacity 0.5s ease-out;
+      }
+      .spinner {
+        width: 50px;
+        height: 50px;
+        border: 4px solid #e5e7eb;
+        border-top: 4px solid #2563eb;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+      #loader-error {
+        display: none;
+        margin-top: 20px;
+        text-align: center;
+        color: #dc2626;
+        max-width: 80%;
+        padding: 1rem;
+        background: white;
+        border-radius: 0.5rem;
+        box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+      }
+    </style>
+    <link rel="stylesheet" href="/index.css" />
   </head>
-  <body class="bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 font-sans antialiased min-h-screen">
+  <body class="bg-gray-100">
+    <div id="initial-loader">
+      <div class="spinner"></div>
+      <div id="loader-error">
+        <p class="font-bold mb-2">تعذر تشغيل التطبيق بسرعة.</p>
+        <p class="text-sm text-gray-600 mb-4">
+          قد يكون هناك مشكلة في الاتصال أو الذاكرة المحلية.
+        </p>
+        <button
+          onclick="window.location.reload()"
+          class="px-6 py-2 bg-blue-600 text-white rounded-lg font-bold shadow-md hover:bg-blue-700"
+        >
+          تحديث الصفحة
+        </button>
+      </div>
+    </div>
+    <!-- The root element for React -->
     <div id="root"></div>
+    <div id="datepicker-portal"></div>
+    <!-- Script to handle loader removal if React fails or takes too long -->
+    <script>
+      // Global error diagnostics to print exact issues if they occur
+      window.addEventListener('error', function(e) {
+        console.error('Startup error caught:', e.error);
+        const errEl = document.getElementById("loader-error");
+        if (errEl) {
+          const detail = document.createElement("p");
+          detail.className = "text-xs text-red-500 mt-2 font-mono text-left break-all bg-red-50 p-2 rounded border border-red-100";
+          detail.textContent = e.message || 'خطأ أثناء تحميل موارد التطبيق (Resource loading error)';
+          errEl.appendChild(detail);
+          const spinner = document.querySelector(".spinner");
+          if (spinner) spinner.style.display = "none";
+          errEl.style.display = "block";
+        }
+      });
+
+      window.addEventListener('unhandledrejection', function(e) {
+        console.error('Unhandled Promise rejection:', e.reason);
+        const errEl = document.getElementById("loader-error");
+        if (errEl) {
+          const detail = document.createElement("p");
+          detail.className = "text-xs text-red-500 mt-2 font-mono text-left break-all bg-red-50 p-2 rounded border border-red-100";
+          detail.textContent = String(e.reason || 'Unhandled Promise rejection');
+          errEl.appendChild(detail);
+          const spinner = document.querySelector(".spinner");
+          if (spinner) spinner.style.display = "none";
+          errEl.style.display = "block";
+        }
+      });
+
+      // Safety watchdog: If app hasn't mounted in 60 seconds, show error.
+      setTimeout(() => {
+        const root = document.getElementById("root");
+        const loader = document.getElementById("initial-loader");
+        if (
+          loader &&
+          loader.style.display !== "none" &&
+          (!root || root.innerHTML === "")
+        ) {
+          const spinner = document.querySelector(".spinner");
+          if (spinner) spinner.style.display = "none";
+          const errEl = document.getElementById("loader-error");
+          if (errEl) errEl.style.display = "block";
+        }
+      }, 60000);
+    </script>
+    <!-- The main script for the application -->
     <script type="module" src="/index.tsx"></script>
   </body>
 </html>

@@ -388,32 +388,15 @@ const CaseItem: React.FC<{
   expanded: boolean;
   onToggle: () => void;
 }> = ({ caseItem, client, props, expanded, onToggle }) => {
-  const { permissions } = props;
-  const { share_via_whatsapp } = useData();
-
-  const availableTabs = React.useMemo(() => {
-    const tabs: ("stages" | "accounting" | "documents" | "tasks")[] = [];
-    if (permissions?.can_view_sessions !== false) tabs.push("stages");
-    if (permissions?.can_view_finance !== false) tabs.push("accounting");
-    if (permissions?.can_view_documents !== false) tabs.push("documents");
-    if (permissions?.can_view_admin_tasks !== false) tabs.push("tasks");
-    return tabs;
-  }, [permissions]);
-
   const [active_tab, set_active_tab] = React.useState<
     "stages" | "accounting" | "documents" | "tasks"
-  >(() => availableTabs[0] || "stages");
-
-  React.useEffect(() => {
-    if (availableTabs.length > 0 && !availableTabs.includes(active_tab)) {
-      set_active_tab(availableTabs[0]);
-    }
-  }, [availableTabs, active_tab]);
-
+  >("stages");
   const case_accounting_entries = props.accounting_entries.filter(
     (e) => e.case_id === caseItem.id,
   );
   const long_press_timer = React.useRef<number | null>(null);
+  const { permissions } = props;
+  const { share_via_whatsapp } = useData();
 
   const handle_fee_change = (new_fee: string) => {
     props.set_clients((clients) =>
@@ -615,40 +598,32 @@ const CaseItem: React.FC<{
       {expanded && (
         <div className="p-3 bg-white">
           <div className="flex border-b mb-3">
-            {permissions?.can_view_sessions !== false && (
-              <button
-                onClick={() => set_active_tab("stages")}
-                className={`px-4 py-2 text-sm font-medium ${active_tab === "stages" ? "border-b-2 border-blue-500 text-blue-600" : "text-gray-500"}`}
-              >
-                المراحل والجلسات
-              </button>
-            )}
-            {permissions?.can_view_finance !== false && (
-              <button
-                onClick={() => set_active_tab("accounting")}
-                className={`px-4 py-2 text-sm font-medium ${active_tab === "accounting" ? "border-b-2 border-blue-500 text-blue-600" : "text-gray-500"}`}
-              >
-                المحاسبة
-              </button>
-            )}
-            {permissions?.can_view_documents !== false && (
-              <button
-                onClick={() => set_active_tab("documents")}
-                className={`px-4 py-2 text-sm font-medium ${active_tab === "documents" ? "border-b-2 border-blue-500 text-blue-600" : "text-gray-500"}`}
-              >
-                الوثائق
-              </button>
-            )}
-            {permissions?.can_view_admin_tasks !== false && (
-              <button
-                onClick={() => set_active_tab("tasks")}
-                className={`px-4 py-2 text-sm font-medium ${active_tab === "tasks" ? "border-b-2 border-blue-500 text-blue-600" : "text-gray-500"}`}
-              >
-                مهام القضية
-              </button>
-            )}
+            <button
+              onClick={() => set_active_tab("stages")}
+              className={`px-4 py-2 text-sm font-medium ${active_tab === "stages" ? "border-b-2 border-blue-500 text-blue-600" : "text-gray-500"}`}
+            >
+              المراحل والجلسات
+            </button>
+            <button
+              onClick={() => set_active_tab("accounting")}
+              className={`px-4 py-2 text-sm font-medium ${active_tab === "accounting" ? "border-b-2 border-blue-500 text-blue-600" : "text-gray-500"}`}
+            >
+              المحاسبة
+            </button>
+            <button
+              onClick={() => set_active_tab("documents")}
+              className={`px-4 py-2 text-sm font-medium ${active_tab === "documents" ? "border-b-2 border-blue-500 text-blue-600" : "text-gray-500"}`}
+            >
+              الوثائق
+            </button>
+            <button
+              onClick={() => set_active_tab("tasks")}
+              className={`px-4 py-2 text-sm font-medium ${active_tab === "tasks" ? "border-b-2 border-blue-500 text-blue-600" : "text-gray-500"}`}
+            >
+              مهام القضية
+            </button>
           </div>
-          {active_tab === "stages" && permissions?.can_view_sessions !== false && (
+          {active_tab === "stages" && (
             <div>
               {caseItem.stages.map((stage) => (
                 <StageItemContainer
@@ -661,7 +636,7 @@ const CaseItem: React.FC<{
               ))}
             </div>
           )}
-          {active_tab === "accounting" && permissions?.can_view_finance !== false && (
+          {active_tab === "accounting" && (
             <CaseAccounting
               case_data={caseItem}
               client={client}
@@ -672,8 +647,8 @@ const CaseItem: React.FC<{
               on_fee_agreement_change={handle_fee_change}
             />
           )}
-          {active_tab === "documents" && permissions?.can_view_documents !== false && <CaseDocuments caseId={caseItem.id} />}
-          {active_tab === "tasks" && permissions?.can_view_admin_tasks !== false && (
+          {active_tab === "documents" && <CaseDocuments caseId={caseItem.id} />}
+          {active_tab === "tasks" && (
             <CaseTasks
               caseItem={caseItem}
               clientName={client.name}
@@ -791,24 +766,20 @@ const ClientItem: React.FC<{
           </div>
         </div>
         <div className="flex items-center gap-1">
-          {permissions?.can_view_cases !== false && (
-            <span className="text-sm font-medium text-gray-600 bg-gray-200 px-2 py-1 rounded-full">
-              {client.cases.length} قضايا
-            </span>
-          )}
-          {permissions?.can_view_finance !== false && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                props.on_print_client_statement(client.id);
-              }}
-              className="p-2 text-gray-500 hover:text-green-600"
-              title="طباعة كشف حساب"
-            >
-              <PrintIcon className="w-4 h-4" />
-            </button>
-          )}
-          {permissions?.can_add_case && permissions?.can_view_cases !== false && (
+          <span className="text-sm font-medium text-gray-600 bg-gray-200 px-2 py-1 rounded-full">
+            {client.cases.length} قضايا
+          </span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              props.on_print_client_statement(client.id);
+            }}
+            className="p-2 text-gray-500 hover:text-green-600"
+            title="طباعة كشف حساب"
+          >
+            <PrintIcon className="w-4 h-4" />
+          </button>
+          {permissions?.can_add_case && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -844,14 +815,12 @@ const ClientItem: React.FC<{
               <TrashIcon className="w-4 h-4" />
             </button>
           )}
-          {permissions?.can_view_cases !== false && (
-            <ChevronLeftIcon
-              className={`w-5 h-5 transition-transform text-gray-500 ${expanded ? "-rotate-90" : ""}`}
-            />
-          )}
+          <ChevronLeftIcon
+            className={`w-5 h-5 transition-transform text-gray-500 ${expanded ? "-rotate-90" : ""}`}
+          />
         </div>
       </header>
-      {expanded && permissions?.can_view_cases !== false && (
+      {expanded && (
         <div className="border-t border-sky-200 p-4 space-y-3 bg-white">
           {client.cases.length > 0 ? (
             client.cases.map((caseItem) => (

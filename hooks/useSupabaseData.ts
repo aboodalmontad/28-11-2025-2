@@ -18,10 +18,8 @@ import {
   SiteFinancialEntry,
   Permissions,
   default_permissions,
-  owner_permissions,
   AuditLogEntry,
 } from "../types";
-import { is_admin_account } from "../utils/mobileUtils";
 import { useOnlineStatus } from "./useOnlineStatus";
 import type { User } from "@supabase/supabase-js";
 import {
@@ -45,12 +43,6 @@ import {
   DELETED_IDS_STORE_NAME,
   DOCS_FILES_STORE_NAME,
 } from "../utils/db";
-import {
-  WhatsAppVersion,
-  get_stored_whatsapp_preference,
-  set_stored_whatsapp_preference,
-  open_whatsapp_url,
-} from "../utils/whatsapp";
 
 export const APP_DATA_KEY_PREFIX = "lawyerBusinessManagementData";
 export const APP_VERSION = "30-04-2026";
@@ -337,38 +329,9 @@ export const useSupabaseData = (
     phone?: string;
   } | null>(null);
 
-  const [whatsapp_preference, set_whatsapp_preference_state] = React.useState<
-    WhatsAppVersion | null
-  >(() => {
-    return get_stored_whatsapp_preference(user?.id);
-  });
-
-  const set_whatsapp_preference = React.useCallback(
-    (pref: WhatsAppVersion | null) => {
-      set_whatsapp_preference_state(pref);
-      set_stored_whatsapp_preference(pref, user?.id);
-    },
-    [user?.id],
-  );
-
-  const share_via_whatsapp = React.useCallback(
-    (text: string, phone?: string, forceModal = false) => {
-      const currentPref =
-        whatsapp_preference || get_stored_whatsapp_preference(user?.id);
-
-      if (
-        !forceModal &&
-        (currentPref === "app" ||
-          currentPref === "business" ||
-          currentPref === "web")
-      ) {
-        open_whatsapp_url(text, phone, currentPref);
-      } else {
-        set_whatsapp_share_data({ text, phone });
-      }
-    },
-    [whatsapp_preference, user?.id],
-  );
+  const share_via_whatsapp = React.useCallback((text: string, phone?: string) => {
+    set_whatsapp_share_data({ text, phone });
+  }, []);
   const is_online = useOnlineStatus();
 
   const user_ref = React.useRef(user);
@@ -554,28 +517,8 @@ export const useSupabaseData = (
 
   const current_user_permissions: Permissions = React.useMemo(() => {
     if (!user) return default_permissions;
-
-    const is_admin_user =
-      is_admin ||
-      is_admin_account(user, current_user_profile) ||
-      current_user_profile?.role === "admin";
-
-    // If admin viewing another user or viewing own office, full permissions are guaranteed
-    if (admin_viewing_user_id || is_admin_user) {
-      return owner_permissions;
-    }
-
-    // An assistant is someone whose lawyer_id points to another distinct user and is not an admin/owner
-    const is_assistant = Boolean(
-      current_user_profile?.lawyer_id &&
-        current_user_profile.lawyer_id !== user.id &&
-        current_user_profile.lawyer_id !== current_user_profile.id &&
-        current_user_profile.lawyer_id !== "" &&
-        current_user_profile.lawyer_id !== "null",
-    );
-
-    if (is_assistant) {
-      const perms = current_user_profile?.permissions;
+    if (current_user_profile?.lawyer_id) {
+      const perms = current_user_profile.permissions;
       if (perms && typeof perms === "object") {
         // If it's the assistant object from the database, the actual flags are in the 'permissions' field
         const actual_perms = (perms as any).permissions || perms;
@@ -583,10 +526,36 @@ export const useSupabaseData = (
       }
       return { ...default_permissions, ...(perms || {}) };
     }
-
-    // Main Lawyer / Office Owner (صاحب المكتب الرئيسي): Full permissions with finance ALWAYS enabled!
-    return owner_permissions;
-  }, [user, data.profiles, admin_viewing_user_id, is_admin, current_user_profile]);
+    return {
+      can_view_agenda: true,
+      can_view_clients: true,
+      can_add_client: true,
+      can_edit_client: true,
+      can_delete_client: true,
+      can_view_cases: true,
+      can_add_case: true,
+      can_edit_case: true,
+      can_delete_case: true,
+      can_view_sessions: true,
+      can_add_session: true,
+      can_edit_session: true,
+      can_delete_session: true,
+      can_postpone_session: true,
+      can_decide_session: true,
+      can_view_documents: true,
+      can_add_document: true,
+      can_delete_document: true,
+      can_view_finance: true,
+      can_add_financial_entry: true,
+      can_delete_financial_entry: true,
+      can_manage_invoices: true,
+      can_view_admin_tasks: true,
+      can_add_admin_task: true,
+      can_edit_admin_task: true,
+      can_delete_admin_task: true,
+      can_view_reports: true,
+    };
+  }, [user, data.profiles]);
 
   const filtered_clients = React.useMemo(() => {
     return filtered_data.clients;
@@ -597,9 +566,9 @@ export const useSupabaseData = (
     const load_local_data = async () => {
       if (is_auth_loading) return;
 
-      // If admin is viewing a different user, we don't load local data for the admin.
+      // If admin is viewing a specific user, we don't load local data for the admin.
       // Instead, we let the sync fetch the remote data for that user.
-      if (admin_viewing_user_id && admin_viewing_user_id !== user?.id) {
+      if (admin_viewing_user_id) {
         console.log(
           "Admin is viewing user:",
           admin_viewing_user_id,
@@ -711,9 +680,6 @@ export const useSupabaseData = (
       if (layoutSaved === "horizontal" || layoutSaved === "vertical") {
         set_admin_tasks_layout_state(layoutSaved as "horizontal" | "vertical");
       }
-
-      const waSaved = get_stored_whatsapp_preference(user.id);
-      set_whatsapp_preference_state(waSaved);
     } catch (e) {
       console.error("Error loading user settings from localStorage:", e);
     }
@@ -836,8 +802,8 @@ export const useSupabaseData = (
         },
         (payload) => {
           console.log(`Realtime change in ${table}:`, payload);
-          // Debounce/Throttle: fetch only the affected table's delta
-          fetch_and_refresh(table);
+          // Debounce/Throttle: use_sync already prevents overlapping syncs
+          fetch_and_refresh();
         },
       );
     });
@@ -862,7 +828,7 @@ export const useSupabaseData = (
           profile_id === effective_user_id
         ) {
           console.log("Realtime change in profiles:", payload);
-          fetch_and_refresh("profiles");
+          fetch_and_refresh();
         }
       },
     );
@@ -985,7 +951,7 @@ export const useSupabaseData = (
   // Persist data to IndexedDB whenever it changes
   React.useEffect(() => {
     const save_to_db = async () => {
-      if (is_data_loading || (admin_viewing_user_id && admin_viewing_user_id !== user?.id)) return; // Don't save while initial loading is in progress or viewing another user
+      if (is_data_loading || admin_viewing_user_id) return; // Don't save while initial loading is in progress or viewing another user
       try {
         const db = await get_db();
         const storage_key = get_app_data_key(user?.id || null);
@@ -1000,7 +966,7 @@ export const useSupabaseData = (
   // Persist deleted_ids to IndexedDB whenever it changes
   React.useEffect(() => {
     const save_deleted_ids_to_db = async () => {
-      if (is_data_loading || (admin_viewing_user_id && admin_viewing_user_id !== user?.id)) return; // Don't save while viewing another user
+      if (is_data_loading || admin_viewing_user_id) return; // Don't save while viewing another user
       try {
         const db = await get_db();
         const storage_key = get_app_data_key(user?.id || null);
@@ -1517,7 +1483,6 @@ export const useSupabaseData = (
     effective_user_id: effective_user_id,
     permissions: current_user_permissions,
     user_id: user?.id || "",
-    user: user,
     is_online: is_online,
     is_auto_sync_enabled: is_auto_sync_enabled,
     set_auto_sync_enabled: set_auto_sync_enabled,
@@ -1543,95 +1508,22 @@ export const useSupabaseData = (
     set_admin_viewing_user_id,
     set_clients: (clients: any) => {
       const now = new Date().toISOString();
-      const strip_meta = (obj: any, exclude_keys: string[]) => {
-        if (!obj || typeof obj !== "object") return obj;
-        const res: Record<string, any> = {};
-        for (const k of Object.keys(obj).sort()) {
-          if (k === "updated_at" || exclude_keys.includes(k)) continue;
-          res[k] = obj[k];
-        }
-        return JSON.stringify(res);
-      };
-
       set_full_data((prev) => {
         const next_clients =
           typeof clients === "function" ? clients(prev.clients) : clients;
-
-        const prev_client_map = new Map<string, Client>(
-          prev.clients.map((pc) => [pc.id, pc]),
-        );
-
-        const updated_clients = next_clients.map((c: Client) => {
-          const prev_c = prev_client_map.get(c.id);
-          const prev_case_map = new Map<string, Case>(
-            (prev_c?.cases || []).map((pcs) => [pcs.id, pcs]),
-          );
-
-          const updated_cases = (c.cases || []).map((cs: Case) => {
-            const prev_cs = prev_case_map.get(cs.id);
-            const prev_stage_map = new Map<string, Stage>(
-              (prev_cs?.stages || []).map((pst) => [pst.id, pst]),
-            );
-
-            const updated_stages = (cs.stages || []).map((st: Stage) => {
-              const prev_st = prev_stage_map.get(st.id);
-              const prev_session_map = new Map<string, Session>(
-                (prev_st?.sessions || []).map((ps) => [ps.id, ps]),
-              );
-
-              const updated_sessions = (st.sessions || []).map((s: Session) => {
-                const prev_s = prev_session_map.get(s.id);
-                if (
-                  !prev_s ||
-                  strip_meta(prev_s, []) !== strip_meta(s, [])
-                ) {
-                  return { ...s, updated_at: now };
-                }
-                return s;
-              });
-
-              const stage_changed =
-                !prev_st ||
-                strip_meta(prev_st, ["sessions"]) !==
-                  strip_meta(st, ["sessions"]);
-
-              return {
-                ...st,
-                sessions: updated_sessions,
-                updated_at: stage_changed ? now : st.updated_at,
-              };
-            });
-
-            const case_changed =
-              !prev_cs ||
-              strip_meta(prev_cs, ["stages"]) !== strip_meta(cs, ["stages"]);
-
-            return {
-              ...cs,
-              stages: updated_stages,
-              updated_at: case_changed ? now : cs.updated_at,
-            };
-          });
-
-          const client_changed =
-            !prev_c ||
-            strip_meta(prev_c, ["cases"]) !== strip_meta(c, ["cases"]);
-
-          if (client_changed && user?.id) {
-            const action = !prev_c ? "CREATE" : "UPDATE";
-            const details = !prev_c
-              ? `إضافة موكل: ${c.name}`
-              : `تعديل بيانات موكل: ${c.name}`;
-            logActivity(user.id, action, "client", c.id, details);
+        // Ensure updated_at is set for new/modified items
+        const updated_clients = next_clients.map((c: any) => {
+          const prev_c = prev.clients.find((pc) => pc.id === c.id);
+          if (!prev_c || JSON.stringify(prev_c) !== JSON.stringify(c)) {
+            if (user?.id) {
+              const action = !prev_c ? "CREATE" : "UPDATE";
+              const details = !prev_c ? `إضافة موكل: ${c.name}` : `تعديل بيانات موكل: ${c.name}`;
+              logActivity(user.id, action, "client", c.id, details);
+            }
+            return { ...c, updated_at: now };
           }
-
-          return {
-            ...c,
-            cases: updated_cases,
-            updated_at: client_changed ? now : c.updated_at,
-          };
+          return c;
         });
-
         return { ...prev, clients: updated_clients };
       });
     },
@@ -1642,17 +1534,10 @@ export const useSupabaseData = (
           typeof tasks === "function" ? tasks(prev.admin_tasks) : tasks;
         const updated_tasks = next_tasks.map((t: any) => {
           const prev_t = prev.admin_tasks.find((pt) => pt.id === t.id);
-          const { updated_at: _p, ...prev_rest } = prev_t || ({} as any);
-          const { updated_at: _n, ...next_rest } = t || ({} as any);
-          if (
-            !prev_t ||
-            JSON.stringify(prev_rest) !== JSON.stringify(next_rest)
-          ) {
+          if (!prev_t || JSON.stringify(prev_t) !== JSON.stringify(t)) {
             if (user?.id) {
               const action = !prev_t ? "CREATE" : "UPDATE";
-              const details = !prev_t
-                ? `إضافة مهمة: ${t.task}`
-                : `تعديل مهمة: ${t.task}`;
+              const details = !prev_t ? `إضافة مهمة: ${t.task}` : `تعديل مهمة: ${t.task}`;
               logActivity(user.id, action, "admin_task", t.id, details);
             }
             return { ...t, updated_at: now };
@@ -1671,17 +1556,10 @@ export const useSupabaseData = (
             : appointments;
         const updated_apps = next_apps.map((a: any) => {
           const prev_a = prev.appointments.find((pa) => pa.id === a.id);
-          const { updated_at: _p, ...prev_rest } = prev_a || ({} as any);
-          const { updated_at: _n, ...next_rest } = a || ({} as any);
-          if (
-            !prev_a ||
-            JSON.stringify(prev_rest) !== JSON.stringify(next_rest)
-          ) {
+          if (!prev_a || JSON.stringify(prev_a) !== JSON.stringify(a)) {
             if (user?.id) {
               const action = !prev_a ? "CREATE" : "UPDATE";
-              const details = !prev_a
-                ? `إضافة موعد: ${a.title}`
-                : `تعديل موعد: ${a.title}`;
+              const details = !prev_a ? `إضافة موعد: ${a.title}` : `تعديل موعد: ${a.title}`;
               logActivity(user.id, action, "appointment", a.id, details);
             }
             return { ...a, updated_at: now };
@@ -1700,12 +1578,7 @@ export const useSupabaseData = (
             : entries;
         const updated_entries = next_entries.map((e: any) => {
           const prev_e = prev.accounting_entries.find((pe) => pe.id === e.id);
-          const { updated_at: _p, ...prev_rest } = prev_e || ({} as any);
-          const { updated_at: _n, ...next_rest } = e || ({} as any);
-          if (
-            !prev_e ||
-            JSON.stringify(prev_rest) !== JSON.stringify(next_rest)
-          ) {
+          if (!prev_e || JSON.stringify(prev_e) !== JSON.stringify(e)) {
             return { ...e, updated_at: now };
           }
           return e;
@@ -1715,152 +1588,50 @@ export const useSupabaseData = (
     },
     set_invoices: (invoices: any) => {
       const now = new Date().toISOString();
-      const removed_item_ids: string[] = [];
-
       set_full_data((prev) => {
         const next_invoices =
           typeof invoices === "function" ? invoices(prev.invoices) : invoices;
         const updated_invoices = next_invoices.map((i: any) => {
           const prev_i = prev.invoices.find((pi) => pi.id === i.id);
-          const prev_items_map = new Map<string, any>(
-            (prev_i?.items || []).map((item: any) => [item.id, item]),
-          );
-          const next_item_ids = new Set(
-            (i.items || []).map((item: any) => item.id),
-          );
-
-          // Track any removed invoice items so they are deleted on sync
-          for (const prev_item_id of prev_items_map.keys()) {
-            if (!next_item_ids.has(prev_item_id)) {
-              removed_item_ids.push(prev_item_id);
-            }
+          if (!prev_i || JSON.stringify(prev_i) !== JSON.stringify(i)) {
+            return { ...i, updated_at: now };
           }
-
-          let any_item_changed = removed_item_ids.length > 0;
-          const updated_items = (i.items || []).map((item: any) => {
-            const prev_item = prev_items_map.get(item.id);
-            const { updated_at: _pi, ...prev_item_rest } =
-              prev_item || ({} as any);
-            const { updated_at: _ni, ...next_item_rest } = item || ({} as any);
-            if (
-              !prev_item ||
-              JSON.stringify(prev_item_rest) !== JSON.stringify(next_item_rest)
-            ) {
-              any_item_changed = true;
-              return { ...item, updated_at: now };
-            }
-            return item;
-          });
-
-          const {
-            updated_at: _p,
-            items: _p_items,
-            ...prev_rest
-          } = prev_i || ({} as any);
-          const {
-            updated_at: _n,
-            items: _n_items,
-            ...next_rest
-          } = i || ({} as any);
-          const invoice_changed =
-            !prev_i ||
-            any_item_changed ||
-            JSON.stringify(prev_rest) !== JSON.stringify(next_rest);
-
-          return {
-            ...i,
-            items: updated_items,
-            updated_at: invoice_changed ? now : i.updated_at,
-          };
+          return i;
         });
         return { ...prev, invoices: updated_invoices };
       });
-
-      if (removed_item_ids.length > 0) {
-        set_deleted_ids((prev) => ({
-          ...prev,
-          invoice_items: Array.from(
-            new Set([...prev.invoice_items, ...removed_item_ids]),
-          ),
-        }));
-      }
     },
     set_assistants: (assistants: any) => {
-      const now = new Date().toISOString();
       set_full_data((prev) => {
         const next_assistants =
           typeof assistants === "function"
             ? assistants(prev.assistants)
             : assistants;
-        const prev_names = new Map<string, any>();
-        for (const pa of prev.assistants || []) {
-          const name = typeof pa === "string" ? pa : pa?.name;
-          if (name) prev_names.set(name, pa);
-        }
+        // If we are adding a string, convert it to an object with user_id
         const updated_assistants = next_assistants.map((a: any) => {
-          const name = typeof a === "string" ? a : a?.name;
-          if (name === "بدون تخصيص") return "بدون تخصيص";
-          const prev_a = name ? prev_names.get(name) : undefined;
           if (typeof a === "string") {
-            return {
-              name: a,
-              user_id: effective_user_id || "",
-              updated_at:
-                typeof prev_a === "object" && prev_a?.updated_at
-                  ? prev_a.updated_at
-                  : now,
-            };
+            return { name: a, user_id: effective_user_id || "" };
           }
-          return {
-            ...a,
-            user_id: a.user_id || effective_user_id || "",
-            updated_at: a.updated_at || now,
-          };
+          return a;
         });
         return { ...prev, assistants: updated_assistants };
       });
     },
     set_profiles: (profiles: any) => {
-      const now = new Date().toISOString();
-      set_full_data((prev) => {
-        const next_profiles =
-          typeof profiles === "function" ? profiles(prev.profiles) : profiles;
-        const updated_profiles = next_profiles.map((p: any) => {
-          const prev_p = prev.profiles.find((pp) => pp.id === p.id);
-          const { updated_at: _p, ...prev_rest } = prev_p || ({} as any);
-          const { updated_at: _n, ...next_rest } = p || ({} as any);
-          if (
-            !prev_p ||
-            JSON.stringify(prev_rest) !== JSON.stringify(next_rest)
-          ) {
-            return { ...p, updated_at: now };
-          }
-          return p;
-        });
-        return { ...prev, profiles: updated_profiles };
-      });
+      set_full_data((prev) => ({
+        ...prev,
+        profiles:
+          typeof profiles === "function" ? profiles(prev.profiles) : profiles,
+      }));
     },
     set_site_finances: (finances: any) => {
-      const now = new Date().toISOString();
-      set_full_data((prev) => {
-        const next_finances =
+      set_full_data((prev) => ({
+        ...prev,
+        site_finances:
           typeof finances === "function"
             ? finances(prev.site_finances)
-            : finances;
-        const updated_finances = next_finances.map((f: any) => {
-          const prev_f = prev.site_finances.find((pf) => pf.id === f.id);
-          const { updated_at: _p, ...prev_rest } = prev_f || ({} as any);
-          const { updated_at: _n, ...next_rest } = f || ({} as any);
-          if (
-            !prev_f ||
-            JSON.stringify(prev_rest) !== JSON.stringify(next_rest)
-          ) {
-            return { ...f, updated_at: now };
-          }
-          return f;
-        });
-        return { ...prev, site_finances: updated_finances };
-      });
+            : finances,
+      }));
     },
     unfiltered_data: data,
     all_sessions,
@@ -1888,20 +1659,7 @@ export const useSupabaseData = (
       if (client && user?.id) {
         logActivity(user.id, "DELETE", "client", id, `حذف موكل: ${client.name}`);
       }
-      const child_cases = (client?.cases || []).map((cs) => cs.id);
-      const child_stages = (client?.cases || []).flatMap((cs) =>
-        (cs.stages || []).map((st) => st.id),
-      );
-      const child_sessions = (client?.cases || []).flatMap((cs) =>
-        (cs.stages || []).flatMap((st) => (st.sessions || []).map((s) => s.id)),
-      );
-      set_deleted_ids((prev) => ({
-        ...prev,
-        clients: [...prev.clients, id],
-        cases: [...prev.cases, ...child_cases],
-        stages: [...prev.stages, ...child_stages],
-        sessions: [...prev.sessions, ...child_sessions],
-      }));
+      set_deleted_ids((prev) => ({ ...prev, clients: [...prev.clients, id] }));
       set_full_data((prev) => ({
         ...prev,
         clients: prev.clients.filter((c) => c.id !== id),
@@ -1913,16 +1671,7 @@ export const useSupabaseData = (
       if (caseItem && user?.id) {
         logActivity(user.id, "DELETE", "case", case_id, `حذف قضية: ${caseItem.subject || case_id}`);
       }
-      const child_stages = (caseItem?.stages || []).map((st) => st.id);
-      const child_sessions = (caseItem?.stages || []).flatMap((st) =>
-        (st.sessions || []).map((s) => s.id),
-      );
-      set_deleted_ids((prev) => ({
-        ...prev,
-        cases: [...prev.cases, case_id],
-        stages: [...prev.stages, ...child_stages],
-        sessions: [...prev.sessions, ...child_sessions],
-      }));
+      set_deleted_ids((prev) => ({ ...prev, cases: [...prev.cases, case_id] }));
       set_full_data((prev) => ({
         ...prev,
         clients: prev.clients.map((c) =>
@@ -1936,14 +1685,9 @@ export const useSupabaseData = (
       }));
     },
     delete_stage: (client_id: string, case_id: string, stage_id: string) => {
-      const client = data.clients.find((c) => c.id === client_id);
-      const caseItem = client?.cases.find((cs) => cs.id === case_id);
-      const stageItem = caseItem?.stages.find((st) => st.id === stage_id);
-      const child_sessions = (stageItem?.sessions || []).map((s) => s.id);
       set_deleted_ids((prev) => ({
         ...prev,
         stages: [...prev.stages, stage_id],
-        sessions: [...prev.sessions, ...child_sessions],
       }));
       set_full_data((prev) => ({
         ...prev,
@@ -2055,11 +1799,9 @@ export const useSupabaseData = (
       if (inv && user?.id) {
         logActivity(user.id, "DELETE", "invoice", id, `حذف فاتورة: ${inv.client_name} (${inv.id})`);
       }
-      const child_items = (inv?.items || []).map((item) => item.id);
       set_deleted_ids((prev) => ({
         ...prev,
         invoices: [...prev.invoices, id],
-        invoice_items: [...prev.invoice_items, ...child_items],
       }));
       set_full_data((prev) => ({
         ...prev,
@@ -2090,9 +1832,6 @@ export const useSupabaseData = (
       }));
     },
     delete_document,
-    is_admin,
-    whatsapp_preference,
-    set_whatsapp_preference,
     whatsapp_share_data,
     set_whatsapp_share_data,
     share_via_whatsapp,

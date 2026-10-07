@@ -1,7 +1,7 @@
 // sw.js - Unified Service Worker for Offline-First Lawyer Management App
-const CACHE_NAME = "lawyer-app-cache-v2026-09-28-v6";
+const CACHE_NAME = "lawyer-app-cache-v2026-08-22-offline-v4";
 
-// App Shell URLs to precache during Service Worker installation
+// The list of URLs to cache (App Shell). Will be populated dynamically during build.
 const urlsToCache = [
   "./",
   "./index.html",
@@ -17,6 +17,7 @@ self.addEventListener("install", (event) => {
 
   event.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
+      // Fetch and cache all assets, but handle failures gracefully per asset
       const cachePromises = urlsToCache.map(async (url) => {
         try {
           const req = new Request(url, {
@@ -26,18 +27,19 @@ self.addEventListener("install", (event) => {
           if (response.ok || response.type === "opaque") {
             return await cache.put(url, response);
           }
+          throw new Error(`Invalid response status: ${response.status}`);
         } catch (error) {
           console.warn(`Failed to precache ${url}:`, error);
         }
       });
       await Promise.all(cachePromises);
-      console.log("Service Worker: Precaching completed.");
+      console.log("Service Worker: Installation and caching completed.");
     })
   );
 });
 
 self.addEventListener("activate", (event) => {
-  console.log("Service Worker: Activating and cleaning obsolete caches.");
+  console.log("Service Worker: Activating and cleaning old caches.");
   event.waitUntil(
     caches
       .keys()
@@ -53,7 +55,14 @@ self.addEventListener("activate", (event) => {
       })
       .then(() => {
         console.log("Service Worker: Claiming clients.");
-        return self.clients.claim();
+        return self.clients.claim().then(() => {
+          // Notify all open client tabs to reload and use the updated Service Worker
+          return self.clients.matchAll().then((clients) => {
+            clients.forEach((client) => {
+              client.postMessage({ type: "RELOAD_PAGE_NOW" });
+            });
+          });
+        });
       })
   );
 });
@@ -66,24 +75,18 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(event.request.url);
 
-  // Bypass Service Worker completely for Supabase sync database calls & backend APIs
+  // Bypass Service Worker completely for Supabase sync database calls & local APIs
   if (url.hostname.includes("supabase.co") || url.pathname.startsWith("/api/")) {
     return;
   }
 
-  // Bypass Vite dev server modules, pre-bundled deps, HMR, and source files
-  // Caching Vite's /node_modules/.vite/deps/ causes duplicate React instances ("Invalid hook call")
+  // Bypass Vite Hot Module Replacement (HMR) and development compilation assets
   if (
-    url.pathname.includes("/node_modules/") ||
     url.pathname.includes("@vite") ||
-    url.pathname.includes("@react-refresh") ||
-    url.pathname.includes("__vite") ||
+    url.pathname.includes("?import") ||
+    url.pathname.includes("__vite_ping") ||
     url.pathname.endsWith(".ts") ||
-    url.pathname.endsWith(".tsx") ||
-    url.pathname.endsWith(".jsx") ||
-    url.search.includes("v=") ||
-    url.search.includes("t=") ||
-    url.search.includes("import")
+    url.pathname.endsWith(".tsx")
   ) {
     return;
   }
@@ -106,7 +109,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Navigation requests: Network first with robust offline fallback to cached index.html
+  // Navigation requests: Network first, then fallback to cached index.html
   if (event.request.mode === "navigate") {
     event.respondWith(
       fetch(event.request)
@@ -115,53 +118,27 @@ self.addEventListener("fetch", (event) => {
             const responseToCache = response.clone();
             caches.open(CACHE_NAME).then((cache) => {
               cache.put(event.request, responseToCache);
-              cache.put("./index.html", responseToCache.clone());
             });
           }
           return response;
         })
-        .catch(async () => {
-          console.log("Offline navigation fallback requested for:", event.request.url);
-          const cached =
-            (await caches.match(event.request)) ||
-            (await caches.match("./index.html")) ||
-            (await caches.match("/index.html")) ||
-            (await caches.match("./")) ||
-            (await caches.match("/"));
-
-          if (cached) return cached;
-
-          try {
-            const cache = await caches.open(CACHE_NAME);
-            const keys = await cache.keys();
-            for (const key of keys) {
-              if (key.url.endsWith("index.html") || key.url.endsWith("/")) {
-                const match = await cache.match(key);
-                if (match) return match;
-              }
-            }
-          } catch (e) {
-            console.error("Cache lookup error during navigation:", e);
-          }
-
-          return new Response("Offline Page Unavailable", {
-            status: 503,
-            statusText: "Service Unavailable",
-          });
+        .catch(() => {
+          return caches.match("/index.html") || caches.match("./index.html") || caches.match("/");
         })
     );
     return;
   }
 
-  // Static Assets & Production Bundles: Network-first when online, Cache fallback when offline
+  // Static Assets (JS, CSS, Images, Fonts, etc.): Cache-first with Network Fallback
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse && typeof navigator !== "undefined" && !navigator.onLine) {
+      if (cachedResponse) {
         return cachedResponse;
       }
 
       return fetch(event.request)
         .then((networkResponse) => {
+          // Cache successful responses (status 200 or opaque cross-origin)
           if (
             networkResponse &&
             (networkResponse.status === 200 || networkResponse.type === "opaque")
@@ -173,62 +150,14 @@ self.addEventListener("fetch", (event) => {
           }
           return networkResponse;
         })
-        .catch(async (error) => {
-          console.warn("Fetch failed offline for asset:", url.href, error);
-          if (cachedResponse) {
-            return cachedResponse;
-          }
-
-          const altMatch = await caches.match(url.pathname);
-          if (altMatch) return altMatch;
-
-          if (url.pathname.endsWith(".css")) {
-            return new Response("", { headers: { "Content-Type": "text/css" } });
-          }
-
+        .catch((error) => {
+          console.warn("Fetch failed for asset:", url.href, error);
+          // Return a basic offline fallback response for assets if they fail
           return new Response("Offline Resource Unavailable", {
-            status: 503,
-            statusText: "Service Unavailable",
+            status: 408,
+            statusText: "Request Timeout",
           });
         });
     })
   );
-});
-
-// Background Sync: Triggered automatically by browser when connectivity is restored
-self.addEventListener("sync", (event) => {
-  console.log("Service Worker: Sync event triggered with tag:", event.tag);
-  if (event.tag === "sync-lawyer-data" || event.tag === "sync-data") {
-    event.waitUntil(
-      self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
-        clients.forEach((client) => {
-          client.postMessage({
-            type: "TRIGGER_BACKGROUND_SYNC",
-            tag: event.tag,
-            reason: "service_worker_sync",
-            timestamp: Date.now(),
-          });
-        });
-      })
-    );
-  }
-});
-
-// Periodic Background Sync: Triggered periodically by browser when online
-self.addEventListener("periodicsync", (event) => {
-  console.log("Service Worker: Periodic Sync event triggered with tag:", event.tag);
-  if (event.tag === "periodic-sync-lawyer-data") {
-    event.waitUntil(
-      self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
-        clients.forEach((client) => {
-          client.postMessage({
-            type: "TRIGGER_BACKGROUND_SYNC",
-            tag: event.tag,
-            reason: "service_worker_periodic_sync",
-            timestamp: Date.now(),
-          });
-        });
-      })
-    );
-  }
 });

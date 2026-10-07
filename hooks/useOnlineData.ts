@@ -126,13 +126,13 @@ export const fetch_data_from_supabase = async (
   const supabase = get_supabase_client();
   if (!supabase) throw new Error("Supabase client not available.");
 
-  // 1. Determine if the REQUESTER is an admin or an assistant
+  // 1. Determine if the REQUESTER is an admin
   const {
     data: { session },
   } = await supabase.auth.getSession();
   const currentUser = session?.user;
   let is_admin_user = false;
-  let current_lawyer_id: string | null = null;
+  let lawyer_id: string | null = null;
 
   if (currentUser) {
     const { data: profile } = await supabase
@@ -141,7 +141,7 @@ export const fetch_data_from_supabase = async (
       .eq("id", currentUser.id)
       .maybeSingle();
     is_admin_user = profile?.role === "admin";
-    current_lawyer_id = profile?.lawyer_id || null;
+    lawyer_id = profile?.lawyer_id;
 
     const adminEmails = [
       "nahwiabdo@gmail.com",
@@ -157,83 +157,56 @@ export const fetch_data_from_supabase = async (
     }
   }
 
-  // If a user_id is provided AND it's different from the requester AND requester is admin,
-  // it's an admin inspecting a specific user.
-  const is_admin_inspecting_other = is_admin_user && !!(user_id && user_id !== currentUser?.id);
+  // If a user_id is provided AND it's different from the requester,
+  // it's likely a specific backup request (e.g. from AdminPage).
+  // If it's the same as the requester or missing, it's a normal sync.
+  const is_specific_user_request = !!(user_id && user_id !== currentUser?.id);
 
-  // We should fetch everything IF the requester is admin AND not inspecting a specific user.
-  const should_fetch_everything = is_admin_user && !is_admin_inspecting_other;
+  // We should fetch everything IF the requester is admin AND it's NOT a specific user backup request.
+  const should_fetch_everything = is_admin_user && !is_specific_user_request;
+
+  // For the query logic below, we'll use is_admin_user to mean "should fetch everything"
   const effective_is_admin = should_fetch_everything;
 
-  // Determine the root lawyer / office ID
-  let root_lawyer_id: string | null = null;
-  if (is_admin_inspecting_other && user_id) {
-    const { data: targetProfile } = await supabase
-      .from("profiles")
-      .select("lawyer_id")
-      .eq("id", user_id)
-      .maybeSingle();
-    root_lawyer_id = targetProfile?.lawyer_id || user_id;
-  } else {
-    root_lawyer_id = current_lawyer_id || user_id || currentUser?.id || null;
-  }
-
-  // Collect all user IDs belonging to this office (the lawyer + all their assistants)
-  let all_user_ids: string[] | undefined = undefined;
-  let all_profile_ids: string[] | undefined = undefined;
-
-  if (!should_fetch_everything && root_lawyer_id) {
-    const { data: assistantProfiles } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("lawyer_id", root_lawyer_id);
-
-    const assistant_ids = assistantProfiles?.map((a) => a.id) || [];
-    all_user_ids = Array.from(
-      new Set(
-        [
-          root_lawyer_id,
-          ...assistant_ids,
-          currentUser?.id,
-          ...(user_id ? [user_id] : []),
-        ].filter(Boolean) as string[],
-      ),
-    );
-
-    all_profile_ids = [...all_user_ids];
-  }
-
-  const query = (table: string, user_ids?: string[]) => {
+  const query = (table: string, all_user_ids?: string[]) => {
     let q = supabase.from(table).select("*");
 
-    if (table === "profiles" && is_admin_user && !user_ids) {
+    if (table === "profiles" && is_admin_user) {
       return q;
     }
 
-    if (user_ids && user_ids.length > 0) {
+    if (all_user_ids && all_user_ids.length > 0) {
+      // Specific user backup (including assistants if applicable)
+      if (table !== "profiles" && table !== "assistants") {
+        q = q.in("user_id", all_user_ids);
+      }
+      if (table === "assistants") {
+        q = q.in("user_id", all_user_ids);
+      }
       if (table === "profiles") {
-        q = q.or(
-          `id.in.(${user_ids.join(",")}),lawyer_id.in.(${user_ids.join(",")})`,
-        );
-      } else {
-        q = q.in("user_id", user_ids);
+        q = q.in("id", all_user_ids);
       }
     } else if (!effective_is_admin) {
-      const fallback_id = root_lawyer_id || currentUser?.id;
-      if (fallback_id) {
+      // Not admin and no user_id? Use passed user_id, or lawyer_id if available (for assistants), otherwise currentUser.id
+      const user_id_to_query = user_id || lawyer_id || currentUser?.id;
+      if (user_id_to_query) {
+        if (table !== "profiles" && table !== "assistants") {
+          q = q.eq("user_id", user_id_to_query);
+        }
+        if (table === "assistants") {
+          q = q.eq("user_id", user_id_to_query);
+        }
         if (table === "profiles") {
           q = q.or(
-            `id.eq.${fallback_id},lawyer_id.eq.${fallback_id}`,
+            `id.eq.${user_id_to_query},lawyer_id.eq.${user_id_to_query}`,
           );
-        } else {
-          q = q.eq("user_id", fallback_id);
         }
       }
     }
     return q;
   };
 
-  const fetch_table = async (table: string, user_ids?: string[]) => {
+  const fetch_table = async (table: string, all_user_ids?: string[]) => {
     let all_data: any[] = [];
     let from = 0;
     const PAGE_SIZE = 1000;
@@ -248,7 +221,7 @@ export const fetch_data_from_supabase = async (
 
       while (table_attempt < table_max_retries) {
         try {
-          const res = await query(table, user_ids).range(
+          const res = await query(table, all_user_ids).range(
             from,
             from + PAGE_SIZE - 1,
           );
@@ -320,6 +293,21 @@ export const fetch_data_from_supabase = async (
       // Ensure session is fresh before parallel calls to avoid lock stealing
       await supabase.auth.getSession();
 
+      // Determine all relevant user IDs if a specific user_id is provided
+      let all_user_ids: string[] | undefined = undefined;
+      let all_profile_ids: string[] | undefined = undefined;
+      if (user_id && !should_fetch_everything) {
+        const { data: assistants } = await supabase
+          .from("profiles")
+          .select("id")
+          .eq("lawyer_id", user_id);
+        all_user_ids = [user_id, ...(assistants?.map((a) => a.id) || [])];
+        all_profile_ids = [...all_user_ids];
+        if (currentUser?.id && !all_profile_ids.includes(currentUser.id)) {
+          all_profile_ids.push(currentUser.id);
+        }
+      }
+
       // Helper to fetch tables in small controlled batches (2 at a time) to prevent mobile/Android socket exhaustion
       const run_in_batches = async <T>(tasks: (() => Promise<T>)[], batch_size = 2): Promise<T[]> => {
         const results: T[] = [];
@@ -370,7 +358,7 @@ export const fetch_data_from_supabase = async (
         profiles = await fetch_table("profiles");
       } else if (currentUser?.id) {
         let p_attempt = 0;
-        const target_id = root_lawyer_id || user_id || currentUser.id;
+        const target_id = user_id || currentUser.id;
         while (p_attempt < 3) {
           try {
             const res = await supabase
@@ -456,45 +444,14 @@ export const fetch_deletions_from_supabase = async (
     Date.now() - 30 * 24 * 60 * 60 * 1000,
   ).toISOString();
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  const currentUser = session?.user;
-  let target_user_ids: string[] = user_id ? [user_id] : [];
-
-  if (currentUser) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("lawyer_id, role")
-      .eq("id", currentUser.id)
-      .maybeSingle();
-
-    const root_lawyer_id = profile?.lawyer_id || user_id || currentUser.id;
-    const { data: assistants } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("lawyer_id", root_lawyer_id);
-
-    target_user_ids = Array.from(
-      new Set(
-        [
-          root_lawyer_id,
-          ...(assistants?.map((a) => a.id) || []),
-          currentUser.id,
-          ...(user_id ? [user_id] : []),
-        ].filter(Boolean) as string[],
-      ),
-    );
-  }
-
   const max_retries = 3;
   let attempt = 0;
 
   while (attempt < max_retries) {
     try {
       let query = supabase.from("sync_deletions").select("*");
-      if (target_user_ids.length > 0) {
-        query = query.or(`user_id.in.(${target_user_ids.join(",")}),user_id.is.null`);
+      if (user_id) {
+        query = query.or(`user_id.eq.${user_id},user_id.is.null`);
       }
       const { data, error } = await query
         .gte("deleted_at", thirty_days_ago)

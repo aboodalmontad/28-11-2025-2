@@ -53,26 +53,8 @@ async function robustFetch(
 
   const isAuthEndpoint = urlStr && urlStr.includes("/auth/v1/");
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000);
-  const existingSignal = fetchInit?.signal;
-  if (existingSignal) {
-    if (existingSignal.aborted) {
-      clearTimeout(timeoutId);
-      controller.abort();
-    } else {
-      existingSignal.addEventListener("abort", () => controller.abort(), {
-        once: true,
-      });
-    }
-  }
-
   try {
-    const response = await fetch(fetchInput, {
-      ...fetchInit,
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
+    const response = await fetch(fetchInput, fetchInit);
 
     // Retry on common server-side transient errors (502, 503, 504)
     if (!response.ok && [502, 503, 504].includes(response.status)) {
@@ -88,7 +70,6 @@ async function robustFetch(
 
     return response;
   } catch (error) {
-    clearTimeout(timeoutId);
     const message = String(error).toLowerCase();
     const isNetworkError =
       message.includes("failed to fetch") ||
