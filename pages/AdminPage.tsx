@@ -399,9 +399,23 @@ const UserRow: React.FC<UserRowProps> = ({
               </button>
             </>
           ) : (
-            <span className="text-[10px] font-bold text-slate-300 px-2">
-              محمي
-            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => on_view_office(user)}
+                className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-all border border-blue-200"
+                title="فتح المكتب الرئيسي بكامل أقسامه (المفكرة، الموكلين، القضايا، والمحاسبة)"
+              >
+                <FolderIcon className="w-3.5 h-3.5 text-blue-600" />
+                <span>عرض مكتبي</span>
+              </button>
+              <button
+                onClick={() => on_download_backup(user)}
+                className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all"
+                title="تنزيل نسخة احتياطية"
+              >
+                <ArrowPathIcon className="w-3.5 h-3.5 rotate-180" />
+              </button>
+            </div>
           )}
         </div>
       </td>

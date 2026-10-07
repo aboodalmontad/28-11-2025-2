@@ -31,6 +31,7 @@ import {
   ShareIcon,
   DatabaseIcon,
   XMarkIcon,
+  ShieldCheckIcon,
 } from "./components/icons";
 import ContextMenu, { MenuItem } from "./components/ContextMenu";
 import AdminTaskModal from "./components/AdminTaskModal";
@@ -74,6 +75,8 @@ interface NavbarProps {
   sync_log?: any[];
   on_clear_log?: () => void;
   pending_assistants_count?: number;
+  is_admin?: boolean;
+  on_go_to_admin?: () => void;
 }
 
 const Navbar: React.FC<NavbarProps> = ({
@@ -92,31 +95,39 @@ const Navbar: React.FC<NavbarProps> = ({
   sync_log,
   on_clear_log,
   pending_assistants_count = 0,
+  is_admin = false,
+  on_go_to_admin,
 }) => {
+  const can_view_accounting =
+    is_admin ||
+    permissions?.can_view_finance === true ||
+    !permissions ||
+    permissions.can_view_finance === undefined;
+
   const navItems = [
     {
       id: "home",
       label: "المفكرة",
       icon: CalendarDaysIcon,
-      visible: permissions.can_view_agenda,
+      visible: is_admin || permissions?.can_view_agenda !== false,
     },
     {
       id: "admin-tasks",
       label: "المهام",
       icon: ClipboardDocumentCheckIcon,
-      visible: permissions.can_view_admin_tasks,
+      visible: is_admin || permissions?.can_view_admin_tasks !== false,
     },
     {
       id: "clients",
       label: "الموكلين والقضايا",
       icon: UserIcon,
-      visible: permissions.can_view_clients,
+      visible: is_admin || permissions?.can_view_clients !== false,
     },
     {
       id: "accounting",
       label: "المحاسبة",
       icon: CalculatorIcon,
-      visible: permissions.can_view_finance,
+      visible: can_view_accounting,
     },
   ].filter((i) => i.visible);
 
@@ -148,6 +159,16 @@ const Navbar: React.FC<NavbarProps> = ({
         </div>
       </div>
       <div className="flex items-center gap-2">
+        {on_go_to_admin && (
+          <button
+            onClick={on_go_to_admin}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 transition-colors"
+            title="الانتقال إلى لوحة إدارة المنصة"
+          >
+            <ShieldCheckIcon className="w-4 h-4 text-purple-600" />
+            <span className="hidden sm:inline">لوحة الإدارة</span>
+          </button>
+        )}
         <button
           onClick={on_generate_agenda}
           className="p-2 rounded-full text-indigo-600 hover:bg-indigo-50"
@@ -197,37 +218,45 @@ interface BottomNavProps {
   currentPage: Page;
   onNavigate: (page: Page) => void;
   permissions: any;
+  is_admin?: boolean;
 }
 
 const BottomNav: React.FC<BottomNavProps> = ({
   currentPage,
   onNavigate,
   permissions,
+  is_admin = false,
 }) => {
+  const can_view_accounting =
+    is_admin ||
+    permissions?.can_view_finance === true ||
+    !permissions ||
+    permissions.can_view_finance === undefined;
+
   const navItems = [
     {
       id: "home",
       label: "المفكرة",
       icon: CalendarDaysIcon,
-      visible: permissions.can_view_agenda,
+      visible: is_admin || permissions?.can_view_agenda !== false,
     },
     {
       id: "admin-tasks",
       label: "المهام",
       icon: ClipboardDocumentCheckIcon,
-      visible: permissions.can_view_admin_tasks,
+      visible: is_admin || permissions?.can_view_admin_tasks !== false,
     },
     {
       id: "clients",
       label: "الموكلين والقضايا",
       icon: UserIcon,
-      visible: permissions.can_view_clients,
+      visible: is_admin || permissions?.can_view_clients !== false,
     },
     {
       id: "accounting",
       label: "المحاسبة",
       icon: CalculatorIcon,
-      visible: permissions.can_view_finance,
+      visible: can_view_accounting,
     },
   ].filter((i) => i.visible);
 
@@ -267,6 +296,7 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [currentPage, setCurrentPage] = useState<Page>("home");
+  const [adminViewMode, setAdminViewMode] = useState<"dashboard" | "office">("dashboard");
   const [isAdminTaskModalOpen, setIsAdminTaskModalOpen] = useState(false);
   const [adminTaskInitialData, setAdminTaskInitialData] =
     useState<any>(undefined);
@@ -279,32 +309,6 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
 
   const supabase = get_supabase_client();
   const data = useSupabaseData(session?.user ?? null, isAuthLoading);
-
-  // Automatically adjust current page if assistant lacks permission for the active page
-  useEffect(() => {
-    if (!data.permissions) return;
-    if (currentPage === "home" && !data.permissions.can_view_agenda) {
-      if (data.permissions.can_view_clients) setCurrentPage("clients");
-      else if (data.permissions.can_view_admin_tasks) setCurrentPage("admin-tasks");
-      else if (data.permissions.can_view_finance) setCurrentPage("accounting");
-      else setCurrentPage("settings");
-    } else if (currentPage === "clients" && !data.permissions.can_view_clients) {
-      if (data.permissions.can_view_agenda) setCurrentPage("home");
-      else if (data.permissions.can_view_admin_tasks) setCurrentPage("admin-tasks");
-      else if (data.permissions.can_view_finance) setCurrentPage("accounting");
-      else setCurrentPage("settings");
-    } else if (currentPage === "admin-tasks" && !data.permissions.can_view_admin_tasks) {
-      if (data.permissions.can_view_agenda) setCurrentPage("home");
-      else if (data.permissions.can_view_clients) setCurrentPage("clients");
-      else if (data.permissions.can_view_finance) setCurrentPage("accounting");
-      else setCurrentPage("settings");
-    } else if (currentPage === "accounting" && !data.permissions.can_view_finance) {
-      if (data.permissions.can_view_agenda) setCurrentPage("home");
-      else if (data.permissions.can_view_clients) setCurrentPage("clients");
-      else if (data.permissions.can_view_admin_tasks) setCurrentPage("admin-tasks");
-      else setCurrentPage("settings");
-    }
-  }, [data.permissions, currentPage]);
 
   const handle_generate_agenda = (event: React.MouseEvent) => {
     const pending_tasks = data.admin_tasks.filter((t) => !t.completed && (t.task_type || "admin") === "admin");
@@ -945,10 +949,12 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
     );
 
   // Immediately route platform admin accounts to AdminDashboard without showing the Lawyer Office UI,
-  // unless the admin has explicitly chosen to browse a specific user's office from inside AdminDashboard.
+  // unless the admin has explicitly chosen to browse a specific user's office from inside AdminDashboard
+  // OR the admin has switched to their own main office view.
   if (
     ((profile && profile.role === "admin") || is_admin_email) &&
-    !data.admin_viewing_user_id
+    !data.admin_viewing_user_id &&
+    adminViewMode !== "office"
   ) {
     return (
       <DataProvider value={data}>
@@ -962,6 +968,14 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
           <AdminDashboard
             on_logout={handleLogout}
             on_open_config={() => setShowConfigModal(true)}
+            on_open_main_office={() => {
+              setAdminViewMode("office");
+              setCurrentPage("home");
+            }}
+            on_open_accounting={() => {
+              setAdminViewMode("office");
+              setCurrentPage("accounting");
+            }}
           />
         </Suspense>
         <NotificationCenter
@@ -1212,20 +1226,47 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
   return (
     <DataProvider value={data}>
       <div className="flex flex-col h-screen print:h-auto bg-gray-50 print:bg-white">
-        {data.admin_viewing_user_id && (
-          <div className="bg-red-600 text-white p-2 text-center text-sm font-bold flex justify-center items-center gap-4 z-50 sticky top-0">
+        {data.admin_viewing_user_id && data.admin_viewing_user_id !== session?.user?.id ? (
+          <div className="bg-red-600 text-white p-2 text-center text-sm font-bold flex justify-center items-center gap-4 z-50 sticky top-0 shadow-md">
             <span>
               أنت الآن تتصفح بيانات مكتب:{" "}
               {data.profiles.find((p) => p.id === data.admin_viewing_user_id)?.full_name || "مستخدم آخر"}
             </span>
             <button
-              onClick={() => data.set_admin_viewing_user_id(null)}
-              className="bg-white text-red-600 px-3 py-1 rounded-md text-xs hover:bg-red-50 transition-colors shadow-sm"
+              onClick={() => {
+                data.set_admin_viewing_user_id(null);
+                setAdminViewMode("dashboard");
+              }}
+              className="bg-white text-red-600 px-3 py-1 rounded-md text-xs hover:bg-red-50 transition-colors shadow-sm font-bold"
             >
               العودة للوحة الإدارة
             </button>
           </div>
-        )}
+        ) : ((profile && profile.role === "admin") || is_admin_email) && (adminViewMode === "office" || data.admin_viewing_user_id === session?.user?.id) ? (
+          <div className="bg-gradient-to-r from-blue-700 via-indigo-700 to-blue-800 text-white px-4 py-2 text-center text-xs sm:text-sm font-bold flex flex-wrap justify-between items-center gap-2 z-50 sticky top-0 shadow-md">
+            <span className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              أنت الآن في: <strong>المكتب الرئيسي (مكتب المحامي)</strong> - كامل الصلاحيات وقسم المحاسبة متاح
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentPage("accounting")}
+                className={`px-3 py-1 rounded-md text-xs font-bold transition-colors shadow-sm ${currentPage === "accounting" ? "bg-white text-blue-900 shadow" : "bg-white/20 text-white hover:bg-white/30"}`}
+              >
+                قسم المحاسبة
+              </button>
+              <button
+                onClick={() => {
+                  data.set_admin_viewing_user_id(null);
+                  setAdminViewMode("dashboard");
+                }}
+                className="bg-white text-indigo-900 hover:bg-blue-50 px-3 py-1 rounded-md text-xs font-bold transition-colors shadow-sm"
+              >
+                العودة للوحة الإدارة
+              </button>
+            </div>
+          </div>
+        ) : null}
         <Navbar
           currentPage={currentPage}
           onNavigate={setCurrentPage}
@@ -1242,6 +1283,15 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
           sync_log={syncLog}
           on_clear_log={clearSyncLog}
           pending_assistants_count={pending_assistants_count}
+          is_admin={is_admin_email || data.is_admin}
+          on_go_to_admin={
+            is_admin_email || data.is_admin
+              ? () => {
+                  data.set_admin_viewing_user_id(null);
+                  setAdminViewMode("dashboard");
+                }
+              : undefined
+          }
         />
         <main className="flex-grow p-4 overflow-y-auto print:overflow-visible print:p-0 pb-24 md:pb-4 print:pb-0">
           {data.is_data_loading && (
@@ -1414,6 +1464,7 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
           currentPage={currentPage}
           onNavigate={setCurrentPage}
           permissions={data.permissions}
+          is_admin={is_admin_email || data.is_admin}
         />
         {data.whatsapp_share_data && (
           <WhatsAppChooserModal
