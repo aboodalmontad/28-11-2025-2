@@ -1053,10 +1053,10 @@ export const useSupabaseData = (
   }, [data]);
 
   const all_sessions = React.useMemo(() => {
-    return filtered_data.clients.flatMap((c) =>
-      c.cases.flatMap((cs) =>
-        cs.stages.flatMap((st) =>
-          st.sessions.map((s) => ({
+    return (filtered_data?.clients || []).flatMap((c) =>
+      (c.cases || []).flatMap((cs) =>
+        (cs.stages || []).flatMap((st) =>
+          (st.sessions || []).map((s) => ({
             ...s,
             client_name: s.client_name || c.name,
             opponent_name: s.opponent_name || cs.opponent_name,
@@ -1069,10 +1069,10 @@ export const useSupabaseData = (
         ),
       ),
     );
-  }, [filtered_data.clients]);
+  }, [filtered_data?.clients]);
 
   const unpostponed_sessions = React.useMemo(() => {
-    return all_sessions.filter(
+    return (all_sessions || []).filter(
       (s) => !s.is_postponed && !s.stage_decision_date && !s.next_session_date,
     );
   }, [all_sessions]);

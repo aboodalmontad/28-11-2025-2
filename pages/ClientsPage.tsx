@@ -291,8 +291,10 @@ const ClientsPage: React.FC<ClientsPageProps> = ({
     set_clients((current_clients) => {
       return current_clients.map((client) => ({
         ...client,
+        updated_at: new Date().toISOString(),
         cases: client.cases.map((case_item) => ({
           ...case_item,
+          updated_at: new Date().toISOString(),
           stages: case_item.stages.map((stage) => {
             const session_index = stage.sessions.findIndex(
               (s) => s.id === session_id,
@@ -939,8 +941,10 @@ const ClientsPage: React.FC<ClientsPageProps> = ({
     set_clients((currentClients) =>
       currentClients.map((client) => ({
         ...client,
+        updated_at: new Date().toISOString(),
         cases: client.cases.map((c) => ({
           ...c,
+          updated_at: new Date().toISOString(),
           stages: c.stages.map((st) => {
             if (st.id === stage.id) {
               return {
@@ -978,20 +982,6 @@ const ClientsPage: React.FC<ClientsPageProps> = ({
         return "";
     }
   };
-
-  if (permissions && !permissions.can_view_clients) {
-    return (
-      <div className="flex flex-col items-center justify-center p-12 text-center bg-white rounded-xl shadow-sm border border-gray-200 mt-6" dir="rtl">
-        <ExclamationTriangleIcon className="w-16 h-16 text-amber-500 mb-4" />
-        <h2 className="text-xl font-bold text-gray-800 mb-2">
-          لا تملك صلاحية الوصول إلى قسم الموكلين والقضايا
-        </h2>
-        <p className="text-gray-500 max-w-md text-sm">
-          لم يقم المحامي المدير بمنحك صلاحية الاطلاع على الموكلين وقضايا المكتب. يرجى مراجعة المحامي المدير لتعديل صلاحيات حسابك إذا لزم الأمر.
-        </p>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">

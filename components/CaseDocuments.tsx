@@ -74,7 +74,7 @@ const SyncStatusIcon: React.FC<{ state: CaseDocument["local_state"] }> = ({
 const FilePreview: React.FC<{
   doc: CaseDocument;
   onPreview: (doc: CaseDocument) => void;
-  onDelete?: (doc: CaseDocument) => void;
+  onDelete: (doc: CaseDocument) => void;
 }> = ({ doc, onPreview, onDelete }) => {
   const [thumbnailUrl, setThumbnailUrl] = React.useState<string | null>(null);
   const [isLoadingThumbnail, setIsLoadingThumbnail] = React.useState(false);
@@ -118,20 +118,17 @@ const FilePreview: React.FC<{
 
   return (
     <div className="relative group border rounded-lg overflow-hidden bg-gray-50 flex flex-col aspect-w-1 aspect-h-1">
-      {onDelete && (
-        <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete(doc);
-            }}
-            className="p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600 shadow-md"
-            title="حذف الوثيقة"
-          >
-            <TrashIcon className="w-4 h-4" />
-          </button>
-        </div>
-      )}
+      <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete(doc);
+          }}
+          className="p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600 shadow-md"
+        >
+          <TrashIcon className="w-4 h-4" />
+        </button>
+      </div>
       <div className="absolute top-2 left-2 z-10">
         <SyncStatusIcon state={doc.local_state} />
       </div>
@@ -1419,22 +1416,13 @@ const DocumentScannerModal: React.FC<{
 };
 
 const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
-  const { documents, add_documents, delete_document, get_document_file, permissions } =
+  const { documents, add_documents, delete_document, get_document_file } =
     useData();
   const { showFeedback, confirm } = useFeedback();
   const [previewDoc, setPreviewDoc] = React.useState<CaseDocument | null>(null);
   const [isDragging, setIsDragging] = React.useState(false);
   const [isCameraOpen, setIsCameraOpen] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
-
-  if (permissions && !permissions.can_view_documents) {
-    return (
-      <div className="p-8 text-center text-gray-500 flex flex-col items-center">
-        <ExclamationCircleIcon className="w-12 h-12 text-gray-300 mb-2" />
-        <p>ليس لديك صلاحية للاطلاع على وثائق هذه القضية من قبل المحامي المدير.</p>
-      </div>
-    );
-  }
 
   const caseDocuments = React.useMemo(
     () =>
@@ -1449,10 +1437,6 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
   );
 
   const handleFileChange = async (files: FileList | null) => {
-    if (!permissions.can_add_document) {
-      showFeedback("ليس لديك صلاحية لإضافة أو رفع وثائق جديدة.", "error");
-      return;
-    }
     if (files && files.length > 0) {
       try {
         await add_documents(caseId, files);
@@ -1485,10 +1469,6 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
   };
 
   const openDeleteModal = (doc: CaseDocument) => {
-    if (!permissions.can_delete_document) {
-      showFeedback("ليس لديك صلاحية لحذف الوثائق.", "error");
-      return;
-    }
     confirm({
       title: "تأكيد حذف الوثيقة",
       message: `هل أنت متأكد من حذف وثيقة "${doc.name}"؟`,
@@ -1506,10 +1486,6 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
   };
 
   const handlePhotoCapture = async (file: File) => {
-    if (!permissions.can_add_document) {
-      showFeedback("ليس لديك صلاحية لإضافة أو رفع وثائق جديدة.", "error");
-      return;
-    }
     const fileList = new DataTransfer();
     fileList.items.add(file);
     try {
@@ -1526,46 +1502,44 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
 
   return (
     <div className="space-y-4">
-      {permissions.can_add_document && (
-        <div className="flex flex-col sm:flex-row gap-4">
-          <input
-            type="file"
-            id={`file-upload-${caseId}`}
-            multiple
-            className="hidden"
-            onChange={(e) => handleFileChange(e.target.files)}
-            ref={fileInputRef}
-          />
-          <div
-            onDragEnter={handleDragEvents}
-            onDragLeave={handleDragEvents}
-            onDragOver={handleDragEvents}
-            onDrop={handleDrop}
-            className="flex-grow"
+      <div className="flex flex-col sm:flex-row gap-4">
+        <input
+          type="file"
+          id={`file-upload-${caseId}`}
+          multiple
+          className="hidden"
+          onChange={(e) => handleFileChange(e.target.files)}
+          ref={fileInputRef}
+        />
+        <div
+          onDragEnter={handleDragEvents}
+          onDragLeave={handleDragEvents}
+          onDragOver={handleDragEvents}
+          onDrop={handleDrop}
+          className="flex-grow"
+        >
+          <label
+            htmlFor={`file-upload-${caseId}`}
+            className={`flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-lg cursor-pointer hover:bg-gray-100 transition-colors h-full ${isDragging ? "border-blue-500 bg-blue-50" : "border-gray-300"}`}
           >
-            <label
-              htmlFor={`file-upload-${caseId}`}
-              className={`flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-lg cursor-pointer hover:bg-gray-100 transition-colors h-full ${isDragging ? "border-blue-500 bg-blue-50" : "border-gray-300"}`}
-            >
-              <DocumentArrowUpIcon className="w-10 h-10 text-gray-400 mb-2" />
-              <span className="font-semibold text-gray-700">
-                اسحب وأفلت الملفات هنا، أو اضغط للاختيار
-              </span>
-              <p className="text-xs text-gray-500">
-                يمكنك إضافة الصور، ملفات PDF، ومستندات Word
-              </p>
-            </label>
-          </div>
-          <button
-            onClick={() => setIsCameraOpen(true)}
-            className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors"
-          >
-            <CameraIcon className="w-10 h-10 text-gray-400 mb-2" />
-            <span className="font-semibold text-gray-700">التقاط وثيقة</span>
-            <p className="text-xs text-gray-500">استخدم كاميرا جهازك</p>
-          </button>
+            <DocumentArrowUpIcon className="w-10 h-10 text-gray-400 mb-2" />
+            <span className="font-semibold text-gray-700">
+              اسحب وأفلت الملفات هنا، أو اضغط للاختيار
+            </span>
+            <p className="text-xs text-gray-500">
+              يمكنك إضافة الصور، ملفات PDF، ومستندات Word
+            </p>
+          </label>
         </div>
-      )}
+        <button
+          onClick={() => setIsCameraOpen(true)}
+          className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors"
+        >
+          <CameraIcon className="w-10 h-10 text-gray-400 mb-2" />
+          <span className="font-semibold text-gray-700">التقاط وثيقة</span>
+          <p className="text-xs text-gray-500">استخدم كاميرا جهازك</p>
+        </button>
+      </div>
 
       {caseDocuments.length > 0 ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
@@ -1574,7 +1548,7 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
               key={doc.id}
               doc={doc}
               onPreview={handlePreview}
-              onDelete={permissions.can_delete_document ? openDeleteModal : undefined}
+              onDelete={openDeleteModal}
             />
           ))}
         </div>

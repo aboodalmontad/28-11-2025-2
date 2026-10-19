@@ -1,0 +1,146 @@
+// supabaseClient.ts
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+
+// Suppress specific harmless warnings/errors that spam the console
+const originalConsoleError = console.error;
+console.error = (...args: any[]) => {
+  const msg = args.join(" ").toLowerCase();
+  if (
+    msg.includes("refresh token not found") ||
+    msg.includes("invalid refresh token") ||
+    msg.includes("failed to fetch") ||
+    msg.includes("lock")
+  )
+    return;
+  if (msg.includes("error checking for updates")) return;
+  originalConsoleError.apply(console, args);
+};
+
+// Hardcoded Supabase credentials.
+// NOTE: Using service_role key on the client is insecure but used here as provided.
+const supabaseUrl = "https://gvafdhyudvdymletqjee.supabase.co";
+const supabaseAnonKey =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2YWZkaHl1ZHZkeW1sZXRxamVlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MTkzMDQ3NiwiZXhwIjoyMDc3NTA2NDc2fQ.y_D64FZILeOCFwAbZZaN0TqFVcpD3VSE9nJWPt_ypCc";
+
+/**
+ * A robust fetch wrapper that handles common network errors with retries and exponential backoff.
+ * Handles Request object cloning safely for Android browsers and mobile WebViews.
+ */
+async function robustFetch(
+  input: string | URL | Request,
+  init?: RequestInit,
+  retries = 3,
+  backoff = 300,
+): Promise<Response> {
+  let urlStr = "";
+  let fetchInput: any = input;
+  let fetchInit: RequestInit | undefined = init;
+
+  if (typeof input === "string") {
+    urlStr = input;
+  } else if (input instanceof URL) {
+    urlStr = input.toString();
+  } else if (input && typeof input === "object" && "url" in input) {
+    urlStr = (input as Request).url;
+    try {
+      fetchInput = (input as Request).clone();
+    } catch (e) {
+      fetchInput = urlStr;
+    }
+  } else {
+    urlStr = String(input);
+  }
+
+  const isAuthEndpoint = urlStr && urlStr.includes("/auth/v1/");
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  const existingSignal = fetchInit?.signal;
+  if (existingSignal) {
+    if (existingSignal.aborted) {
+      clearTimeout(timeoutId);
+      controller.abort();
+    } else {
+      existingSignal.addEventListener("abort", () => controller.abort(), {
+        once: true,
+      });
+    }
+  }
+
+  try {
+    const response = await fetch(fetchInput, {
+      ...fetchInit,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    // Retry on common server-side transient errors (502, 503, 504)
+    if (!response.ok && [502, 503, 504].includes(response.status)) {
+      if (isAuthEndpoint) {
+        // VERY IMPORTANT: gotrue-js will instantly permanently destroy the user's session if a refresh token
+        // request returns a 5xx error. To prevent this silent forced logout on transient server issues,
+        // we throw a TypeError to trick gotrue-js into treating it as a retryable offline network error.
+        throw new TypeError("Failed to fetch");
+      } else if (retries > 0) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+    }
+
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    const message = String(error).toLowerCase();
+    const isNetworkError =
+      message.includes("failed to fetch") ||
+      message.includes("network") ||
+      message.includes("aborted") ||
+      message.includes("timeout") ||
+      message.includes("connection");
+
+    if (isNetworkError && retries > 0 && !isAuthEndpoint) {
+      console.warn(
+        `robustFetch: Retrying ${urlStr} due to network error: ${message}. Retries left: ${retries}`,
+      );
+      // Exponential backoff with jitter
+      const delay = backoff + Math.random() * backoff;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      return robustFetch(input, init, retries - 1, backoff * 2);
+    }
+
+    throw error;
+  }
+}
+
+let supabase: SupabaseClient | null = null;
+
+export function get_supabase_client(): SupabaseClient | null {
+  if (supabase) return supabase;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error("Supabase credentials missing.");
+    return null;
+  }
+
+  try {
+    supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+        lockAcquireTimeout: 60000, // Increase to 60 seconds to prevent lock stealing during retries
+        // Custom immediate lock bypass to avoid navigator.locks inside iframe environments
+        lock: async (name: string, acquireTimeout: number, fn: () => Promise<any>) => {
+          return await fn();
+        },
+      } as any,
+      global: {
+        // Use our robust fetch wrapper for all Supabase requests
+        fetch: robustFetch as any,
+      },
+    });
+    return supabase;
+  } catch (error) {
+    console.error("Supabase init error:", error);
+    return null;
+  }
+}

@@ -1478,4 +1478,5 @@ const App: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
   );
 };
 
+export const AppContent = App;
 export default App;

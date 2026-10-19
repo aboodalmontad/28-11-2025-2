@@ -1061,15 +1061,15 @@ const HomePage: React.FC<HomePageProps> = ({
 
   // Memos
   const overdue_sessions = React.useMemo(() => {
-    return unpostponed_sessions.filter((s) => is_before_today(s.date));
+    return (unpostponed_sessions || []).filter((s) => is_before_today(s.date));
   }, [unpostponed_sessions]);
 
   const daily_data = React.useMemo(
     () => ({
-      daily_sessions: all_sessions.filter((s) =>
+      daily_sessions: (all_sessions || []).filter((s) =>
         is_same_day(s.date, selected_date),
       ),
-      daily_appointments: appointments.filter((a) =>
+      daily_appointments: (appointments || []).filter((a) =>
         is_same_day(a.date, selected_date),
       ),
     }),
@@ -1079,7 +1079,7 @@ const HomePage: React.FC<HomePageProps> = ({
     const tomorrow = new Date(selected_date);
     tomorrow.setDate(tomorrow.getDate() + 1);
     tomorrow.setHours(0, 0, 0, 0);
-    return unpostponed_sessions
+    return (unpostponed_sessions || [])
       .filter((s) => safe_revive_date(s.date) >= tomorrow)
       .sort(
         (a, b) =>
@@ -1092,7 +1092,7 @@ const HomePage: React.FC<HomePageProps> = ({
   const grouped_tasks: Record<string, AdminTask[]> = React.useMemo(() => {
     const isCompleted = active_task_tab === "completed" || active_task_tab === "office_completed";
 
-    const filtered = admin_tasks.filter((task) => {
+    const filtered = (admin_tasks || []).filter((task) => {
       const taskType = task.task_type || "admin";
       if (taskType !== targetType) return false;
 

@@ -14,8 +14,6 @@ import {
   ArrowPathIcon,
   CloudArrowDownIcon,
   ListBulletIcon,
-  CalculatorIcon,
-  BuildingLibraryIcon,
 } from "../components/icons";
 import { useData } from "../context/DataContext";
 import AdminAnalyticsPage from "./AdminAnalyticsPage";
@@ -23,7 +21,6 @@ import SiteFinancesPage from "./SiteFinancesPage";
 import AdminTestsPage from "./AdminTestsPage";
 import AdminSettingsPage from "./AdminSettingsPage";
 import AdminActivityLogsPage from "./AdminActivityLogsPage";
-const AccountingPage = React.lazy(() => import("./AccountingPage"));
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import { fetch_data_from_supabase } from "../hooks/useOnlineData";
 import { useFeedback } from "../context/FeedbackContext";
@@ -31,15 +28,12 @@ import { useFeedback } from "../context/FeedbackContext";
 interface AdminDashboardProps {
   on_logout: () => void;
   on_open_config: () => void;
-  on_open_main_office?: () => void;
-  on_open_accounting?: () => void;
 }
 
 type AdminView =
   | "analytics"
   | "users"
   | "activity_logs"
-  | "office_accounting"
   | "finances"
   | "settings"
   | "tests";
@@ -72,8 +66,6 @@ const NavLink: React.FC<{
 const AdminDashboard: React.FC<AdminDashboardProps> = ({
   on_logout,
   on_open_config,
-  on_open_main_office,
-  on_open_accounting,
 }) => {
   const {
     profiles,
@@ -83,7 +75,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     unfiltered_data,
     is_update_available,
     manual_sync,
-    fetch_and_refresh,
     sync_status,
   } = useData();
   const { showFeedback, confirm } = useFeedback();
@@ -94,18 +85,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const is_online = useOnlineStatus();
 
   const isSyncActive = is_syncing || sync_status === "syncing";
-
-  // Automatically fetch and refresh users list and cloud data upon entering AdminDashboard
-  const hasAutoRefreshedRef = React.useRef(false);
-  React.useEffect(() => {
-    if (!is_online) return;
-    if (!hasAutoRefreshedRef.current) {
-      hasAutoRefreshedRef.current = true;
-      fetch_and_refresh().catch((err) => {
-        console.warn("Auto refresh on AdminDashboard mount failed:", err);
-      });
-    }
-  }, [is_online, fetch_and_refresh]);
 
   const handle_admin_sync = async () => {
     if (isSyncActive) return;
@@ -255,18 +234,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         return <AdminAnalyticsPage />;
       case "users":
         return <AdminPage />;
-      case "office_accounting":
-        return (
-          <React.Suspense
-            fallback={
-              <div className="flex justify-center items-center py-20">
-                <ArrowPathIcon className="w-10 h-10 animate-spin text-blue-600" />
-              </div>
-            }
-          >
-            <AccountingPage clear_initial_invoice_data={() => {}} />
-          </React.Suspense>
-        );
       case "activity_logs":
         return <AdminActivityLogsPage />;
       case "finances":
@@ -280,16 +247,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  if (loading && profiles.length === 0) {
+  if (loading) {
     return (
-      <div
-        className="flex flex-col justify-center items-center h-screen bg-gray-50 gap-3"
-        dir="rtl"
-      >
-        <ArrowPathIcon className="w-10 h-10 text-blue-600 animate-spin" />
-        <span className="font-bold text-gray-700">
-          جاري تحميل وتحديث بيانات لوحة الإدارة...
-        </span>
+      <div className="flex justify-center items-center h-screen">
+        جاري تحميل...
       </div>
     );
   }
@@ -300,11 +261,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       label: "المستخدمين",
       icon: <UserGroupIcon className="w-5 h-5" />,
       badge: pending_users_count,
-    },
-    {
-      id: "office_accounting",
-      label: "محاسبة المكتب",
-      icon: <CalculatorIcon className="w-5 h-5 text-emerald-600" />,
     },
     {
       id: "activity_logs",
@@ -318,7 +274,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     },
     {
       id: "finances",
-      label: "مالية المنصة",
+      label: "المالية",
       icon: <CurrencyDollarIcon className="w-5 h-5" />,
     },
     {
@@ -372,17 +328,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
             {/* User Actions */}
             <div className="flex items-center gap-2">
-              {on_open_main_office && (
-                <button
-                  onClick={on_open_main_office}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-black text-white bg-blue-600 hover:bg-blue-700 active:scale-95 rounded-lg sm:rounded-full shadow-sm transition-all"
-                  title="الدخول إلى المكتب الرئيسي (المفكرة، الموكلين، القضايا، والمحاسبة)"
-                >
-                  <BuildingLibraryIcon className="w-4 h-4" />
-                  <span>المكتب الرئيسي</span>
-                </button>
-              )}
-
               <button
                 onClick={handle_admin_sync}
                 disabled={isSyncActive || !is_online}
@@ -453,18 +398,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* Mobile Navigation Dropdown */}
         {is_mobile_menu_open && (
           <div className="md:hidden bg-white border-t border-slate-100 p-2 space-y-2 shadow-lg animate-in slide-in-from-top-2 duration-200">
-            {on_open_main_office && (
-              <button
-                onClick={() => {
-                  on_open_main_office();
-                  set_is_mobile_menu_open(false);
-                }}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold shadow-sm transition-colors mb-2"
-              >
-                <BuildingLibraryIcon className="w-4 h-4" />
-                <span>الدخول إلى المكتب الرئيسي (كامل الأقسام)</span>
-              </button>
-            )}
             <button
               onClick={() => {
                 handle_admin_sync();
@@ -581,9 +514,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-slate-800">
             {view === "users" && "إدارة المستخدمين"}
-            {view === "office_accounting" && "قسم المحاسبة - المكتب الرئيسي"}
             {view === "analytics" && "التحليلات والإحصائيات"}
-            {view === "finances" && "مالية واشتراكات المنصة"}
+            {view === "finances" && "المحاسبة المالية"}
             {view === "tests" && "اختبارات النظام"}
             {view === "settings" && "إعدادات الإدارة"}
           </h1>
