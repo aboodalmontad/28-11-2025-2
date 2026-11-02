@@ -74,6 +74,20 @@ const SessionsTable: React.FC<SessionsTableProps> = ({
     }
   };
 
+  const handleDeleteClick = (session: Session) => {
+    if (!onDelete) return;
+    confirm({
+      title: "تأكيد حذف الجلسة",
+      message: `هل أنت متأكد من حذف الجلسة الخاصة بالمحكمة "${session.court || "غير محدد"}" برقم أساس "${session.case_number || "بدون"}" وتاريخ ${format_date(session.date)}؟\nهذا الإجراء لا يمكن التراجع عنه.`,
+      confirmText: "نعم، قم بالحذف",
+      cancelText: "إلغاء",
+      variant: "danger",
+      onConfirm: () => {
+        onDelete(session.id);
+      },
+    });
+  };
+
   const handleInputChange = (
     sessionId: string,
     field: "date" | "reason",
@@ -549,7 +563,7 @@ const SessionsTable: React.FC<SessionsTableProps> = ({
                           )}
                           {onDelete && (
                             <button
-                              onClick={() => onDelete(s.id)}
+                              onClick={() => handleDeleteClick(s)}
                               className="p-2 text-gray-500 hover:text-red-600"
                               aria-label="حذف"
                             >
@@ -614,7 +628,7 @@ const SessionsTable: React.FC<SessionsTableProps> = ({
                           )}
                           {onDelete && (
                             <button
-                              onClick={() => onDelete(s.id)}
+                              onClick={() => handleDeleteClick(s)}
                               className="p-2 text-gray-500 hover:text-red-600"
                               aria-label="حذف"
                             >

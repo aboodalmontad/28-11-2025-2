@@ -125,3 +125,31 @@ export function get_supabase_client(): SupabaseClient | null {
     return null;
   }
 }
+
+let serviceSupabase: SupabaseClient | null = null;
+
+export function get_service_supabase_client(): SupabaseClient | null {
+  if (serviceSupabase) return serviceSupabase;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return null;
+  }
+
+  try {
+    serviceSupabase = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
+      global: {
+        fetch: robustFetch as any,
+      },
+    });
+    return serviceSupabase;
+  } catch (error) {
+    console.error("Supabase service client init error:", error);
+    return null;
+  }
+}
+

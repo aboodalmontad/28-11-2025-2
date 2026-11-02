@@ -2,24 +2,25 @@
   "name": "lawyer-business-management-vercel",
   "version": "1.0.1",
   "type": "module",
+  "private": true,
   "scripts": {
     "dev": "vite",
     "start": "node server.ts",
-    "build": "vite build",
+    "build": "vite build && node generate-sw.js",
     "lint": "tsc --noEmit"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.2",
     "@types/express": "^5.0.6",
-    "@types/node": "^22.14.0",
+    "@types/node": "^25.5.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^4.3.4",
+    "@vitejs/plugin-react": "^6.0.1",
     "esbuild": "^0.27.0",
     "fs-extra": "^11.2.0",
     "tailwindcss": "^4.2.2",
-    "typescript": "^5.8.2",
-    "vite": "^6.2.0"
+    "typescript": "^5.9.3",
+    "vite": "^8.0.1"
   },
   "dependencies": {
     "@google/genai": "^1.46.0",

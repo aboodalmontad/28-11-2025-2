@@ -300,18 +300,9 @@ CREATE POLICY "Admins can manage site finances" ON public.site_finances
 
 CREATE OR REPLACE FUNCTION public.log_sync_deletion()
 RETURNS TRIGGER AS $$
-DECLARE
-    target_user_id UUID;
 BEGIN
-    target_user_id := COALESCE(OLD.user_id, auth.uid());
-    IF target_user_id IS NOT NULL THEN
-        INSERT INTO public.sync_deletions (table_name, record_id, user_id)
-        VALUES (TG_TABLE_NAME, OLD.id::text, target_user_id)
-        ON CONFLICT DO NOTHING;
-    END IF;
-    RETURN OLD;
-EXCEPTION WHEN OTHERS THEN
-    -- Ensure deletions never fail due to background logging issues
+    INSERT INTO public.sync_deletions (table_name, record_id, user_id)
+    VALUES (TG_TABLE_NAME, OLD.id::text, OLD.user_id);
     RETURN OLD;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

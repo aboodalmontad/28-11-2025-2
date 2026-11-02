@@ -682,7 +682,11 @@ export const use_sync = ({
         ]);
         
         log("info", "تم جلب البيانات، جاري الدمج والمزامنة المحلية...");
-        const remote_flat_data = transform_remote_to_local(remote_data_raw);
+        let remote_flat_data = transform_remote_to_local(remote_data_raw) as FlatData;
+        remote_flat_data = apply_deletions_to_local(
+          remote_flat_data,
+          remote_deletions,
+        );
 
         // 1.5 Cloud Cleanup (72h Rule)
         const supabase = get_supabase_client();
@@ -1136,8 +1140,12 @@ export const use_sync = ({
           ),
         ]);
 
-        const remote_flat_data_untyped =
-          transform_remote_to_local(remote_data_raw);
+        let remote_flat_data_untyped =
+          transform_remote_to_local(remote_data_raw) as FlatData;
+        remote_flat_data_untyped = apply_deletions_to_local(
+          remote_flat_data_untyped,
+          remote_deletions,
+        );
 
         const deleted_ids_sets = {
           clients: new Set(deleted_ids_ref.current.clients),

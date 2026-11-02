@@ -1452,7 +1452,7 @@ const LoginPage: React.FC<auth_page_props> = ({
         </div>
 
         <div className="mt-8 text-center">
-          <p className="text-xs text-gray-400 mb-1">الإصدار: 18-8-2026</p>
+          <p className="text-xs text-gray-400 mb-1">الإصدار: 02-11-2026</p>
           <p className="text-xs text-gray-400">
             جميع حقوق الملكية محفوظة لشركة الحلول التقنية ©{" "}
             {new Date().getFullYear()}

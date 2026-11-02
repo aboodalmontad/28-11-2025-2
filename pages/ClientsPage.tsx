@@ -71,15 +71,6 @@ const ClientsPage: React.FC<ClientsPageProps> = ({
 
   const debounced_search_query = useDebounce(search_query, 300);
   const [view_mode, set_view_mode] = React.useState<"tree" | "list">("tree");
-  const [is_delete_session_modal_open, set_is_delete_session_modal_open] =
-    React.useState(false);
-  const [session_to_delete, set_session_to_delete] = React.useState<{
-    session_id: string;
-    stage_id: string;
-    case_id: string;
-    client_id: string;
-    message: string;
-  } | null>(null);
   const [is_delete_case_modal_open, set_is_delete_case_modal_open] =
     React.useState(false);
   const [case_to_delete, set_case_to_delete] = React.useState<{
@@ -844,34 +835,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({
     case_id: string,
     client_id: string,
   ) => {
-    const client = clients.find((c) => c.id === client_id);
-    const caseItem = client?.cases.find((c) => c.id === case_id);
-    const stage = caseItem?.stages.find((s) => s.id === stage_id);
-    const session = stage?.sessions.find((s) => s.id === session_id);
-    const message = session
-      ? `جلسة يوم ${format_date(session.date)} الخاصة بقضية ${caseItem?.subject}`
-      : "هذه الجلسة";
-    set_session_to_delete({
-      session_id,
-      stage_id,
-      case_id,
-      client_id,
-      message,
-    });
-    set_is_delete_session_modal_open(true);
-  };
-
-  const handle_confirm_delete_session = () => {
-    if (session_to_delete) {
-      delete_session(
-        session_to_delete.client_id,
-        session_to_delete.case_id,
-        session_to_delete.stage_id,
-        session_to_delete.session_id,
-      );
-    }
-    set_is_delete_session_modal_open(false);
-    set_session_to_delete(null);
+    delete_session(client_id, case_id, stage_id, session_id);
   };
 
   // Printing
@@ -1740,41 +1704,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({
           </div>
         </div>
       )}
-      {is_delete_session_modal_open && session_to_delete && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50 no-print p-4 overflow-y-auto"
-          onClick={() => set_is_delete_session_modal_open(false)}
-        >
-          <div
-            className="bg-white p-8 rounded-lg shadow-xl w-full max-w-md"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="text-center">
-              <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-red-100 mb-4">
-                <ExclamationTriangleIcon className="h-8 w-8 text-red-600" />
-              </div>
-              <h3 className="text-2xl font-bold">تأكيد حذف الجلسة</h3>
-              <p className="my-4">
-                هل أنت متأكد من حذف "{session_to_delete.message}"؟
-              </p>
-            </div>
-            <div className="mt-6 flex justify-center gap-4">
-              <button
-                className="px-6 py-2 bg-gray-200 rounded-lg"
-                onClick={() => set_is_delete_session_modal_open(false)}
-              >
-                إلغاء
-              </button>
-              <button
-                className="px-6 py-2 bg-red-600 text-white rounded-lg"
-                onClick={handle_confirm_delete_session}
-              >
-                نعم، قم بالحذف
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Delete session modal removed to avoid duplicate confirmations */}
       {is_print_choice_modal_open && client_for_print_choice && (
         <div
           className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 no-print"

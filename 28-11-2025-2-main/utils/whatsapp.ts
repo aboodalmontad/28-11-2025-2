@@ -1,138 +1,30 @@
-export type WhatsAppVersion = "app" | "business" | "web";
+export type WhatsAppVersion = "web" | "desktop" | "app";
 
-const STORAGE_KEY = "whatsapp_version_choice";
-
-export const get_stored_whatsapp_preference = (
-  userId?: string | null,
-): WhatsAppVersion | null => {
+export const get_stored_whatsapp_preference = (): WhatsAppVersion => {
   try {
-    if (typeof localStorage === "undefined") return null;
-
-    if (userId) {
-      const userChoice = localStorage.getItem(`${STORAGE_KEY}_${userId}`);
-      if (
-        userChoice === "app" ||
-        userChoice === "business" ||
-        userChoice === "web"
-      ) {
-        return userChoice;
-      }
-      if (userChoice === "ask" || userChoice === "none") {
-        return null;
-      }
-    }
-
-    const globalChoice = localStorage.getItem(STORAGE_KEY);
-    if (
-      globalChoice === "app" ||
-      globalChoice === "business" ||
-      globalChoice === "web"
-    ) {
-      return globalChoice;
-    }
-    return null;
-  } catch (e) {
-    console.error("Error reading WhatsApp preference:", e);
-    return null;
-  }
+    const val = localStorage.getItem("lawyerWhatsAppVersion");
+    if (val === "web" || val === "desktop" || val === "app") return val;
+  } catch (e) {}
+  return "web";
 };
 
-export const set_stored_whatsapp_preference = (
-  pref: WhatsAppVersion | null,
-  userId?: string | null,
-): void => {
+export const set_stored_whatsapp_preference = (version: WhatsAppVersion) => {
   try {
-    if (typeof localStorage === "undefined") return;
-
-    if (pref) {
-      localStorage.setItem(STORAGE_KEY, pref);
-      if (userId) {
-        localStorage.setItem(`${STORAGE_KEY}_${userId}`, pref);
-      }
-    } else {
-      localStorage.removeItem(STORAGE_KEY);
-      if (userId) {
-        localStorage.setItem(`${STORAGE_KEY}_${userId}`, "ask");
-      }
-    }
-  } catch (e) {
-    console.error("Error saving WhatsApp preference:", e);
-  }
+    localStorage.setItem("lawyerWhatsAppVersion", version);
+  } catch (e) {}
 };
 
-export const open_whatsapp_url = (
-  text: string,
-  phone?: string,
-  version: WhatsAppVersion = "app",
-): void => {
-  const cleanText = encodeURIComponent(text);
-  const cleanPhone = phone ? phone.replace(/\D/g, "") : "";
+export const open_whatsapp_url = (phone: string, text: string) => {
+  const cleanPhone = phone.replace(/\D/g, "");
+  const encodedText = encodeURIComponent(text);
+  const pref = get_stored_whatsapp_preference();
 
-  const isIOS =
-    typeof navigator !== "undefined" &&
-    /iPad|iPhone|iPod/.test(navigator.userAgent);
-  const isAndroid =
-    typeof navigator !== "undefined" && /Android/.test(navigator.userAgent);
-
-  let url = "";
-  let useDirectHref = false;
-
-  if (version === "web") {
-    url = cleanPhone
-      ? `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${cleanText}`
-      : `https://web.whatsapp.com/send?text=${cleanText}`;
-  } else if (version === "business") {
-    if (isIOS) {
-      url = cleanPhone
-        ? `whatsapp-business://send?phone=${cleanPhone}&text=${cleanText}`
-        : `whatsapp-business://send?text=${cleanText}`;
-      useDirectHref = true;
-    } else if (isAndroid) {
-      // Force WhatsApp Business package specifically on Android
-      url = cleanPhone
-        ? `intent://send?phone=${cleanPhone}&text=${cleanText}#Intent;package=com.whatsapp.w4b;scheme=whatsapp;end`
-        : `intent://send?text=${cleanText}#Intent;package=com.whatsapp.w4b;scheme=whatsapp;end`;
-      useDirectHref = true;
-    } else {
-      // Desktop / Generic Fallback
-      url = cleanPhone
-        ? `https://wa.me/${cleanPhone}?text=${cleanText}`
-        : `https://wa.me/?text=${cleanText}`;
-    }
-  } else {
-    // Default / Standard app ("app")
-    if (isIOS) {
-      url = cleanPhone
-        ? `whatsapp://send?phone=${cleanPhone}&text=${cleanText}`
-        : `whatsapp://send?text=${cleanText}`;
-      useDirectHref = true;
-    } else if (isAndroid) {
-      // Force standard WhatsApp package specifically on Android
-      url = cleanPhone
-        ? `intent://send?phone=${cleanPhone}&text=${cleanText}#Intent;package=com.whatsapp;scheme=whatsapp;end`
-        : `intent://send?text=${cleanText}#Intent;package=com.whatsapp;scheme=whatsapp;end`;
-      useDirectHref = true;
-    } else {
-      // Desktop / Generic Fallback
-      url = cleanPhone
-        ? `https://wa.me/${cleanPhone}?text=${cleanText}`
-        : `https://wa.me/?text=${cleanText}`;
-    }
+  let url = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodedText}`;
+  if (pref === "desktop") {
+    url = `whatsapp://send?phone=${cleanPhone}&text=${encodedText}`;
+  } else if (pref === "web") {
+    url = `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodedText}`;
   }
 
-  if (useDirectHref) {
-    window.location.href = url;
-  } else {
-    const a = document.createElement("a");
-    a.href = url;
-    a.target = "_blank";
-    a.rel = "noopener noreferrer";
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => {
-      if (document.body.contains(a)) {
-        document.body.removeChild(a);
-      }
-    }, 100);
-  }
+  window.open(url, "_blank");
 };

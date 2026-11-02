@@ -87,27 +87,14 @@ const ClientCard: React.FC<{
   const [expanded_case_id, set_expanded_case_id] = React.useState<
     string | null
   >(null);
-  const { permissions } = props;
-  const { share_via_whatsapp } = useData();
-
-  const availableTabs = React.useMemo(() => {
-    const tabs: ("stages" | "accounting" | "documents" | "tasks")[] = [];
-    if (permissions?.can_view_sessions !== false) tabs.push("stages");
-    if (permissions?.can_view_finance !== false) tabs.push("accounting");
-    if (permissions?.can_view_documents !== false) tabs.push("documents");
-    if (permissions?.can_view_admin_tasks !== false) tabs.push("tasks");
-    return tabs;
-  }, [permissions]);
-
   const [active_tab, set_active_tab] = React.useState<
     "stages" | "accounting" | "documents" | "tasks"
-  >(() => availableTabs[0] || "stages");
-
-  React.useEffect(() => {
-    if (availableTabs.length > 0 && !availableTabs.includes(active_tab)) {
-      set_active_tab(availableTabs[0]);
-    }
-  }, [availableTabs, active_tab]);
+  >("stages");
+  const client_long_press_timer = React.useRef<number | null>(null);
+  const case_long_press_timer = React.useRef<number | null>(null);
+  const stage_long_press_timer = React.useRef<number | null>(null);
+  const { permissions } = props;
+  const { share_via_whatsapp } = useData();
 
   const handle_fee_change = (caseId: string, new_fee: string) => {
     props.set_clients((clients) =>
@@ -352,10 +339,6 @@ const ClientCard: React.FC<{
   };
 
   // --- Long Press Handlers ---
-  const client_long_press_timer = React.useRef<number | null>(null);
-  const case_long_press_timer = React.useRef<number | null>(null);
-  const stage_long_press_timer = React.useRef<number | null>(null);
-
   const createTouchStartHandler =
     (
       timerRef: React.MutableRefObject<number | null>,
@@ -440,7 +423,7 @@ const ClientCard: React.FC<{
           />
         </div>
       </header>
-      {expanded && permissions?.can_view_cases !== false && (
+      {expanded && (
         <div className="border-t border-sky-200 p-4 space-y-3 bg-white">
           <div className="flex justify-between items-center">
             <h4 className="font-semibold text-gray-800">قضايا الموكل</h4>
@@ -454,15 +437,13 @@ const ClientCard: React.FC<{
                   <span>قضية جديدة</span>
                 </button>
               )}
-              {permissions?.can_view_finance !== false && (
-                <button
-                  onClick={() => props.on_print_client_statement(client.id)}
-                  className="flex items-center gap-2 text-sm px-3 py-1 bg-gray-100 text-gray-800 rounded-lg hover:bg-gray-200"
-                >
-                  <PrintIcon className="w-4 h-4" />
-                  <span>كشف حساب</span>
-                </button>
-              )}
+              <button
+                onClick={() => props.on_print_client_statement(client.id)}
+                className="flex items-center gap-2 text-sm px-3 py-1 bg-gray-100 text-gray-800 rounded-lg hover:bg-gray-200"
+              >
+                <PrintIcon className="w-4 h-4" />
+                <span>كشف حساب</span>
+              </button>
             </div>
           </div>
           {client.cases.length > 0 ? (
@@ -544,40 +525,32 @@ const ClientCard: React.FC<{
                 {expanded_case_id === caseItem.id && (
                   <div className="p-3 bg-white">
                     <div className="flex border-b mb-3">
-                      {permissions?.can_view_sessions !== false && (
-                        <button
-                          onClick={() => set_active_tab("stages")}
-                          className={`px-4 py-2 text-sm font-medium ${active_tab === "stages" ? "border-b-2 border-blue-500 text-blue-600" : "text-gray-500"}`}
-                        >
-                          المراحل والجلسات
-                        </button>
-                      )}
-                      {permissions?.can_view_finance !== false && (
-                        <button
-                          onClick={() => set_active_tab("accounting")}
-                          className={`px-4 py-2 text-sm font-medium ${active_tab === "accounting" ? "border-b-2 border-blue-500 text-blue-600" : "text-gray-500"}`}
-                        >
-                          المحاسبة
-                        </button>
-                      )}
-                      {permissions?.can_view_documents !== false && (
-                        <button
-                          onClick={() => set_active_tab("documents")}
-                          className={`px-4 py-2 text-sm font-medium ${active_tab === "documents" ? "border-b-2 border-blue-500 text-blue-600" : "text-gray-500"}`}
-                        >
-                          الوثائق
-                        </button>
-                      )}
-                      {permissions?.can_view_admin_tasks !== false && (
-                        <button
-                          onClick={() => set_active_tab("tasks")}
-                          className={`px-4 py-2 text-sm font-medium ${active_tab === "tasks" ? "border-b-2 border-blue-500 text-blue-600" : "text-gray-500"}`}
-                        >
-                          مهام القضية
-                        </button>
-                      )}
+                      <button
+                        onClick={() => set_active_tab("stages")}
+                        className={`px-4 py-2 text-sm font-medium ${active_tab === "stages" ? "border-b-2 border-blue-500 text-blue-600" : "text-gray-500"}`}
+                      >
+                        المراحل والجلسات
+                      </button>
+                      <button
+                        onClick={() => set_active_tab("accounting")}
+                        className={`px-4 py-2 text-sm font-medium ${active_tab === "accounting" ? "border-b-2 border-blue-500 text-blue-600" : "text-gray-500"}`}
+                      >
+                        المحاسبة
+                      </button>
+                      <button
+                        onClick={() => set_active_tab("documents")}
+                        className={`px-4 py-2 text-sm font-medium ${active_tab === "documents" ? "border-b-2 border-blue-500 text-blue-600" : "text-gray-500"}`}
+                      >
+                        الوثائق
+                      </button>
+                      <button
+                        onClick={() => set_active_tab("tasks")}
+                        className={`px-4 py-2 text-sm font-medium ${active_tab === "tasks" ? "border-b-2 border-blue-500 text-blue-600" : "text-gray-500"}`}
+                      >
+                        مهام القضية
+                      </button>
                     </div>
-                    {active_tab === "stages" && permissions?.can_view_sessions !== false && (
+                    {active_tab === "stages" && (
                       <div>
                         {permissions?.can_add_case && (
                           <button
@@ -781,7 +754,7 @@ const ClientCard: React.FC<{
                         ))}
                       </div>
                     )}
-                    {active_tab === "accounting" && permissions?.can_view_finance !== false && (
+                    {active_tab === "accounting" && (
                       <CaseAccounting
                         case_data={caseItem}
                         client={client}
@@ -794,10 +767,10 @@ const ClientCard: React.FC<{
                         }
                       />
                     )}
-                    {active_tab === "documents" && permissions?.can_view_documents !== false && (
+                    {active_tab === "documents" && (
                       <CaseDocuments caseId={caseItem.id} />
                     )}
-                    {active_tab === "tasks" && permissions?.can_view_admin_tasks !== false && (
+                    {active_tab === "tasks" && (
                       <CaseTasks
                         caseItem={caseItem}
                         clientName={client.name}

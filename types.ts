@@ -41,11 +41,6 @@ export interface Permissions {
 
   // Reports (التقارير)
   can_view_reports: boolean;
-
-  // Additional permission aliases
-  can_edit_clients?: boolean;
-  can_edit_finance?: boolean;
-  can_manage_team?: boolean;
 }
 
 export const default_permissions: Permissions = {
@@ -289,8 +284,6 @@ export interface AuditLogEntry {
   created_at: string;
 }
 
-export type ActivityLog = AuditLogEntry;
-
 export interface AppData {
   clients: Client[];
   admin_tasks: AdminTask[];
@@ -345,14 +338,3 @@ export const get_initial_deleted_ids = (): DeletedIds => ({
   profiles: [],
   site_finances: [],
 });
-
-export const owner_permissions: Permissions = {
-  can_view_agenda: true,
-  can_view_admin_tasks: true,
-  can_view_clients: true,
-  can_view_finance: true,
-  can_edit_clients: true,
-  can_edit_finance: true,
-  can_manage_team: true,
-};
-

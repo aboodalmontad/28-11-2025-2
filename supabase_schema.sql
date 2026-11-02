@@ -259,7 +259,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Generic Policy: Users can see their own data OR data belonging to their lawyer
+-- Generic Policy: Users can access their office data
 -- We apply this to all data tables with explicit INSERT/UPDATE support
 DO $$ 
 DECLARE 
@@ -269,8 +269,20 @@ BEGIN
     FOREACH t IN ARRAY tables LOOP
         EXECUTE format('DROP POLICY IF EXISTS "Users can access their office data" ON public.%I', t);
         EXECUTE format('CREATE POLICY "Users can access their office data" ON public.%I 
-                        FOR ALL USING (public.is_admin() OR user_id = public.get_effective_owner_id())
-                        WITH CHECK (public.is_admin() OR user_id = public.get_effective_owner_id())', t);
+                        FOR ALL USING (
+                            public.is_admin() OR 
+                            user_id = auth.uid() OR 
+                            user_id = public.get_effective_owner_id() OR 
+                            user_id IN (SELECT id FROM public.profiles WHERE lawyer_id = public.get_effective_owner_id() OR lawyer_id = auth.uid()) OR
+                            auth.uid() IN (SELECT lawyer_id FROM public.profiles WHERE id = user_id)
+                        )
+                        WITH CHECK (
+                            public.is_admin() OR 
+                            user_id = auth.uid() OR 
+                            user_id = public.get_effective_owner_id() OR 
+                            user_id IN (SELECT id FROM public.profiles WHERE lawyer_id = public.get_effective_owner_id() OR lawyer_id = auth.uid()) OR
+                            auth.uid() IN (SELECT lawyer_id FROM public.profiles WHERE id = user_id)
+                        )', t);
     END LOOP;
 END $$;
 
@@ -300,9 +312,18 @@ CREATE POLICY "Admins can manage site finances" ON public.site_finances
 
 CREATE OR REPLACE FUNCTION public.log_sync_deletion()
 RETURNS TRIGGER AS $$
+DECLARE
+    target_user_id UUID;
 BEGIN
-    INSERT INTO public.sync_deletions (table_name, record_id, user_id)
-    VALUES (TG_TABLE_NAME, OLD.id::text, OLD.user_id);
+    target_user_id := COALESCE(OLD.user_id, auth.uid());
+    IF target_user_id IS NOT NULL THEN
+        INSERT INTO public.sync_deletions (table_name, record_id, user_id)
+        VALUES (TG_TABLE_NAME, OLD.id::text, target_user_id)
+        ON CONFLICT DO NOTHING;
+    END IF;
+    RETURN OLD;
+EXCEPTION WHEN OTHERS THEN
+    -- Ensure deletions never fail due to background logging issues
     RETURN OLD;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

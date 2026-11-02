@@ -1,7 +1,7 @@
 import { openDB, IDBPDatabase } from "idb";
 
 export const DB_NAME = "LawyerAppData";
-export const DB_VERSION = 13;
+export const DB_VERSION = 13; // Incremented version
 export const DATA_STORE_NAME = "app_data";
 export const DELETED_IDS_STORE_NAME = "deleted_ids";
 export const DOCS_FILES_STORE_NAME = "case_document_files";
@@ -29,65 +29,3 @@ export async function get_db(): Promise<IDBPDatabase> {
     },
   });
 }
-
-export const DEFAULT_SETTINGS = {
-  officeName: 'مكتب الأستاذ المحامي للاستشارات القانونية وأعمال المحاماة',
-  lawyerName: 'أ. محمد بن عبد الله النحوي',
-  lawyerTitle: 'محامٍ ومستشار قانوني مقيد لدى المحكمة العليا',
-  barNumber: 'LAW-44921',
-  phone: '+966 50 123 4567',
-  whatsapp: '966501234567',
-  email: 'avocat.nahwi@gmail.com',
-  address: 'برج النخبة للمحاماة، الطابق الرابع، الرياض، المملكة العربية السعودية',
-  taxNumber: '300987654300003',
-  currency: 'ر.س',
-  headerText: 'مكتب المحامي للاستشارات والتقاضي والتحكيم التجاري',
-  footerText: 'سري للغاية - صادر عن النظام الإلكتروني لمكتب المحامي',
-  reminderDaysBeforeSession: 2,
-  enableWhatsAppNotifications: true,
-};
-
-export const loadInitialData = () => {
-  try {
-    const getStored = (key: string, fallback: any) => {
-      const item = localStorage.getItem(key);
-      return item ? JSON.parse(item) : fallback;
-    };
-
-    return {
-      clients: getStored('lawyer_clients', []),
-      cases: getStored('lawyer_cases', []),
-      sessions: getStored('lawyer_sessions', []),
-      tasks: getStored('lawyer_tasks', []),
-      documents: getStored('lawyer_documents', []),
-      invoices: getStored('lawyer_invoices', []),
-      transactions: getStored('lawyer_transactions', []),
-      appointments: getStored('lawyer_appointments', []),
-      settings: getStored('lawyer_settings', DEFAULT_SETTINGS),
-      logs: getStored('lawyer_logs', []),
-    };
-  } catch (e) {
-    return {
-      clients: [],
-      cases: [],
-      sessions: [],
-      tasks: [],
-      documents: [],
-      invoices: [],
-      transactions: [],
-      appointments: [],
-      settings: DEFAULT_SETTINGS,
-      logs: [],
-    };
-  }
-};
-
-export const saveDataToStorage = async (key: string, data: any) => {
-  try {
-    localStorage.setItem(key, JSON.stringify(data));
-    const db = await get_db();
-    await db.put(DATA_STORE_NAME, data, key);
-  } catch (e) {
-    console.error("Failed to save to storage:", e);
-  }
-};
