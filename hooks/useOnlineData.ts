@@ -452,9 +452,35 @@ export const fetch_deletions_from_supabase = async (
 
   while (attempt < max_retries) {
     try {
-      let query = supabase.from("sync_deletions").select("*");
+      let target_user_ids: string[] = [];
       if (user_id) {
-        query = query.or(`user_id.eq.${user_id},user_id.is.null`);
+        target_user_ids.push(user_id);
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("lawyer_id")
+          .eq("id", user_id)
+          .maybeSingle();
+        const lawyer_id = profile?.lawyer_id || user_id;
+        if (lawyer_id && !target_user_ids.includes(lawyer_id)) {
+          target_user_ids.push(lawyer_id);
+        }
+        const { data: assistants } = await supabase
+          .from("profiles")
+          .select("id")
+          .eq("lawyer_id", lawyer_id);
+        if (assistants) {
+          assistants.forEach((a) => {
+            if (!target_user_ids.includes(a.id)) target_user_ids.push(a.id);
+          });
+        }
+      }
+
+      let query = supabase.from("sync_deletions").select("*");
+      if (target_user_ids.length > 0) {
+        const filterStr =
+          target_user_ids.map((id) => `user_id.eq.${id}`).join(",") +
+          ",user_id.is.null";
+        query = query.or(filterStr);
       }
       const { data, error } = await query
         .gte("deleted_at", thirty_days_ago)
@@ -518,24 +544,13 @@ export const delete_data_from_supabase = async (
   const supabase = get_supabase_client();
   if (!supabase) throw new Error("Supabase client not available.");
 
-  const max_retries = 3;
-  const deletion_order: (keyof FlatData)[] = [
-    "case_documents",
-    "invoice_items",
-    "sessions",
-    "stages",
-    "cases",
-    "invoices",
-    "admin_tasks",
-    "appointments",
-    "accounting_entries",
-    "assistants",
-    "clients",
-    "site_finances",
-    "profiles",
-  ];
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("lawyer_id")
+    .eq("id", user.id)
+    .maybeSingle();
 
-  const user_id_to_use = effective_user_id || user.id;
+  const user_id_to_use = effective_user_id || profile?.lawyer_id || user.id;
 
   for (const table of deletion_order) {
     const items_to_delete = (deletions as any)[table];
