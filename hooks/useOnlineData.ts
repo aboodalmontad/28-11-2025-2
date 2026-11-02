@@ -550,6 +550,23 @@ export const delete_data_from_supabase = async (
     .eq("id", user.id)
     .maybeSingle();
 
+  const max_retries = 3;
+  const deletion_order: (keyof FlatData)[] = [
+    "case_documents",
+    "invoice_items",
+    "sessions",
+    "stages",
+    "cases",
+    "invoices",
+    "admin_tasks",
+    "appointments",
+    "accounting_entries",
+    "assistants",
+    "clients",
+    "site_finances",
+    "profiles",
+  ];
+
   const user_id_to_use = effective_user_id || profile?.lawyer_id || user.id;
 
   for (const table of deletion_order) {
