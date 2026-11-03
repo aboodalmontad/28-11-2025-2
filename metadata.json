@@ -1,5 +1,5 @@
 {
-  "name": "مكتب المحامي 02-11-2026",
+  "name": "مكتب المحامي 3-11-2026",
   "description": "A comprehensive web application for lawyers to manage their clients, cases, sessions, appointments, and administrative tasks efficiently.",
   "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

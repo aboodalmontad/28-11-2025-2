@@ -303,7 +303,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onLogout }) => 
         }
       }
       setTimeout(() => {
-        localStorage.setItem("app_version", "30-04-2026");
+        localStorage.setItem("app_version", "3-11-2026");
         window.location.reload();
       }, 1000);
     } catch (error) {

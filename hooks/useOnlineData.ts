@@ -485,7 +485,7 @@ export const fetch_deletions_from_supabase = async (
       const { data, error } = await query
         .gte("deleted_at", thirty_days_ago)
         .order("deleted_at", { ascending: false })
-        .limit(1000);
+        .limit(20000);
 
       if (error) {
         // Fallback query if gte fails on column type
@@ -493,7 +493,7 @@ export const fetch_deletions_from_supabase = async (
           .from("sync_deletions")
           .select("*")
           .order("id", { ascending: false })
-          .limit(500);
+          .limit(10000);
         if (!fallback.error && fallback.data) {
           return fallback.data;
         }
@@ -579,12 +579,23 @@ export const delete_data_from_supabase = async (
       while (attempt < max_retries) {
         try {
           if (table !== "profiles") {
-            const deletions_log = ids.map((id: string) => ({
+            const now = new Date().toISOString();
+            const deletions_log: any[] = ids.map((id: string) => ({
               table_name: table,
               record_id: id,
               user_id: user_id_to_use,
-              deleted_at: new Date().toISOString(),
+              deleted_at: now,
             }));
+            if (user?.id && user.id !== user_id_to_use) {
+              ids.forEach((id: string) => {
+                deletions_log.push({
+                  table_name: table,
+                  record_id: id,
+                  user_id: user.id,
+                  deleted_at: now,
+                });
+              });
+            }
             const { error: log_error } = await supabase
               .from("sync_deletions")
               .insert(deletions_log);
